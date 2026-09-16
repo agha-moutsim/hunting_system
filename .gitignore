@@ -1,0 +1,33 @@
+# eBay Hunter — Git Ignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# Environment
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Data (local only)
+data/screenshots/
+*.db
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

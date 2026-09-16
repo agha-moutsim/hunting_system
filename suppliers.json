@@ -1,0 +1,89 @@
+{
+  "_note": "Approved suppliers catalog. Keyed by supplier slug. Each entry carries the install contract (id, search_url, type) plus scraping config.",
+  "suppliers": {
+    "aliexpress": {
+      "id": "aliexpress",
+      "label": "AliExpress",
+      "slug": "aliexpress",
+      "base_url": "https://www.aliexpress.com",
+      "search_url": "https://www.aliexpress.com/wholesale?SearchText={query}",
+      "type": "dropship",
+      "delivery_days_min": 12,
+      "delivery_days_max": 25,
+      "scrapable": true,
+      "notes": "Slow delivery to UK. Pass only with strong demand (>=30 sold/30d)."
+    },
+    "amazon_uk": {
+      "id": "amazon_uk",
+      "label": "Amazon UK",
+      "slug": "amazon-uk",
+      "base_url": "https://www.amazon.co.uk",
+      "search_url": "https://www.amazon.co.uk/s?k={query}",
+      "type": "retailer",
+      "delivery_days_min": 1,
+      "delivery_days_max": 5,
+      "scrapable": true,
+      "notes": "UK-based. Fast delivery. Higher supplier cost typically."
+    },
+    "cj_dropshipping": {
+      "id": "cj_dropshipping",
+      "label": "CJ Dropshipping",
+      "slug": "cj-dropshipping",
+      "base_url": "https://cjdropshipping.com",
+      "search_url": "https://cjdropshipping.com/search.html?keyword={query}",
+      "type": "dropship",
+      "delivery_days_min": 7,
+      "delivery_days_max": 20,
+      "scrapable": true,
+      "notes": "Dropship supplier. Variable delivery times."
+    },
+    "godropship": {
+      "id": "godropship",
+      "label": "GoDropship",
+      "slug": "godropship",
+      "base_url": "https://www.godropship.com",
+      "search_url": "https://www.godropship.com/search?q={query}",
+      "type": "dropship",
+      "delivery_days_min": 7,
+      "delivery_days_max": 18,
+      "scrapable": true,
+      "notes": "Dropship supplier."
+    },
+    "joybuy": {
+      "id": "joybuy",
+      "label": "Joybuy UK",
+      "slug": "joybuy",
+      "base_url": "https://www.joybuy.com",
+      "search_url": "https://www.joybuy.com/search?q={query}",
+      "type": "dropship",
+      "delivery_days_min": 7,
+      "delivery_days_max": 21,
+      "scrapable": true,
+      "notes": "Dropship supplier."
+    },
+    "bandq": {
+      "id": "bandq",
+      "label": "B&Q",
+      "slug": "bandq",
+      "base_url": "https://www.diy.com",
+      "search_url": "https://www.diy.com/search?query={query}",
+      "type": "retailer",
+      "delivery_days_min": 1,
+      "delivery_days_max": 5,
+      "scrapable": true,
+      "notes": "UK retailer. Fast delivery. Home improvement focus."
+    },
+    "toolstation": {
+      "id": "toolstation",
+      "label": "Toolstation",
+      "slug": "toolstation",
+      "base_url": "https://www.toolstation.com",
+      "search_url": "https://www.toolstation.com/search?q={query}",
+      "type": "retailer",
+      "delivery_days_min": 1,
+      "delivery_days_max": 5,
+      "scrapable": true,
+      "notes": "UK retailer. Fast delivery. Tools and hardware focus."
+    }
+  }
+}
