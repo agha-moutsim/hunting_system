@@ -64,11 +64,14 @@ class EbayScraper:
 
     def search(self, query: str, limit: int = 10) -> list[ScrapedProduct]:
         """Search eBay UK via Browse API."""
+        if not EBAY_CLIENT_ID or not EBAY_CLIENT_SECRET:
+            print("[INFO] No eBay API keys — returning empty. Add EBAY_CLIENT_ID/EBAY_CLIENT_SECRET to .env")
+            return []
         try:
             return self._search_api(query, limit)
         except Exception as e:
-            print(f"[WARN] API search failed: {e}, trying scraping")
-            return self._search_scrape(query)
+            print(f"[WARN] API search failed: {e}")
+            return []
 
     def _search_api(self, query: str, limit: int = 10) -> list[ScrapedProduct]:
         """Search via Browse API."""
@@ -203,6 +206,8 @@ class EbayScraper:
 
     def get_sold_data(self, query: str) -> DemandData:
         """Get sold data — tries API search for completed items."""
+        if not EBAY_CLIENT_ID or not EBAY_CLIENT_SECRET:
+            return DemandData(verified=False)
         try:
             return self._get_sold_api(query)
         except Exception as e:

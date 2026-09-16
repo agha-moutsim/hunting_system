@@ -174,7 +174,10 @@ class Pipeline:
                     self._ebay.search, input_text, 1
                 )
                 if not results:
-                    result.errors.append("eBay search returned no results")
+                    result.errors.append(
+                        "eBay search returned no results. "
+                        "Add EBAY_CLIENT_ID and EBAY_CLIENT_SECRET to .env to enable eBay API access."
+                    )
                     return None, None, query
                 product = results[0]
 

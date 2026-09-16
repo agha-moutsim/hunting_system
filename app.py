@@ -13,7 +13,7 @@ import streamlit as st
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from config import DATABASE_URL, FILTERS, OLLAMA_BASE_URL, OLLAMA_MODEL
+from config import DATABASE_URL, FILTERS, OLLAMA_BASE_URL, OLLAMA_MODEL, EBAY_CLIENT_ID
 from db.database import SessionLocal
 from db.queries import (
     get_recent_products,
@@ -138,7 +138,10 @@ async def run_analysis_pipeline(
         else:
             search_results = ebay.search(query, limit=5)
             if not search_results:
-                results["errors"].append("No eBay results found for this query.")
+                results["errors"].append(
+                    "eBay requires API keys to search. "
+                    "Get free keys at https://developer.ebay.com and add them to .env"
+                )
                 return results
             ebay_product = search_results[0]
 
@@ -281,6 +284,15 @@ def render_sidebar():
             st.success(f"Ollama: Online ({OLLAMA_MODEL})")
         else:
             st.warning("Ollama: Offline (LLM analysis disabled)")
+
+        # eBay API status
+        if not EBAY_CLIENT_ID:
+            st.warning(
+                "eBay API keys missing. "
+                "[Get free keys](https://developer.ebay.com) and add to .env"
+            )
+        else:
+            st.success("eBay API: Configured")
 
         st.divider()
 
