@@ -2,6 +2,8 @@
 Base scraper class — uses Playwright with stealth to bypass bot detection.
 """
 
+import asyncio
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -11,6 +13,8 @@ from playwright.async_api import async_playwright, Browser, Page
 from playwright_stealth import Stealth
 
 from config import SCRAPE_CONFIG
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -71,12 +75,27 @@ class BaseScraper(ABC):
             stealth = Stealth()
             await stealth.apply_stealth_async(self._page)
 
-    async def fetch(self, url: str) -> str:
-        """Fetch a URL using stealth Playwright."""
+    async def fetch(self, url: str, retries: int = 2) -> str:
+        """Fetch a URL using stealth Playwright with retry logic."""
         await self._ensure_browser()
-        await self._page.goto(url, wait_until="domcontentloaded", timeout=30000)
-        await self._page.wait_for_timeout(3000)
-        return await self._page.content()
+
+        last_error = None
+        for attempt in range(retries + 1):
+            try:
+                await self._page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                await self._page.wait_for_timeout(3000)
+                return await self._page.content()
+            except Exception as e:
+                last_error = e
+                if attempt < retries:
+                    delay = (attempt + 1) * 2  # 2s, 4s, 6s
+                    logger.warning(
+                        "Fetch attempt %d/%d failed for %s, retrying in %ds: %s",
+                        attempt + 1, retries + 1, url, delay, e
+                    )
+                    await asyncio.sleep(delay)
+
+        raise last_error
 
     def parse(self, html: str):
         """Parse HTML into BeautifulSoup."""
