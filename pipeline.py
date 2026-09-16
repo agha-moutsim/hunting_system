@@ -151,6 +151,53 @@ class Pipeline:
 
         return result.to_dict()
 
+    async def run_manual(
+        self, title: str, price: float, condition: str = "New"
+    ) -> dict[str, Any]:
+        """Run pipeline with manual product entry (skip eBay scraping)."""
+        result = PipelineResult()
+
+        # Create product from manual input
+        product = ScrapedProduct(
+            source="manual",
+            title=title,
+            price=price,
+            url="",
+            condition=condition,
+            verified=True,
+        )
+        demand = DemandData(verified=False)
+        query = _build_query_from_title(title)
+
+        result.product = asdict(product)
+        result.demand = asdict(demand)
+
+        # Search suppliers
+        supplier_products = await self._search_suppliers(query, result)
+        result.suppliers = {
+            k: [asdict(p) for p in v] for k, v in supplier_products.items()
+        }
+
+        # LLM analysis
+        analysis = await self._run_analysis(
+            product, demand, supplier_products, result
+        )
+
+        # Decision + profit
+        best_supplier_price, best_supplier_name = self._evaluate_and_profit(
+            product, demand, supplier_products, analysis, result
+        )
+
+        # Save to DB
+        self._save_to_db(product, demand, supplier_products, analysis, result)
+
+        # Scorecard
+        result.scorecard = self._build_scorecard(
+            product, demand, analysis, result
+        )
+
+        return result.to_dict()
+
     # ================================================================
     # Step 1 — eBay
     # ================================================================
