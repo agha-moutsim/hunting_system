@@ -56,6 +56,14 @@ EBAY_CLIENT_ID = os.getenv("EBAY_CLIENT_ID", "")
 EBAY_CLIENT_SECRET = os.getenv("EBAY_CLIENT_SECRET", "")
 EBAY_MARKETPLACE = os.getenv("EBAY_MARKETPLACE", "EBAY_GB")
 
+# Environment: "production" (real eBay) or "sandbox" (test data)
+EBAY_ENVIRONMENT = os.getenv("EBAY_ENVIRONMENT", "production").lower()
+
+if EBAY_ENVIRONMENT == "sandbox":
+    EBAY_API_BASE = "https://api.sandbox.ebay.com"
+else:
+    EBAY_API_BASE = "https://api.ebay.com"
+
 # ============================================================
 # Filter Thresholds (Non-Negotiable)
 # ============================================================

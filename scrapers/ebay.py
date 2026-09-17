@@ -12,7 +12,7 @@ from bs4 import BeautifulSoup
 from scrapers.base import ScrapedProduct, DemandData
 from config import (
     EBAY_UK_BASE, EBAY_CLIENT_ID, EBAY_CLIENT_SECRET,
-    EBAY_MARKETPLACE, SCRAPE_CONFIG,
+    EBAY_MARKETPLACE, EBAY_API_BASE, EBAY_ENVIRONMENT, SCRAPE_CONFIG,
 )
 
 
@@ -38,7 +38,7 @@ class EbayScraper:
             raise ValueError("EBAY_CLIENT_ID and EBAY_CLIENT_SECRET required")
 
         resp = requests.post(
-            "https://api.ebay.com/identity/v1/oauth2/token",
+            f"{EBAY_API_BASE}/identity/v1/oauth2/token",
             headers={
                 "Content-Type": "application/x-www-form-urlencoded",
                 "Authorization": "Basic " + __import__("base64").b64encode(
@@ -76,7 +76,7 @@ class EbayScraper:
     def _search_api(self, query: str, limit: int = 10) -> list[ScrapedProduct]:
         """Search via Browse API."""
         resp = requests.get(
-            "https://api.ebay.com/buy/browse/v1/item_summary/search",
+            f"{EBAY_API_BASE}/buy/browse/v1/item_summary/search",
             params={
                 "q": query,
                 "limit": min(limit, 50),
@@ -160,7 +160,7 @@ class EbayScraper:
     def _get_details_api(self, item_id: str) -> ScrapedProduct:
         """Get details via Browse API."""
         resp = requests.get(
-            f"https://api.ebay.com/buy/browse/v1/item/{item_id}",
+            f"{EBAY_API_BASE}/buy/browse/v1/item/{item_id}",
             headers=self._api_headers(),
             timeout=15,
         )
@@ -217,7 +217,7 @@ class EbayScraper:
     def _get_sold_api(self, query: str) -> DemandData:
         """Get sold data via Browse API (search completed listings)."""
         resp = requests.get(
-            "https://api.ebay.com/buy/browse/v1/item_summary/search",
+            f"{EBAY_API_BASE}/buy/browse/v1/item_summary/search",
             params={
                 "q": query,
                 "limit": 50,
