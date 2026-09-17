@@ -88,26 +88,46 @@ def get_db_session():
 
 # ─── Supplier Search ────────────────────────────────────────────
 
-async def search_all_suppliers(query: str) -> list[ScrapedProduct]:
-    """Search all supplier scrapers and return combined results."""
+async def search_all_suppliers(query: str, progress=None) -> list[ScrapedProduct]:
+    """Search all 7 supplier scrapers in parallel and return combined results."""
     from scrapers.aliexpress import AliExpressScraper
     from scrapers.amazon_uk import AmazonUKScraper
-
-    all_results: list[ScrapedProduct] = []
+    from scrapers.bandq import BandQScraper
+    from scrapers.cjdropshipping import CJDropshippingScraper
+    from scrapers.godropship import GoDropshipScraper
+    from scrapers.joybuy import JoybuyScraper
+    from scrapers.toolstation import ToolstationScraper
 
     scrapers = [
         ("AliExpress", AliExpressScraper),
         ("Amazon UK", AmazonUKScraper),
+        ("CJ Dropshipping", CJDropshippingScraper),
+        ("GoDropship", GoDropshipScraper),
+        ("Joybuy", JoybuyScraper),
+        ("B&Q", BandQScraper),
+        ("Toolstation", ToolstationScraper),
     ]
 
-    for name, ScraperClass in scrapers:
+    async def _run_one(name: str, ScraperClass):
         try:
             scraper = ScraperClass()
-            results = await scraper.search(query)
-            all_results.extend(results)
-            await scraper.close()
+            try:
+                results = await scraper.search(query)
+            finally:
+                await scraper.close()
+            return name, results
         except Exception as e:
             logger.warning("Supplier search failed for %s: %s", name, e)
+            return name, []
+
+    pairs = await asyncio.gather(*(_run_one(name, cls) for name, cls in scrapers))
+
+    all_results: list[ScrapedProduct] = []
+    for name, results in pairs:
+        icon = "✓" if results else "–"
+        if progress:
+            progress(f"{icon} {name}: {len(results)} product(s)")
+        all_results.extend(results)
 
     all_results.sort(key=lambda p: p.price)
     return all_results
@@ -118,8 +138,14 @@ async def search_all_suppliers(query: str) -> list[ScrapedProduct]:
 async def run_analysis_pipeline(
     query: str,
     is_url: bool = False,
+    progress=None,
 ) -> dict:
     """Execute the full analysis: scrape eBay → suppliers → LLM → verdict."""
+
+    def _report(msg: str):
+        if progress:
+            progress(msg)
+
     ebay = EbayScraper()
     results = {
         "ebay_product": None,
@@ -133,6 +159,7 @@ async def run_analysis_pipeline(
 
     try:
         # Step 1: Get eBay product
+        _report("Step 1/5 — Searching eBay…")
         if is_url:
             ebay_product = ebay.get_details(query)
         else:
@@ -146,17 +173,26 @@ async def run_analysis_pipeline(
             ebay_product = search_results[0]
 
         results["ebay_product"] = ebay_product
+        _report(f"✓ Found: {ebay_product.title[:60]}")
 
         # Step 2: Get demand data
+        _report("Step 2/5 — Fetching demand data…")
         search_term = ebay_product.title if not is_url else query
         demand = ebay.get_sold_data(search_term)
         results["demand"] = demand
+        if demand and demand.sold_count_30d:
+            _report(f"✓ Demand: {demand.sold_count_30d} sold in 30 days")
+        else:
+            _report("– No demand counts available (marked Unverified)")
 
         # Step 3: Search suppliers
-        supplier_results = await search_all_suppliers(ebay_product.title)
+        _report("Step 3/5 — Searching 7 suppliers in parallel (slowest step, ~1–2 min)…")
+        supplier_results = await search_all_suppliers(ebay_product.title, progress=_report)
         results["supplier_matches"] = supplier_results
+        _report(f"✓ Supplier search done: {len(supplier_results)} total matches")
 
         # Step 4: LLM analysis
+        _report("Step 4/5 — Running AI analysis (llama3.1)…")
         supplier_dicts = [
             {
                 "name": s.title[:60],
@@ -184,12 +220,19 @@ async def run_analysis_pipeline(
         llm_result = await analyzer.analyze(product_dict, demand_dict, supplier_dicts)
         results["llm_analysis"] = llm_result
         await analyzer.close()
+        if llm_result:
+            _report(f"✓ AI verdict: {llm_result.brand_verdict} brand, {llm_result.demand_assessment} demand → {llm_result.recommended_action}")
+        else:
+            _report("– AI analysis unavailable (Ollama offline)")
 
         # Step 5: Decision verdict
+        _report("Step 5/5 — Applying business rules and profit calculation…")
         best_supplier_price = supplier_results[0].price if supplier_results else None
         engine = DecisionEngine()
         verdict = engine.evaluate(ebay_product, demand, best_supplier_price)
         results["verdict"] = verdict
+        if verdict:
+            _report(f"✓ Verdict: {verdict.verdict.upper()}")
 
         # Step 6: Scorecard
         scorecard = format_scorecard(ebay_product, supplier_results, demand, verdict)
@@ -326,8 +369,22 @@ def render_analyze_tab():
     if analyze_btn and query_input:
         is_url = "ebay" in query_input.lower() and ("/itm/" in query_input or "/sch/" in query_input)
 
-        with st.spinner("Scraping eBay..."):
-            results = _run_async(run_analysis_pipeline(query_input, is_url=is_url))
+        status_box = st.status("Starting analysis…", expanded=True)
+
+        def _progress(msg: str):
+            status_box.write(msg)
+
+        try:
+            with status_box:
+                results = _run_async(run_analysis_pipeline(query_input, is_url=is_url, progress=_progress))
+                if results.get("errors"):
+                    status_box.update(label="Analysis finished with warnings", state="error", expanded=True)
+                else:
+                    status_box.update(label="Analysis complete", state="complete", expanded=False)
+        except Exception as e:
+            status_box.update(label="Analysis failed", state="error", expanded=True)
+            st.error(str(e))
+            return
 
         if results["errors"]:
             for err in results["errors"]:
