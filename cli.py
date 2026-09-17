@@ -18,6 +18,13 @@ import click
 
 from config import FILTERS, PROFIT_CONFIG
 
+# Force UTF-8 output on Windows consoles (avoids cp1252 UnicodeEncodeError)
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 
 @click.group()
 def cli():
@@ -142,9 +149,9 @@ def status():
         click.echo("  Ollama:       ✗ Offline")
 
     # eBay API
-    from config import EBAY_CLIENT_ID
+    from config import EBAY_CLIENT_ID, EBAY_ENVIRONMENT
     if EBAY_CLIENT_ID:
-        click.echo("  eBay API:     ✓ Configured")
+        click.echo(f"  eBay API:     ✓ Configured ({EBAY_ENVIRONMENT})")
     else:
         click.echo("  eBay API:     ✗ Not configured (add to .env)")
 

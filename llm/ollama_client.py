@@ -22,7 +22,7 @@ class OllamaClient:
         base_url: str = OLLAMA_BASE_URL,
         model: str = OLLAMA_MODEL,
         temperature: float = OLLAMA_TEMPERATURE,
-        timeout: float = 120.0,
+        timeout: float = 300.0,
     ):
         self.base_url = base_url.rstrip("/")
         self.model = model
@@ -52,7 +52,7 @@ class OllamaClient:
             "model": self.model,
             "prompt": prompt,
             "stream": False,
-            "options": {"temperature": self.temperature},
+            "options": {"temperature": self.temperature, "num_predict": 800},
         }
         if system:
             payload["system"] = system
