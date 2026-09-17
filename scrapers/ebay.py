@@ -140,17 +140,34 @@ class EbayScraper:
             return []
 
     def get_details(self, url: str) -> ScrapedProduct:
-        """Get listing details — tries API first, then scrape."""
-        # Extract item ID from URL
+        """Get listing details — API first, scrape only as a last resort."""
         item_id = self._extract_item_id(url)
         if item_id:
             try:
                 return self._get_details_api(item_id)
             except Exception as e:
-                print(f"[WARN] API details failed: {e}")
+                print(f"[WARN] API details failed for item {item_id}: {e}")
 
-        # Fallback: scrape the page
-        return self._get_details_scrape(url)
+                # Sandbox only knows its own test items — a real eBay item
+                # will never resolve there, and scraping real eBay gets 403.
+                if EBAY_ENVIRONMENT == "sandbox":
+                    raise ValueError(
+                        "This item was not found in the eBay Sandbox (test) database. "
+                        "Sandbox only contains its own mock listings. "
+                        "Use a SEARCH TERM (e.g. 'headphones') instead of a real eBay URL, "
+                        "or switch to Production keys for real listings."
+                    )
+
+        # Fallback: scrape the page (always blocked by eBay — kept only as last resort)
+        try:
+            return self._get_details_scrape(url)
+        except requests.exceptions.HTTPError as e:
+            if e.response is not None and e.response.status_code == 403:
+                raise ValueError(
+                    "eBay blocked the direct page request (403 Forbidden). "
+                    "Paste a SEARCH TERM instead of a URL, or use the eBay API keys in .env."
+                )
+            raise
 
     def _extract_item_id(self, url: str) -> str | None:
         """Extract eBay item ID from URL."""
