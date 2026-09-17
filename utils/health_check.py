@@ -49,7 +49,10 @@ async def check_scraper(name: str, scraper_class) -> HealthResult:
     scraper = scraper_class()
 
     try:
-        results = await scraper.search(TEST_QUERY)
+        search_result = scraper.search(TEST_QUERY)
+        if asyncio.iscoroutine(search_result):
+            search_result = await search_result
+        results = search_result
         elapsed = time.time() - start
 
         if results:
@@ -81,7 +84,9 @@ async def check_scraper(name: str, scraper_class) -> HealthResult:
             products_found=0,
         )
     finally:
-        await scraper.close()
+        close_result = scraper.close()
+        if asyncio.iscoroutine(close_result):
+            await close_result
 
 
 async def run_health_check(scraper_name: str = None) -> list[HealthResult]:
