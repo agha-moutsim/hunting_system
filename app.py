@@ -31,6 +31,7 @@ from llm.analyzer import ProductAnalyzer, LLMAnalysis
 from scrapers.ebay import EbayScraper
 from scrapers.base import ScrapedProduct, DemandData as DemandDataDTO
 from utils.filters import load_filters, save_filters, reset_filters, save_preset, load_preset, list_presets, delete_preset, get_defaults
+from utils.theme import apply_theme
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -326,33 +327,52 @@ def set_active_filters(filters: dict):
 
 def render_sidebar():
     with st.sidebar:
-        st.title("🎯 eBay Hunter")
-        st.caption("Product Sourcing Intelligence")
+        st.markdown("""
+        <div style="text-align: center; padding: 0.5rem 0 1rem 0;">
+            <div style="
+                width: 48px; height: 48px; border-radius: 14px;
+                background: linear-gradient(135deg, #3B82F6, #2563EB);
+                display: inline-flex; align-items: center; justify-content: center;
+                font-size: 1.5rem; color: white;
+                box-shadow: 0 4px 12px rgba(59,130,246,0.3);
+                margin-bottom: 8px;
+            ">🎯</div>
+            <h1 style="color: #F8FAFC; font-size: 1.3rem; font-weight: 700;
+                       letter-spacing: -0.02em; margin: 0;">eBay Hunter</h1>
+            <p style="color: #94A3B8; font-size: 0.75rem; margin: 0;">Product Sourcing Intelligence</p>
+        </div>
+        """, unsafe_allow_html=True)
 
         st.divider()
+
+        # Status indicators
+        st.markdown('<p style="color:#64748B;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;margin-bottom:0.5rem;">System Status</p>', unsafe_allow_html=True)
 
         # DB status
         db_ok = check_db_status()
         if db_ok:
-            st.success("Database: Connected")
+            st.markdown('<span style="color:#10B981;font-size:0.85rem;">● Database: Connected</span>', unsafe_allow_html=True)
         else:
-            st.error("Database: Disconnected")
+            st.markdown('<span style="color:#EF4444;font-size:0.85rem;">● Database: Disconnected</span>', unsafe_allow_html=True)
 
         # Ollama status
         ollama_ok = check_ollama_status()
         if ollama_ok:
-            st.success(f"Ollama: Online ({OLLAMA_MODEL})")
+            st.markdown(f'<span style="color:#10B981;font-size:0.85rem;">● Ollama: Online ({OLLAMA_MODEL})</span>', unsafe_allow_html=True)
         else:
-            st.warning("Ollama: Offline (LLM analysis disabled)")
+            st.markdown('<span style="color:#F59E0B;font-size:0.85rem;">● Ollama: Offline</span>', unsafe_allow_html=True)
 
         # eBay API status
         if not EBAY_CLIENT_ID:
-            st.warning(
-                "eBay API keys missing. "
-                "[Get free keys](https://developer.ebay.com) and add to .env"
+            st.markdown(
+                '<span style="color:#F59E0B;font-size:0.85rem;">● eBay API: Missing keys</span>',
+                unsafe_allow_html=True,
             )
         else:
-            st.success("eBay API: Configured")
+            st.markdown(
+                f'<span style="color:#10B981;font-size:0.85rem;">● eBay API: Configured</span>',
+                unsafe_allow_html=True,
+            )
 
         st.divider()
 
@@ -446,16 +466,43 @@ def render_sidebar():
 # ─── UI: Analyze Tab ────────────────────────────────────────────
 
 def render_analyze_tab():
-    st.header("Analyze Product")
+    # Modern input card
+    st.markdown("""
+    <div style="
+        background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
+        border: 1px solid #334155;
+        border-radius: 14px;
+        padding: 1.5rem 2rem;
+        margin-bottom: 1rem;
+    ">
+        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 0.8rem;">
+            <div style="
+                width: 36px; height: 36px; border-radius: 10px;
+                background: linear-gradient(135deg, #3B82F6, #2563EB);
+                display: flex; align-items: center; justify-content: center;
+                font-size: 1.1rem; color: white;
+            ">🔍</div>
+            <div>
+                <h3 style="color: #F8FAFC; font-size: 1.1rem; font-weight: 600; margin: 0;">
+                    Analyze Product
+                </h3>
+                <p style="color: #94A3B8; font-size: 0.8rem; margin: 0;">
+                    Enter an eBay URL or search query to start a full sourcing analysis
+                </p>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    col1, col2 = st.columns([3, 1])
+    col1, col2 = st.columns([4, 1])
     with col1:
         query_input = st.text_input(
-            "eBay URL or search query",
-            placeholder="e.g. https://www.ebay.co.uk/itm/... or wireless earbuds",
+            "Search",
+            placeholder="Paste an eBay UK product URL or type a search query (e.g. wireless earbuds, phone case)",
+            label_visibility="collapsed",
         )
     with col2:
-        analyze_btn = st.button("Analyze Product", type="primary", use_container_width=True)
+        analyze_btn = st.button("Analyze", type="primary", use_container_width=True)
 
     if analyze_btn and query_input:
         is_url = "ebay" in query_input.lower() and ("/itm/" in query_input or "/sch/" in query_input)
@@ -502,39 +549,44 @@ def render_analyze_tab():
         llm: Optional[LLMAnalysis] = results["llm_analysis"]
         verdict: Optional[VerdictData] = results["verdict"]
 
-        # Product header
-        st.divider()
+        # ── Product Hero Card ──
+        st.markdown("---")
         img_col, info_col = st.columns([1, 2])
         with img_col:
             if ebay_product.image_url:
                 st.image(ebay_product.image_url, width=300)
         with info_col:
-            st.subheader(ebay_product.title)
-            st.markdown(f"**Price:** £{ebay_product.price:.2f}")
-            st.markdown(f"**Condition:** {ebay_product.condition}")
-            if ebay_product.seller:
-                st.markdown(f"**Seller:** {ebay_product.seller}")
-            st.link_button("View on eBay", ebay_product.url, type="secondary")
+            st.markdown(f"### {ebay_product.title}")
+            price_cols = st.columns(3)
+            with price_cols[0]:
+                st.metric("Listed Price", f"£{ebay_product.price:.2f}")
+            with price_cols[1]:
+                st.metric("Condition", ebay_product.condition)
+            with price_cols[2]:
+                if ebay_product.seller:
+                    st.metric("Seller", ebay_product.seller)
+            st.link_button("View on eBay →", ebay_product.url, type="secondary")
 
-        # Price comparison table
-        st.subheader("Price Comparison")
-        comp_cols = st.columns(len(suppliers[:4]) + 1 if suppliers else 1)
-        with comp_cols[0]:
-            st.metric("eBay Price", f"£{ebay_product.price:.2f}")
-        for i, s in enumerate(suppliers[:4]):
-            with comp_cols[i + 1]:
-                st.metric(
-                    s.source,
-                    f"£{s.price:.2f}",
-                    delta=f"£{ebay_product.price - s.price:.2f} profit",
-                    delta_color="normal",
-                )
+        # ── Price Comparison ──
+        if suppliers:
+            st.markdown("---")
+            st.markdown("#### 💰 Price Comparison")
+            comp_cols = st.columns(len(suppliers[:5]) + 1)
+            with comp_cols[0]:
+                st.metric("eBay Price", f"£{ebay_product.price:.2f}")
+            for i, s in enumerate(suppliers[:5]):
+                with comp_cols[i + 1]:
+                    profit = ebay_product.price - s.price
+                    st.metric(
+                        s.source,
+                        f"£{s.price:.2f}",
+                        delta=f"+£{profit:.2f}" if profit > 0 else f"£{profit:.2f}",
+                        delta_color="normal",
+                    )
 
-        if not suppliers:
-            st.info("No supplier matches found.")
-
-        # Demand metrics
-        st.subheader("Demand Metrics")
+        # ── Demand Metrics ──
+        st.markdown("---")
+        st.markdown("#### 📊 Demand Metrics")
         if demand and demand.sold_count_30d is not None:
             d_cols = st.columns(4)
             with d_cols[0]:
@@ -551,11 +603,13 @@ def render_analyze_tab():
         else:
             st.info("No demand data available.")
 
-        # LLM Analysis
+        # ── LLM Analysis ──
         if llm:
-            st.subheader("LLM Analysis")
-            llm_cols = st.columns(2)
-            with llm_cols[0]:
+            st.markdown("---")
+            st.markdown("#### 🤖 AI Analysis")
+
+            llm_card1, llm_card2 = st.columns(2)
+            with llm_card1:
                 brand_color = {"generic": "green", "branded": "red", "ambiguous": "orange"}.get(
                     llm.brand_verdict, "gray"
                 )
@@ -570,7 +624,7 @@ def render_analyze_tab():
                 if llm.demand_reasoning:
                     st.caption(llm.demand_reasoning)
 
-            with llm_cols[1]:
+            with llm_card2:
                 action_color = {"source": "green", "skip": "red", "investigate": "orange"}.get(
                     llm.recommended_action, "gray"
                 )
@@ -585,9 +639,10 @@ def render_analyze_tab():
             with st.expander("Raw LLM Response"):
                 st.code(llm.raw_response, language="json")
 
-        # Profit & Verdict
+        # ── Profit & Verdict ──
         if verdict:
-            st.subheader("Profit & Verdict")
+            st.markdown("---")
+            st.markdown("#### ✅ Verdict")
 
             v_cols = st.columns(3)
             with v_cols[0]:
@@ -609,10 +664,9 @@ def render_analyze_tab():
             # Filter breakdown
             with st.expander("Filter Details", expanded=True):
                 for f in verdict.filters:
-                    icon = "PASS" if f.passed else "FAIL"
-                    color = "green" if f.passed else "red"
+                    icon = "✅" if f.passed else "❌"
                     st.markdown(
-                        f":{color}[{icon}] **{f.name}**: {f.actual} (expected {f.expected})"
+                        f"{icon} **{f.name}**: {f.actual} (expected {f.expected})"
                     )
 
         # Scorecard
@@ -624,17 +678,43 @@ def render_analyze_tab():
 # ─── UI: History Tab ────────────────────────────────────────────
 
 def render_history_tab():
-    st.header("Analysis History")
+    st.markdown("""
+    <div style="
+        background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
+        border: 1px solid #334155;
+        border-radius: 14px;
+        padding: 1.5rem 2rem;
+        margin-bottom: 1rem;
+    ">
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <div style="
+                width: 36px; height: 36px; border-radius: 10px;
+                background: linear-gradient(135deg, #8B5CF6, #7C3AED);
+                display: flex; align-items: center; justify-content: center;
+                font-size: 1.1rem; color: white;
+            ">📋</div>
+            <div>
+                <h3 style="color: #F8FAFC; font-size: 1.1rem; font-weight: 600; margin: 0;">
+                    Analysis History
+                </h3>
+                <p style="color: #94A3B8; font-size: 0.8rem; margin: 0;">
+                    Browse past analyses and track product performance
+                </p>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     db: Session = SessionLocal()
 
-    # Verdict filter
-    filter_col1, filter_col2 = st.columns([1, 3])
+    # Filter bar
+    filter_col1, filter_col2, filter_col3 = st.columns([1, 1, 2])
     with filter_col1:
         verdict_filter = st.selectbox(
-            "Filter by verdict",
+            "Verdict",
             ["All", "pass", "fail", "pending"],
             index=0,
+            label_visibility="collapsed",
         )
 
     try:
@@ -647,39 +727,61 @@ def render_history_tab():
             st.info("No products found. Run an analysis first.")
             return
 
-        st.caption(f"Showing {len(products)} products")
+        st.caption(f"Showing {len(products)} product(s)")
 
         for p in products:
             verdict_str = p.get("verdict") or "pending"
-            v_color = {"pass": "green", "fail": "red"}.get(verdict_str, "orange")
+            v_badge = {
+                "pass": '<span style="background:#059669;color:white;padding:2px 10px;border-radius:20px;font-size:0.75rem;font-weight:600;">PASS</span>',
+                "fail": '<span style="background:#DC2626;color:white;padding:2px 10px;border-radius:20px;font-size:0.75rem;font-weight:600;">FAIL</span>',
+            }.get(verdict_str, '<span style="background:#D97706;color:white;padding:2px 10px;border-radius:20px;font-size:0.75rem;font-weight:600;">PENDING</span>')
 
-            with st.container(border=True):
-                col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
+            title = p.get("title", "Unknown")
+            if len(title) > 65:
+                title = title[:62] + "..."
+            price = p.get("price")
+            profit = p.get("profit")
 
-                with col1:
-                    title = p.get("title", "Unknown")
-                    if len(title) > 60:
-                        title = title[:57] + "..."
-                    st.markdown(f"**{title}**")
+            profit_html = ""
+            if profit is not None:
+                color = "#10B981" if profit >= 0 else "#EF4444"
+                sign = "+" if profit >= 0 else ""
+                profit_html = f'<span style="color:{color};font-weight:600;">{sign}£{profit:.2f}</span>'
+            else:
+                profit_html = '<span style="color:#64748B;">—</span>'
 
-                with col2:
-                    price = p.get("price")
-                    st.markdown(f"£{price:.2f}" if price else "N/A")
+            st.markdown(f"""
+            <div style="
+                background: #1E293B;
+                border: 1px solid #334155;
+                border-radius: 12px;
+                padding: 1rem 1.2rem;
+                margin-bottom: 0.5rem;
+                transition: border-color 0.2s;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+            ">
+                <div style="flex: 1; min-width: 0;">
+                    <div style="color: #F8FAFC; font-weight: 500; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 500px;">
+                        {title}
+                    </div>
+                    <div style="color: #94A3B8; font-size: 0.8rem; margin-top: 2px;">
+                        £{price:.2f if price else '—'}
+                    </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 16px; flex-shrink: 0;">
+                    <div style="text-align: right; min-width: 80px;">
+                        {profit_html}
+                    </div>
+                    {v_badge}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
 
-                with col3:
-                    profit = p.get("profit")
-                    if profit is not None:
-                        st.markdown(f"£{profit:.2f}")
-                    else:
-                        st.markdown("—")
-
-                with col4:
-                    st.markdown(f":{v_color}[{verdict_str.upper()}]")
-
-                # Clickable row
-                if st.button("View Details", key=f"view_{p['id']}", use_container_width=True):
-                    st.session_state["selected_product_id"] = p["id"]
-                    st.rerun()
+            if st.button("View Details", key=f"view_{p['id']}", use_container_width=True):
+                st.session_state["selected_product_id"] = p["id"]
+                st.rerun()
 
     except Exception as e:
         st.error(f"Failed to load history: {e}")
@@ -708,29 +810,34 @@ def render_product_detail(product_id: int):
             del st.session_state["selected_product_id"]
             st.rerun()
 
-        st.divider()
+        st.markdown("---")
 
-        # Product header
+        # Product hero card
         img_col, info_col = st.columns([1, 2])
         with img_col:
             if product.image_url:
                 st.image(product.image_url, width=300)
         with info_col:
-            st.subheader(product.title)
-            st.markdown(f"**Price:** £{product.price:.2f}")
-            st.markdown(f"**Condition:** {product.condition}")
-            if product.seller:
-                st.markdown(f"**Seller:** {product.seller}")
+            st.markdown(f"### {product.title}")
+            price_cols = st.columns(3)
+            with price_cols[0]:
+                st.metric("Listed Price", f"£{product.price:.2f}")
+            with price_cols[1]:
+                st.metric("Condition", product.condition)
+            with price_cols[2]:
+                if product.seller:
+                    st.metric("Seller", product.seller)
             if product.ebay_url:
-                st.link_button("View on eBay", product.ebay_url, type="secondary")
+                st.link_button("View on eBay →", product.ebay_url, type="secondary")
 
         # Price comparison
-        st.subheader("Price Comparison")
+        st.markdown("---")
+        st.markdown("#### 💰 Price Comparison")
         if suppliers:
-            comp_cols = st.columns(len(suppliers[:4]) + 1)
+            comp_cols = st.columns(len(suppliers[:5]) + 1)
             with comp_cols[0]:
                 st.metric("eBay Price", f"£{product.price:.2f}")
-            for i, s in enumerate(suppliers[:4]):
+            for i, s in enumerate(suppliers[:5]):
                 with comp_cols[i + 1]:
                     st.metric(
                         s.supplier_name,
@@ -741,7 +848,8 @@ def render_product_detail(product_id: int):
             st.info("No supplier data recorded.")
 
         # Demand
-        st.subheader("Demand Metrics")
+        st.markdown("---")
+        st.markdown("#### 📊 Demand Metrics")
         if demand:
             d_cols = st.columns(4)
             with d_cols[0]:
@@ -757,7 +865,8 @@ def render_product_detail(product_id: int):
 
         # LLM Analysis
         if analysis:
-            st.subheader("LLM Analysis")
+            st.markdown("---")
+            st.markdown("#### 🤖 AI Analysis")
             a_cols = st.columns(2)
             with a_cols[0]:
                 brand_color = {"generic": "green", "branded": "red"}.get(analysis.brand_verdict, "orange")
@@ -783,17 +892,18 @@ def render_product_detail(product_id: int):
 
         # Verdict
         if verdict:
-            st.subheader("Verdict")
+            st.markdown("---")
+            st.markdown("#### ✅ Verdict")
 
             v_cols = st.columns(3)
             with v_cols[0]:
                 v = verdict.verdict.lower()
                 if v == "pass":
-                    st.success(f"VERDICT: PASS")
+                    st.success("VERDICT: PASS")
                 elif v == "fail":
-                    st.error(f"VERDICT: FAIL")
+                    st.error("VERDICT: FAIL")
                 else:
-                    st.warning(f"VERDICT: PENDING")
+                    st.warning("VERDICT: PENDING")
             with v_cols[1]:
                 st.metric("Profit", f"£{verdict.profit_amount:.2f}" if verdict.profit_amount else "N/A")
             with v_cols[2]:
@@ -814,9 +924,8 @@ def render_product_detail(product_id: int):
                             actual = getattr(f, "actual", "")
                             expected = getattr(f, "expected", "")
 
-                        icon = "PASS" if passed else "FAIL"
-                        color = "green" if passed else "red"
-                        st.markdown(f":{color}[{icon}] **{name}**: {actual} (expected {expected})")
+                        icon = "✅" if passed else "❌"
+                        st.markdown(f"{icon} **{name}**: {actual} (expected {expected})")
 
             # Scorecard
             if verdict.scorecard:
@@ -824,9 +933,8 @@ def render_product_detail(product_id: int):
                     st.code(verdict.scorecard, language=None)
 
         # Timestamps
-        st.divider()
-        st.caption(f"Created: {product.created_at}")
-        st.caption(f"Updated: {product.updated_at}")
+        st.markdown("---")
+        st.caption(f"Created: {product.created_at}  ·  Updated: {product.updated_at}")
 
     except Exception as e:
         st.error(f"Error loading product: {e}")
@@ -837,7 +945,40 @@ def render_product_detail(product_id: int):
 # ─── Main ───────────────────────────────────────────────────────
 
 def main():
+    st.set_page_config(
+        page_title="eBay Hunter — Product Sourcing Intelligence",
+        page_icon="🎯",
+        layout="wide",
+        initial_sidebar_state="expanded",
+    )
+    apply_theme()
     render_sidebar()
+
+    # Hero banner (only on main view, not product detail)
+    if "selected_product_id" not in st.session_state:
+        st.markdown("""
+        <div style="
+            background: linear-gradient(135deg, #1E3A5F 0%, #0B1120 50%, #1A1A2E 100%);
+            border: 1px solid #334155;
+            border-radius: 16px;
+            padding: 2rem 2.5rem;
+            margin-bottom: 1.5rem;
+            position: relative;
+            overflow: hidden;
+        ">
+            <div style="position: absolute; top: 0; right: 0; width: 300px; height: 300px;
+                        background: radial-gradient(circle, rgba(59,130,246,0.08) 0%, transparent 70%);
+                        pointer-events: none;"></div>
+            <h1 style="color: #F8FAFC; font-size: 1.8rem; font-weight: 700; margin: 0 0 0.3rem 0;
+                       letter-spacing: -0.02em;">
+                eBay Hunter
+            </h1>
+            <p style="color: #94A3B8; font-size: 0.95rem; margin: 0; max-width: 600px;">
+                Product sourcing intelligence — find profitable items, verify suppliers,
+                and get AI-powered verdicts in seconds.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
 
     # Check if we're viewing a product detail
     if "selected_product_id" in st.session_state:
@@ -845,7 +986,7 @@ def main():
         return
 
     # Main tabs
-    tab_analyze, tab_history = st.tabs(["Analyze", "History"])
+    tab_analyze, tab_history = st.tabs(["🔍  Analyze", "📋  History"])
 
     with tab_analyze:
         render_analyze_tab()
