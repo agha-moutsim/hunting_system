@@ -30,6 +30,7 @@ from engine.scorecard import format_scorecard
 from llm.analyzer import ProductAnalyzer, LLMAnalysis
 from scrapers.ebay import EbayScraper
 from scrapers.base import ScrapedProduct, DemandData as DemandDataDTO
+from utils.filters import load_filters, save_filters, reset_filters, save_preset, load_preset, list_presets, delete_preset, get_defaults
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -139,6 +140,7 @@ async def run_analysis_pipeline(
     query: str,
     is_url: bool = False,
     progress=None,
+    filters: dict | None = None,
 ) -> dict:
     """Execute the full analysis: scrape eBay → suppliers → LLM → verdict."""
 
@@ -228,7 +230,7 @@ async def run_analysis_pipeline(
         # Step 5: Decision verdict
         _report("Step 5/5 — Applying business rules and profit calculation…")
         best_supplier_price = supplier_results[0].price if supplier_results else None
-        engine = DecisionEngine()
+        engine = DecisionEngine(filters=filters)
         verdict = engine.evaluate(ebay_product, demand, best_supplier_price)
         results["verdict"] = verdict
         if verdict:
@@ -305,6 +307,21 @@ def _save_to_db(results: dict):
         db.close()
 
 
+# ─── Custom Filters ──────────────────────────────────────────────
+
+def get_active_filters() -> dict:
+    """Return current active filters (from session state, or load from disk)."""
+    if "custom_filters" not in st.session_state:
+        st.session_state["custom_filters"] = load_filters()
+    return st.session_state["custom_filters"]
+
+
+def set_active_filters(filters: dict):
+    """Update filters in session state and persist to disk."""
+    st.session_state["custom_filters"] = filters
+    save_filters(filters)
+
+
 # ─── UI: Sidebar ────────────────────────────────────────────────
 
 def render_sidebar():
@@ -339,14 +356,88 @@ def render_sidebar():
 
         st.divider()
 
-        # Filter thresholds info
-        with st.expander("Filter Thresholds"):
-            st.markdown(f"""
-            - **Price range:** £{FILTERS['price_min']:.2f} – £{FILTERS['price_max']:.2f}
-            - **Demand (30d):** ≥{FILTERS['demand_min_30d']} sold
-            - **Demand (7d):** ≥{FILTERS['demand_min_7d']} sold
-            - **Delivery target:** ≤{FILTERS['delivery_target_max']} days
-            """)
+        # ── Custom Filters Editor ────────────────────────────────
+        st.divider()
+        custom_filters = get_active_filters()
+
+        with st.expander("Filter Settings", expanded=False):
+            st.caption("Adjust filters to match your sourcing criteria")
+
+            c1, c2 = st.columns(2)
+            with c1:
+                price_min = st.number_input(
+                    "Min price (£)", min_value=0.0, max_value=100.0,
+                    value=float(custom_filters["price_min"]), step=0.50, key="f_price_min",
+                )
+                demand_30d = st.number_input(
+                    "Min sold (30d)", min_value=0, max_value=500,
+                    value=int(custom_filters["demand_min_30d"]), step=1, key="f_demand_30d",
+                )
+            with c2:
+                price_max = st.number_input(
+                    "Max price (£)", min_value=0.0, max_value=500.0,
+                    value=float(custom_filters["price_max"]), step=0.50, key="f_price_max",
+                )
+                demand_7d = st.number_input(
+                    "Min sold (7d)", min_value=0, max_value=100,
+                    value=int(custom_filters["demand_min_7d"]), step=1, key="f_demand_7d",
+                )
+
+            delivery_max = st.slider(
+                "Max delivery days", min_value=1, max_value=60,
+                value=int(custom_filters["delivery_target_max"]), key="f_delivery",
+            )
+
+            btn_col1, btn_col2, btn_col3 = st.columns(3)
+            with btn_col1:
+                if st.button("Apply", use_container_width=True, type="primary"):
+                    new_filters = {
+                        "price_min": price_min,
+                        "price_max": price_max,
+                        "demand_min_30d": demand_30d,
+                        "demand_min_7d": demand_7d,
+                        "demand_strong_30d": custom_filters.get("demand_strong_30d", 30),
+                        "delivery_target_max": delivery_max,
+                    }
+                    set_active_filters(new_filters)
+                    st.success("Filters updated!")
+                    st.rerun()
+            with btn_col2:
+                if st.button("Reset", use_container_width=True):
+                    reset_filters()
+                    st.session_state.pop("custom_filters", None)
+                    st.rerun()
+            with btn_col3:
+                preset_name = st.text_input("Preset name", key="preset_name_input", label_visibility="collapsed", placeholder="Save as...")
+                if preset_name and st.button("Save", use_container_width=True):
+                    save_preset(preset_name, custom_filters)
+                    st.success(f"Saved: {preset_name}")
+                    st.rerun()
+
+            # Load/delete presets
+            presets = list_presets()
+            if presets:
+                with st.expander("Load a preset", expanded=False):
+                    selected = st.selectbox("Presets", presets, key="preset_select", label_visibility="collapsed")
+                    lcol1, lcol2 = st.columns(2)
+                    with lcol1:
+                        if st.button("Load", use_container_width=True):
+                            loaded = load_preset(selected)
+                            if loaded:
+                                set_active_filters(loaded)
+                                st.rerun()
+                    with lcol2:
+                        if st.button("Delete", use_container_width=True):
+                            delete_preset(selected)
+                            st.rerun()
+
+        # Show current active filters compactly
+        f = get_active_filters()
+        st.caption(
+            f"Filters: £{f['price_min']:.0f}–£{f['price_max']:.0f} | "
+            f"30d≥{f['demand_min_30d']} | 7d≥{f['demand_min_7d']} | "
+            f"delivery≤{f['delivery_target_max']}d"
+        )
 
         st.divider()
         st.caption(f"DB: {DATABASE_URL.split('@')[-1] if '@' in DATABASE_URL else 'local'}")
@@ -376,7 +467,10 @@ def render_analyze_tab():
 
         try:
             with status_box:
-                results = _run_async(run_analysis_pipeline(query_input, is_url=is_url, progress=_progress))
+                custom_filters = get_active_filters()
+                results = _run_async(run_analysis_pipeline(
+                    query_input, is_url=is_url, progress=_progress, filters=custom_filters
+                ))
                 if results.get("errors"):
                     status_box.update(label="Analysis finished with warnings", state="error", expanded=True)
                 else:

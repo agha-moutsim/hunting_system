@@ -27,6 +27,9 @@ class Verdict:
 class DecisionEngine:
     """Evaluate a product against all sourcing filters and produce a verdict."""
 
+    def __init__(self, filters: dict | None = None):
+        self.filters = filters or FILTERS
+
     def evaluate(
         self,
         product: ScrapedProduct,
@@ -59,24 +62,24 @@ class DecisionEngine:
 
         # --- Price filter ---
         price_in_range = (
-            FILTERS["price_min"] <= product.price <= FILTERS["price_max"]
+            self.filters["price_min"] <= product.price <= self.filters["price_max"]
         )
         filters.append(FilterResult(
             name="Price",
             passed=price_in_range,
             actual=f"\u00a3{product.price:.2f}",
-            expected=f"\u00a3{FILTERS['price_min']:.2f}\u2013\u00a3{FILTERS['price_max']:.2f}",
+            expected=f"\u00a3{self.filters['price_min']:.2f}\u2013\u00a3{self.filters['price_max']:.2f}",
             verified=product.verified,
         ))
 
         # --- Demand filter (30d) ---
         if demand and demand.sold_count_30d is not None:
-            d30_pass = demand.sold_count_30d >= FILTERS["demand_min_30d"]
+            d30_pass = demand.sold_count_30d >= self.filters["demand_min_30d"]
             filters.append(FilterResult(
                 name="Demand (30d)",
                 passed=d30_pass,
                 actual=f"{demand.sold_count_30d} sold",
-                expected=f"\u2265{FILTERS['demand_min_30d']} sold",
+                expected=f"\u2265{self.filters['demand_min_30d']} sold",
                 verified=demand.verified,
             ))
         else:
@@ -84,18 +87,18 @@ class DecisionEngine:
                 name="Demand (30d)",
                 passed=False,
                 actual="N/A",
-                expected=f"\u2265{FILTERS['demand_min_30d']} sold",
+                expected=f"\u2265{self.filters['demand_min_30d']} sold",
                 verified=False,
             ))
 
         # --- Demand filter (7d) ---
         if demand and demand.sold_count_7d is not None:
-            d7_pass = demand.sold_count_7d >= FILTERS["demand_min_7d"]
+            d7_pass = demand.sold_count_7d >= self.filters["demand_min_7d"]
             filters.append(FilterResult(
                 name="Demand (7d)",
                 passed=d7_pass,
                 actual=f"{demand.sold_count_7d} sold",
-                expected=f"\u2265{FILTERS['demand_min_7d']} sold",
+                expected=f"\u2265{self.filters['demand_min_7d']} sold",
                 verified=demand.verified,
             ))
         else:
@@ -103,7 +106,7 @@ class DecisionEngine:
                 name="Demand (7d)",
                 passed=False,
                 actual="N/A",
-                expected=f"\u2265{FILTERS['demand_min_7d']} sold",
+                expected=f"\u2265{self.filters['demand_min_7d']} sold",
                 verified=False,
             ))
 

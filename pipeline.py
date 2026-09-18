@@ -101,10 +101,10 @@ class PipelineResult:
 class Pipeline:
     """Full sourcing pipeline — scrape, analyse, decide, save."""
 
-    def __init__(self):
+    def __init__(self, filters: dict | None = None):
         self._ebay = EbayScraper()
         self._analyzer = ProductAnalyzer()
-        self._decision = DecisionEngine()
+        self._decision = DecisionEngine(filters=filters)
         self._supplier_instances = {
             name: cls() for name, cls in SUPPLIER_SCRAPERS.items()
         }
