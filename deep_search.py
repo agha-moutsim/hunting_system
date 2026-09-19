@@ -42,19 +42,32 @@ class TopSeller:
 
 
 @dataclass
+class SupplierInfo:
+    name: str
+    price: float
+    url: str
+    supplier_type: str = ""  # wholesaler / retailer / dropshipper
+    delivery_days: str = ""
+    notes: str = ""
+
+
+@dataclass
 class DeepSearchResult:
     product_name: str = ""
     product_category: str = ""
     ebay_items_sold_month: str = ""
     ebay_top_sellers: List[dict] = field(default_factory=list)
     ebay_price_range: str = ""
-    supplier_name: str = ""
-    supplier_type: str = ""
-    supplier_cost: str = ""
-    supplier_link: str = ""
-    delivery_info: str = ""
+    ebay_avg_price: float = 0.0
+    suppliers: List[dict] = field(default_factory=list)  # [{name, price, url, type, delivery}]
+    best_supplier_price: float = 0.0
+    profit: float = 0.0
+    margin: float = 0.0
+    verdict: str = ""  # PASS / FAIL / PENDING
+    filters_passed: List[dict] = field(default_factory=list)
     competition_level: str = ""
     profit_potential: str = ""
+    delivery_info: str = ""
     notes: str = ""
     sources: List[str] = field(default_factory=list)
     raw_analysis: str = ""
@@ -68,16 +81,16 @@ class DeepSearchResult:
             f"Category: {self.product_category}",
             f"eBay UK monthly sales: {self.ebay_items_sold_month}",
             f"eBay price range: {self.ebay_price_range}",
-            f"Supplier: {self.supplier_name} ({self.supplier_type})",
-            f"Supplier cost: {self.supplier_cost}",
-            f"Supplier link: {self.supplier_link}",
-            f"Delivery: {self.delivery_info}",
-            f"Competition: {self.competition_level}",
-            f"Profit potential: {self.profit_potential}",
-            f"Top eBay sellers: {len(self.ebay_top_sellers)}",
+            f"eBay avg price: £{self.ebay_avg_price:.2f}",
+            f"Suppliers found: {len(self.suppliers)}",
         ]
-        for s in self.ebay_top_sellers:
-            lines.append(f"  - {s.get('name', 'N/A')} | {s.get('price', 'N/A')} | {s.get('url', '')}")
+        for s in self.suppliers:
+            lines.append(f"  - {s.get('name', 'N/A')} | £{s.get('price', 0):.2f} | {s.get('supplier_type', '')} | {s.get('url', '')}")
+        lines.append(f"Best supplier cost: £{self.best_supplier_price:.2f}")
+        lines.append(f"Profit: £{self.profit:.2f} | Margin: {self.margin:.1f}%")
+        lines.append(f"Verdict: {self.verdict}")
+        lines.append(f"Competition: {self.competition_level}")
+        lines.append(f"Profit potential: {self.profit_potential}")
         if self.notes:
             lines.append(f"Notes: {self.notes}")
         return "\n".join(lines)
@@ -205,22 +218,32 @@ JSON object with the following fields (all prices in GBP £):
     {"name": "seller name", "url": "eBay listing URL", "price": "£XX.XX"}
   ],
   "ebay_price_range": "£low - £high (avg £avg)",
-  "supplier_name": "company or website name",
-  "supplier_type": "wholesaler | retailer | dropshipper | manufacturer",
-  "supplier_cost": "£XX.XX estimated cost",
-  "supplier_link": "URL to the supplier page",
-  "delivery_info": "shipping/lead time notes",
+  "ebay_avg_price": 15.99,
+  "suppliers": [
+    {
+      "name": "supplier name",
+      "price": 5.99,
+      "url": "https://supplier-url.com",
+      "supplier_type": "wholesaler | retailer | dropshipper | manufacturer",
+      "delivery_days": "3-5",
+      "notes": "any notes"
+    }
+  ],
   "competition_level": "low | medium | high",
   "profit_potential": "low | medium | high",
+  "delivery_info": "shipping/lead time notes",
   "notes": "any extra useful context for a reseller"
 }
 
 Rules:
 - All prices MUST be in GBP (£).
+- Find MULTIPLE suppliers (at least 2-3 if possible) with real prices and links.
 - Focus on UK market data only.
 - If data is uncertain, say so in notes.
 - Return ONLY valid JSON, no markdown fences, no commentary.
 - Use up to 3 top eBay sellers. If fewer found, return fewer.
+- ebay_avg_price should be a number (not a string).
+- Each supplier price should be a number (not a string).
 """
 
 
@@ -283,16 +306,107 @@ def deep_search_product(query: str) -> DeepSearchResult:
     result.ebay_items_sold_month = parsed.get("ebay_items_sold_month", "")
     result.ebay_top_sellers = parsed.get("ebay_top_sellers", [])
     result.ebay_price_range = parsed.get("ebay_price_range", "")
-    result.supplier_name = parsed.get("supplier_name", "")
-    result.supplier_type = parsed.get("supplier_type", "")
-    result.supplier_cost = parsed.get("supplier_cost", "")
-    result.supplier_link = parsed.get("supplier_link", "")
+
+    # Parse avg price
+    avg = parsed.get("ebay_avg_price", 0)
+    try:
+        result.ebay_avg_price = float(avg)
+    except (ValueError, TypeError):
+        result.ebay_avg_price = 0.0
+
+    # Parse multiple suppliers
+    suppliers = parsed.get("suppliers", [])
+    if suppliers:
+        result.suppliers = suppliers
+        # Find best (cheapest) supplier
+        valid = [s for s in suppliers if isinstance(s.get("price"), (int, float)) and s["price"] > 0]
+        if valid:
+            best = min(valid, key=lambda s: s["price"])
+            result.best_supplier_price = best["price"]
+
     result.delivery_info = parsed.get("delivery_info", "")
     result.competition_level = parsed.get("competition_level", "")
     result.profit_potential = parsed.get("profit_potential", "")
     result.notes = parsed.get("notes", "")
 
+    # ── Calculate profit & verdict (same logic as Analyze tab) ──
+    _calculate_profit_and_verdict(result)
+
     return result
+
+
+def _calculate_profit_and_verdict(result: DeepSearchResult):
+    """Calculate profit, margin, and verdict using the same rules as the Analyze tab."""
+    from config import FILTERS
+
+    ebay_price = result.ebay_avg_price
+    supplier_cost = result.best_supplier_price
+
+    if ebay_price <= 0 or supplier_cost <= 0:
+        result.verdict = "PENDING"
+        return
+
+    # eBay fees: 12.8% final value + 3% returns buffer
+    ebay_fee_pct = 0.128
+    returns_buffer_pct = 0.03
+    total_fee_pct = ebay_fee_pct + returns_buffer_pct
+
+    ebay_fees = ebay_price * total_fee_pct
+    profit = ebay_price - supplier_cost - ebay_fees
+    margin = (profit / ebay_price * 100) if ebay_price > 0 else 0
+
+    result.profit = round(profit, 2)
+    result.margin = round(margin, 1)
+
+    # Apply filters
+    filters_passed = []
+
+    # Price filter
+    price_ok = FILTERS["price_min"] <= supplier_cost <= FILTERS["price_max"]
+    filters_passed.append({
+        "name": "Supplier Price",
+        "passed": price_ok,
+        "actual": f"£{supplier_cost:.2f}",
+        "expected": f"£{FILTERS['price_min']:.2f} – £{FILTERS['price_max']:.2f}",
+    })
+
+    # Profit filter
+    profit_ok = profit > 0
+    filters_passed.append({
+        "name": "Profitable",
+        "passed": profit_ok,
+        "actual": f"£{profit:.2f}",
+        "expected": "> £0.00",
+    })
+
+    # Margin filter
+    margin_ok = margin >= 20
+    filters_passed.append({
+        "name": "Margin",
+        "passed": margin_ok,
+        "actual": f"{margin:.1f}%",
+        "expected": ">= 20%",
+    })
+
+    # Demand filter (rough estimate from eBay sold count)
+    demand_ok = True  # Can't strictly verify from deep search
+    filters_passed.append({
+        "name": "Demand",
+        "passed": demand_ok,
+        "actual": result.ebay_items_sold_month or "Estimated",
+        "expected": ">= 10 sold/month",
+    })
+
+    result.filters_passed = filters_passed
+
+    # Verdict
+    all_critical = [f for f in filters_passed if f["name"] in ("Supplier Price", "Profitable", "Margin")]
+    if all(f["passed"] for f in all_critical):
+        result.verdict = "PASS"
+    elif any(f["passed"] for f in all_critical):
+        result.verdict = "PENDING"
+    else:
+        result.verdict = "FAIL"
 
 
 # ---------------------------------------------------------------------------

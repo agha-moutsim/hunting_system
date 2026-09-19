@@ -1039,6 +1039,61 @@ def render_deep_search_tab():
         </div>
         """, unsafe_allow_html=True)
 
+        # ── Price Comparison (multiple suppliers) ──
+        if result.suppliers:
+            st.markdown("""
+            <div style="color: #E2E8F0; font-size: 1.05rem; font-weight: 600; margin: 1.2rem 0 0.6rem 0;
+                         border-bottom: 1px solid #334155; padding-bottom: 6px;">
+                💰  Price Comparison
+            </div>
+            """, unsafe_allow_html=True)
+
+            comp_cols = st.columns(len(result.suppliers[:5]) + 1)
+            with comp_cols[0]:
+                st.metric("eBay Avg Price", f"£{result.ebay_avg_price:.2f}")
+            for i, s in enumerate(result.suppliers[:5]):
+                with comp_cols[i + 1]:
+                    sprice = s.get("price", 0) if isinstance(s.get("price"), (int, float)) else 0
+                    profit = result.ebay_avg_price - sprice if sprice > 0 else 0
+                    st.metric(
+                        s.get("name", f"Supplier {i+1}"),
+                        f"£{sprice:.2f}",
+                        delta=f"+£{profit:.2f}" if profit > 0 else f"£{profit:.2f}",
+                        delta_color="normal",
+                    )
+
+        # ── Profit & Verdict ──
+        if result.verdict:
+            st.markdown("""
+            <div style="color: #E2E8F0; font-size: 1.05rem; font-weight: 600; margin: 1.2rem 0 0.6rem 0;
+                         border-bottom: 1px solid #334155; padding-bottom: 6px;">
+                ✅  Verdict
+            </div>
+            """, unsafe_allow_html=True)
+
+            v_cols = st.columns(3)
+            with v_cols[0]:
+                if result.profit > 0:
+                    st.success(f"Profit: £{result.profit:.2f}")
+                else:
+                    st.error(f"Profit: £{result.profit:.2f}")
+            with v_cols[1]:
+                st.metric("Margin", f"{result.margin:.1f}%")
+            with v_cols[2]:
+                v = result.verdict.upper()
+                if v == "PASS":
+                    st.success("VERDICT: PASS")
+                elif v == "FAIL":
+                    st.error("VERDICT: FAIL")
+                else:
+                    st.warning("VERDICT: PENDING")
+
+            if result.filters_passed:
+                with st.expander("Filter Details", expanded=True):
+                    for f in result.filters_passed:
+                        icon = "✅" if f.get("passed") else "❌"
+                        st.markdown(f"{icon} **{f.get('name', '')}**: {f.get('actual', '')} (expected {f.get('expected', '')})")
+
         # ── eBay Market Data ──
         st.markdown("""
         <div style="color: #E2E8F0; font-size: 1.05rem; font-weight: 600; margin: 1.2rem 0 0.6rem 0;
@@ -1069,36 +1124,8 @@ def render_deep_search_tab():
                 cols[0].markdown(f"**{s_name}**")
                 cols[1].markdown(f"£{s_price}" if s_price != "—" else "—")
                 if s_url:
-                    cols[2].markdown(f"[View →]({s_url})")
-
-        # ── Supplier Info ──
-        st.markdown("""
-        <div style="color: #E2E8F0; font-size: 1.05rem; font-weight: 600; margin: 1.2rem 0 0.6rem 0;
-                     border-bottom: 1px solid #334155; padding-bottom: 6px;">
-            🏭  Supplier Info
-        </div>
-        """, unsafe_allow_html=True)
-
-        if result.supplier_name:
-            st.markdown(f"""
-            <div style="
-                background: #1E293B;
-                border: 1px solid #334155;
-                border-radius: 12px;
-                padding: 1rem 1.2rem;
-            ">
-                <div style="color: #F8FAFC; font-weight: 500; font-size: 0.95rem;">
-                    {result.supplier_name}
-                </div>
-                <div style="color: #94A3B8; font-size: 0.82rem; margin-top: 4px;">
-                    Type: {result.supplier_type.title() or "—"}  ·  Cost: {result.supplier_cost or "—"}  ·  Delivery: {result.delivery_info or "—"}
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-            if result.supplier_link:
-                st.link_button("Open Supplier Link", result.supplier_link, use_container_width=False)
-        else:
-            st.info("No supplier data found.")
+                    with cols[2]:
+                        st.link_button("View →", s_url)
 
         # ── Notes & Analysis ──
         st.markdown("""
