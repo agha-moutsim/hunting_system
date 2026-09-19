@@ -80,10 +80,12 @@ class CJDropshippingScraper(BaseScraper):
             products = []
             for item in data.get("data", {}).get("content", []):
                 for p in item.get("productList", []):
+                    price_usd = float(p.get("sellPrice", 0))
+                    price_gbp = round(price_usd * 0.79, 2)  # USD to GBP
                     products.append(ScrapedProduct(
                         source=self.SUPPLIER_ID,
                         title=p.get("nameEn", ""),
-                        price=float(p.get("sellPrice", 0)),
+                        price=price_gbp,
                         url=f"https://cjdropshipping.com/product-p-{p.get('id', '')}.html",
                         image_url=p.get("bigImage", ""),
                         delivery_days_min=3,

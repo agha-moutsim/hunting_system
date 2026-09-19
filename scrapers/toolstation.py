@@ -1,7 +1,8 @@
 """
-Toolstation UK scraper — Playwright stealth for bot bypass.
+Toolstation UK scraper — Google Shopping API first, Playwright fallback.
 """
 
+import os
 import re
 
 from bs4 import BeautifulSoup
@@ -17,13 +18,69 @@ class ToolstationScraper(BaseScraper):
     SEARCH_URL = "https://www.toolstation.com/search?q={query}"
 
     async def search(self, query: str) -> list[ScrapedProduct]:
-        """Search Toolstation for products."""
+        """Search Toolstation — try Google Shopping API first, fallback to scraping."""
+        # Try Google Shopping API
+        api_products = self._search_via_google_shopping(query)
+        if api_products:
+            return api_products
+
+        # Fallback to scraping
         url = self.SEARCH_URL.format(query=query.replace(" ", "+"))
         try:
             html = await self.fetch(url)
             return self._parse_search_results(html)
         except Exception as e:
             print(f"[WARN] Toolstation search failed for '{query}': {e}")
+            return []
+
+    def _search_via_google_shopping(self, query: str) -> list[ScrapedProduct]:
+        """Try Toolstation products via Google Shopping / SerpApi."""
+        api_key = os.getenv("SERPAPI_KEY", "")
+        if not api_key:
+            return []
+
+        try:
+            import requests
+
+            resp = requests.get(
+                "https://serpapi.com/search.json",
+                params={
+                    "engine": "google_shopping",
+                    "q": f"site:toolstation.com {query}",
+                    "location": "United Kingdom",
+                    "gl": "uk",
+                    "hl": "en",
+                    "api_key": api_key,
+                },
+                timeout=20,
+            )
+            data = resp.json()
+
+            products = []
+            for item in data.get("shopping_results", [])[:10]:
+                source = item.get("source", "")
+                if "toolstation" not in source.lower() and "toolstation.com" not in item.get("link", "").lower():
+                    continue
+
+                price = item.get("extracted_price", 0)
+                if isinstance(price, str):
+                    price = float(price.replace("£", "").replace(",", "") or "0")
+
+                products.append(ScrapedProduct(
+                    source="toolstation",
+                    title=item.get("title", ""),
+                    price=float(price),
+                    url=item.get("link", ""),
+                    image_url=item.get("thumbnail", ""),
+                    delivery_days_min=1,
+                    delivery_days_max=3,
+                    verified=True,
+                ))
+
+            return products
+
+        except Exception as e:
+            print(f"[INFO] Toolstation Google Shopping unavailable: {e}")
             return []
 
     def _parse_search_results(self, html: str) -> list[ScrapedProduct]:
