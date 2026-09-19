@@ -32,6 +32,7 @@ from scrapers.ebay import EbayScraper
 from scrapers.base import ScrapedProduct, DemandData as DemandDataDTO
 from utils.filters import load_filters, save_filters, reset_filters, save_preset, load_preset, list_presets, delete_preset, get_defaults
 from utils.theme import apply_theme
+from deep_search import deep_search_product, DeepSearchResult
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -942,6 +943,196 @@ def render_product_detail(product_id: int):
         db.close()
 
 
+# ─── UI: Deep Search Tab ─────────────────────────────────────────
+
+def render_deep_search_tab():
+    st.markdown("""
+    <div style="
+        background: linear-gradient(135deg, #0B1120 0%, #1A2E1A 50%, #0F2B0F 100%);
+        border: 1px solid #2D5A2D;
+        border-radius: 16px;
+        padding: 1.8rem 2.2rem;
+        margin-bottom: 1.5rem;
+        position: relative;
+        overflow: hidden;
+    ">
+        <div style="position: absolute; top: 0; right: 0; width: 250px; height: 250px;
+                    background: radial-gradient(circle, rgba(16,185,129,0.1) 0%, transparent 70%);
+                    pointer-events: none;"></div>
+        <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 6px;">
+            <div style="
+                width: 44px; height: 44px; border-radius: 12px;
+                background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+                display: flex; align-items: center; justify-content: center;
+                font-size: 1.4rem;
+            ">🔬</div>
+            <div>
+                <h2 style="color: #F8FAFC; font-size: 1.5rem; font-weight: 700; margin: 0;
+                           letter-spacing: -0.02em;">
+                    Deep Product Research
+                </h2>
+                <p style="color: #94A3B8; font-size: 0.85rem; margin: 0;">
+                    Web-powered market analysis — eBay stats, supplier pricing, competition data
+                </p>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    query = st.text_input(
+        "Product Name",
+        placeholder="e.g. Sony WH-1000XM5 headphones, vintage LEGO set...",
+        label_visibility="collapsed",
+    )
+
+    if st.button("🔬  Research", type="primary", use_container_width=True, disabled=not query.strip()):
+        with st.status("Running deep research...", expanded=True) as status:
+            st.write("🔍  Searching eBay UK, suppliers, and web sources...")
+            try:
+                result: DeepSearchResult = deep_search_product(query.strip())
+                status.update(label="Research complete", state="complete", expanded=False)
+            except Exception as e:
+                status.update(label="Research failed", state="error")
+                st.error(f"Deep search failed: {e}")
+                return
+
+        # ── Product Overview Card ──
+        comp_badge_map = {
+            "low": ("#059669", "#022C22"),
+            "medium": ("#D97706", "#451A03"),
+            "high": ("#DC2626", "#450A0A"),
+        }
+        profit_badge_map = {
+            "high": ("#059669", "#022C22"),
+            "medium": ("#D97706", "#451A03"),
+            "low": ("#DC2626", "#450A0A"),
+        }
+        comp_color, comp_bg = comp_badge_map.get(result.competition_level.lower(), ("#64748B", "#1E293B"))
+        profit_color, profit_bg = profit_badge_map.get(result.profit_potential.lower(), ("#64748B", "#1E293B"))
+
+        st.markdown(f"""
+        <div style="
+            background: #1E293B;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 1.2rem 1.5rem;
+            margin-bottom: 1rem;
+        ">
+            <div style="color: #F8FAFC; font-size: 1.15rem; font-weight: 600; margin-bottom: 6px;">
+                {result.product_name or query}
+            </div>
+            <div style="color: #94A3B8; font-size: 0.85rem; margin-bottom: 10px;">
+                {result.product_category}
+            </div>
+            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                <span style="background:{comp_bg}; color:{comp_color}; padding: 4px 14px;
+                             border-radius: 20px; font-size: 0.78rem; font-weight: 600;
+                             border: 1px solid {comp_color}33;">
+                    Competition: {result.competition_level.title() or "—"}
+                </span>
+                <span style="background:{profit_bg}; color:{profit_color}; padding: 4px 14px;
+                             border-radius: 20px; font-size: 0.78rem; font-weight: 600;
+                             border: 1px solid {profit_color}33;">
+                    Profit Potential: {result.profit_potential.title() or "—"}
+                </span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # ── eBay Market Data ──
+        st.markdown("""
+        <div style="color: #E2E8F0; font-size: 1.05rem; font-weight: 600; margin: 1.2rem 0 0.6rem 0;
+                     border-bottom: 1px solid #334155; padding-bottom: 6px;">
+            📊  eBay Market Data
+        </div>
+        """, unsafe_allow_html=True)
+
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Est. Monthly Sold", result.ebay_items_sold_month or "—")
+        m2.metric("Price Range", result.ebay_price_range or "—")
+
+        avg_price = "—"
+        if result.ebay_price_range and "avg" in result.ebay_price_range.lower():
+            import re as _re
+            avg_match = _re.search(r"avg\s*£?([\d,.]+)", result.ebay_price_range, _re.IGNORECASE)
+            if avg_match:
+                avg_price = f"£{avg_match.group(1)}"
+        m3.metric("Average Price", avg_price)
+
+        if result.ebay_top_sellers:
+            st.markdown("**Top Sellers:**")
+            for seller in result.ebay_top_sellers:
+                s_name = seller.get("name", "Unknown")
+                s_price = seller.get("price", "—")
+                s_url = seller.get("url", "")
+                cols = st.columns([3, 1, 1])
+                cols[0].markdown(f"**{s_name}**")
+                cols[1].markdown(f"£{s_price}" if s_price != "—" else "—")
+                if s_url:
+                    cols[2].markdown(f"[View →]({s_url})")
+
+        # ── Supplier Info ──
+        st.markdown("""
+        <div style="color: #E2E8F0; font-size: 1.05rem; font-weight: 600; margin: 1.2rem 0 0.6rem 0;
+                     border-bottom: 1px solid #334155; padding-bottom: 6px;">
+            🏭  Supplier Info
+        </div>
+        """, unsafe_allow_html=True)
+
+        if result.supplier_name:
+            st.markdown(f"""
+            <div style="
+                background: #1E293B;
+                border: 1px solid #334155;
+                border-radius: 12px;
+                padding: 1rem 1.2rem;
+            ">
+                <div style="color: #F8FAFC; font-weight: 500; font-size: 0.95rem;">
+                    {result.supplier_name}
+                </div>
+                <div style="color: #94A3B8; font-size: 0.82rem; margin-top: 4px;">
+                    Type: {result.supplier_type.title() or "—"}  ·  Cost: {result.supplier_cost or "—"}  ·  Delivery: {result.delivery_info or "—"}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            if result.supplier_link:
+                st.link_button("Open Supplier Link", result.supplier_link, use_container_width=False)
+        else:
+            st.info("No supplier data found.")
+
+        # ── Notes & Analysis ──
+        st.markdown("""
+        <div style="color: #E2E8F0; font-size: 1.05rem; font-weight: 600; margin: 1.2rem 0 0.6rem 0;
+                     border-bottom: 1px solid #334155; padding-bottom: 6px;">
+            📝  Notes & Analysis
+        </div>
+        """, unsafe_allow_html=True)
+
+        if result.notes:
+            st.markdown(f"""
+            <div style="
+                background: #1E293B;
+                border: 1px solid #334155;
+                border-radius: 12px;
+                padding: 1rem 1.2rem;
+                color: #CBD5E1;
+                font-size: 0.9rem;
+                line-height: 1.6;
+            ">
+                {result.notes}
+            </div>
+            """, unsafe_allow_html=True)
+
+        if result.sources:
+            with st.expander("Sources"):
+                for src in result.sources[:10]:
+                    st.markdown(f"- [{src}]({src})")
+
+        if result.raw_analysis:
+            with st.expander("Raw LLM Analysis"):
+                st.code(result.raw_analysis, language=None)
+
+
 # ─── Main ───────────────────────────────────────────────────────
 
 def main():
@@ -986,10 +1177,13 @@ def main():
         return
 
     # Main tabs
-    tab_analyze, tab_history = st.tabs(["🔍  Analyze", "📋  History"])
+    tab_analyze, tab_deep, tab_history = st.tabs(["🔍  Analyze", "🔬  Deep Search", "📋  History"])
 
     with tab_analyze:
         render_analyze_tab()
+
+    with tab_deep:
+        render_deep_search_tab()
 
     with tab_history:
         render_history_tab()
