@@ -1,7 +1,8 @@
 """
-CJ Dropshipping scraper — uses Playwright stealth via BaseScraper.
+CJ Dropshipping scraper — API first, falls back to Playwright scraping.
 """
 
+import os
 from typing import Optional
 
 from bs4 import BeautifulSoup, Tag
@@ -17,13 +18,82 @@ class CJDropshippingScraper(BaseScraper):
     SEARCH_URL = "https://cjdropshipping.com/search.html?keyword={query}"
 
     async def search(self, query: str) -> list[ScrapedProduct]:
-        """Search CJ Dropshipping and return product list."""
+        """Search CJ — try free API first, fallback to scraping."""
+        # Try API first (free, faster, more reliable)
+        api_products = self._search_via_api(query)
+        if api_products:
+            return api_products
+
+        # Fallback to scraping
         url = self.SEARCH_URL.format(query=query.replace(" ", "+"))
         try:
             html = await self.fetch(url)
             return self._parse_search_results(html)
         except Exception as e:
             print(f"[WARN] CJ Dropshipping search failed for '{query}': {e}")
+            return []
+
+    def _search_via_api(self, query: str) -> list[ScrapedProduct]:
+        """Try CJ Dropshipping free API v2.0."""
+        api_key = os.getenv("CJ_API_KEY", "")
+        if not api_key:
+            return []
+
+        try:
+            import requests
+            import time
+
+            # Get token
+            token = os.getenv("CJ_ACCESS_TOKEN", "")
+            if not token:
+                resp = requests.post(
+                    "https://developers.cjdropshipping.com/api2.0/v1/authentication/getAccessToken",
+                    json={"apiKey": api_key},
+                    timeout=15,
+                )
+                data = resp.json()
+                if data.get("code") == 200:
+                    token = data["data"]["accessToken"]
+
+            if not token:
+                return []
+
+            # Search products
+            resp = requests.get(
+                "https://developers.cjdropshipping.com/api2.0/v1/product/listV2",
+                headers={
+                    "CJ-Access-Token": token,
+                    "Content-Type": "application/json",
+                },
+                params={
+                    "keyWord": query,
+                    "page": 1,
+                    "size": 10,
+                    "countryCode": "GB",
+                },
+                timeout=15,
+            )
+            data = resp.json()
+            if data.get("code") != 200:
+                return []
+
+            products = []
+            for item in data.get("data", {}).get("content", []):
+                for p in item.get("productList", []):
+                    products.append(ScrapedProduct(
+                        source=self.SUPPLIER_ID,
+                        title=p.get("nameEn", ""),
+                        price=float(p.get("sellPrice", 0)),
+                        url=f"https://cjdropshipping.com/product-p-{p.get('id', '')}.html",
+                        image_url=p.get("bigImage", ""),
+                        delivery_days_min=3,
+                        delivery_days_max=7,
+                        verified=True,
+                    ))
+            return products
+
+        except Exception as e:
+            print(f"[INFO] CJ API unavailable: {e}")
             return []
 
     async def get_details(self, url: str) -> ScrapedProduct:

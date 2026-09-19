@@ -1,7 +1,8 @@
 """
-Amazon UK scraper — uses Playwright stealth to search and extract product data.
+Amazon UK scraper — PA API first, falls back to Playwright scraping.
 """
 
+import os
 import re
 from datetime import datetime
 from typing import Optional
@@ -12,19 +13,137 @@ from config import SCRAPE_CONFIG
 
 
 class AmazonUKScraper(BaseScraper):
-    """Scraper for Amazon UK — Playwright stealth with BeautifulSoup parsing."""
+    """Scraper for Amazon UK — API first, Playwright fallback."""
 
     BASE_URL = "https://www.amazon.co.uk"
     SEARCH_URL = "https://www.amazon.co.uk/s?k={query}"
 
     async def search(self, query: str) -> list[ScrapedProduct]:
-        """Search Amazon UK for products matching query."""
+        """Search Amazon UK — try PA API first, fallback to scraping."""
+        # Try PA API first
+        api_products = self._search_via_api(query)
+        if api_products:
+            return api_products
+
+        # Fallback to scraping
         search_url = self.SEARCH_URL.format(query=quote_plus(query))
         try:
             html = await self.fetch(search_url)
             return self._parse_search_results(html)
         except Exception as e:
             print(f"[WARN] Amazon UK search failed for '{query}': {e}")
+            return []
+
+    def _search_via_api(self, query: str) -> list[ScrapedProduct]:
+        """Try Amazon UK PA API 5.0."""
+        access_key = os.getenv("AMAZON_PA_ACCESS_KEY", "")
+        secret_key = os.getenv("AMAZON_PA_SECRET_KEY", "")
+        partner_tag = os.getenv("AMAZON_PA_PARTNER_TAG", "")
+
+        if not access_key or not secret_key:
+            return []
+
+        try:
+            import requests
+            import hashlib
+            import hmac
+            import json
+            from datetime import datetime, timezone
+
+            now = datetime.now(timezone.utc)
+            datestamp = now.strftime("%Y%m%d")
+            amz_date = now.strftime("%Y%m%dT%H%M%SZ")
+
+            payload = json.dumps({
+                "Keywords": query,
+                "Resources": [
+                    "ItemInfo.Title",
+                    "Offers.Listings.Price",
+                    "Offers.Listings.DeliveryInfo.IsAmazonFulfilled",
+                    "Images.Primary.Large",
+                ],
+                "PartnerTag": partner_tag,
+                "PartnerType": "Associates",
+                "Marketplace": "www.amazon.co.uk",
+                "ItemCount": 10,
+                "SearchIndex": "All",
+            })
+
+            # Simplified signing (working implementation)
+            payload_hash = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+            host = "webservices.amazon.co.uk"
+
+            headers_to_sign = {
+                "content-type": "application/json; charset=UTF-8",
+                "content-encoding": "amz-1.0",
+                "host": host,
+                "x-amz-date": amz_date,
+                "x-amz-target": "com.amazon.paapi5.v1.ProductAdvertisingAPIv1.SearchItems",
+            }
+
+            signed_header_keys = sorted(headers_to_sign.keys())
+            canonical_headers = "".join(f"{k}:{headers_to_sign[k]}\n" for k in signed_header_keys)
+            signed_headers = ";".join(signed_header_keys)
+
+            canonical_request = f"POST\n/paapi5/searchitems\n\n{canonical_headers}\n{signed_headers}\n{payload_hash}"
+            algorithm = "AWS4-HMAC-SHA256"
+            credential_scope = f"{datestamp}/eu-west-1/ProductAdvertisingAPI/aws4_request"
+            string_to_sign = f"{algorithm}\n{amz_date}\n{credential_scope}\n{hashlib.sha256(canonical_request.encode('utf-8')).hexdigest()}"
+
+            def _sign(key, msg):
+                return hmac.new(key, msg.encode("utf-8"), hashlib.sha256).digest()
+
+            k_date = _sign(("AWS4" + secret_key).encode("utf-8"), datestamp)
+            k_region = _sign(k_date, "eu-west-1")
+            k_service = _sign(k_region, "ProductAdvertisingAPI")
+            k_signing = _sign(k_service, "aws4_request")
+            signature = hmac.new(k_signing, string_to_sign.encode("utf-8"), hashlib.sha256).hexdigest()
+
+            authorization = f"{algorithm} Credential={access_key}/{credential_scope}, SignedHeaders={signed_headers}, Signature={signature}"
+
+            resp = requests.post(
+                "https://webservices.amazon.co.uk/paapi5/searchitems",
+                headers={
+                    "Content-Type": "application/json; charset=UTF-8",
+                    "Content-Encoding": "amz-1.0",
+                    "Host": host,
+                    "X-Amz-Date": amz_date,
+                    "X-Amz-Target": "com.amazon.paapi5.v1.ProductAdvertisingAPIv1.SearchItems",
+                    "Authorization": authorization,
+                },
+                data=payload,
+                timeout=15,
+            )
+            data = resp.json()
+
+            products = []
+            items = data.get("SearchResult", {}).get("Items", [])
+            for item in (items or []):
+                title = item.get("ItemInfo", {}).get("Title", {}).get("DisplayValue", "")
+                offers = item.get("Offers", {}).get("Listings", [])
+                price_str = offers[0].get("Price", {}).get("Amount", "0") if offers else "0"
+                try:
+                    price = float(price_str)
+                except (ValueError, TypeError):
+                    price = 0.0
+                image_url = item.get("Images", {}).get("Primary", {}).get("Large", {}).get("URL", "")
+                is_prime = offers[0].get("DeliveryInfo", {}).get("IsAmazonFulfilled", False) if offers else False
+
+                products.append(ScrapedProduct(
+                    source="amazon_uk",
+                    title=title,
+                    price=price,
+                    url=item.get("DetailPageURL", ""),
+                    image_url=image_url,
+                    delivery_days_min=1 if is_prime else 3,
+                    delivery_days_max=2 if is_prime else 7,
+                    verified=True,
+                ))
+
+            return products
+
+        except Exception as e:
+            print(f"[INFO] Amazon PA API unavailable: {e}")
             return []
 
     def _parse_search_results(self, html: str) -> list[ScrapedProduct]:

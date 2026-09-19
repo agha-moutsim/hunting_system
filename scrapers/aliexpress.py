@@ -1,8 +1,9 @@
 """
-AliExpress supplier scraper — searches listings and extracts product details.
-Extends BaseScraper (Playwright + stealth). Prices converted USD -> GBP at 0.79.
+AliExpress supplier scraper — RapidAPI first, falls back to Playwright scraping.
+Prices converted USD -> GBP at 0.79.
 """
 
+import os
 import re
 from datetime import datetime
 from typing import Optional
@@ -15,7 +16,7 @@ USD_TO_GBP = 0.79
 
 
 class AliExpressScraper(BaseScraper):
-    """Scraper for AliExpress — Playwright stealth with BeautifulSoup parsing."""
+    """Scraper for AliExpress — API first, Playwright fallback."""
 
     BASE_URL = "https://www.aliexpress.com"
     SEARCH_URL = "https://www.aliexpress.com/wholesale?SearchText={query}"
@@ -23,13 +24,70 @@ class AliExpressScraper(BaseScraper):
     DELIVERY_DAYS_MAX = 25
 
     async def search(self, query: str) -> list[ScrapedProduct]:
-        """Search AliExpress for products matching query."""
+        """Search AliExpress — try RapidAPI first, fallback to scraping."""
+        # Try RapidAPI first
+        api_products = self._search_via_rapidapi(query)
+        if api_products:
+            return api_products
+
+        # Fallback to scraping
         search_url = self.SEARCH_URL.format(query=quote_plus(query))
         try:
             html = await self.fetch(search_url)
             return self._parse_search_results(html)
         except Exception as e:
             print(f"[WARN] AliExpress search failed for '{query}': {e}")
+            return []
+
+    def _search_via_rapidapi(self, query: str) -> list[ScrapedProduct]:
+        """Try AliExpress via RapidAPI free tier."""
+        api_key = os.getenv("RAPIDAPI_KEY", "")
+        if not api_key:
+            return []
+
+        try:
+            import requests
+
+            resp = requests.get(
+                "https://aliexpress-api.p.rapidapi.com/products",
+                headers={
+                    "x-rapidapi-key": api_key,
+                    "x-rapidapi-host": "aliexpress-api.p.rapidapi.com",
+                },
+                params={"keywords": query, "limit": 10},
+                timeout=15,
+            )
+            data = resp.json()
+
+            products = []
+            items = data.get("data", data.get("products", []))
+            if isinstance(items, dict):
+                items = items.get("products", [])
+
+            for item in (items or [])[:10]:
+                price_str = item.get("price", item.get("product_price", "0"))
+                try:
+                    price_usd = float(str(price_str).replace("£", "").replace(",", ""))
+                except (ValueError, TypeError):
+                    price_usd = 0.0
+                price_gbp = price_usd * USD_TO_GBP
+
+                products.append(ScrapedProduct(
+                    source="aliexpress",
+                    title=item.get("product_title", item.get("title", "")),
+                    price=price_gbp,
+                    url=item.get("product_url", item.get("url", "")),
+                    image_url=item.get("product_image", item.get("image", "")),
+                    delivery_days_min=self.DELIVERY_DAYS_MIN,
+                    delivery_days_max=self.DELIVERY_DAYS_MAX,
+                    verified=True,
+                ))
+
+            return products
+
+        except Exception as e:
+            print(f"[INFO] AliExpress RapidAPI unavailable: {e}")
+            return []
             return []
 
     def _parse_search_results(self, html: str) -> list[ScrapedProduct]:
