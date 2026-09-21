@@ -260,9 +260,13 @@ def deep_search_product(query: str) -> DeepSearchResult:
 
     search_queries = [
         f"{query} eBay UK sold price",
-        f"{query} supplier wholesale UK",
-        f"{query} dropshipping supplier UK",
-        f"{query} product retail price UK",
+        f"{query} site:godropship.co.uk",
+        f"{query} site:diy.com B&Q",
+        f"{query} site:cjdropshipping.com",
+        f"{query} site:toolstation.com",
+        f"{query} site:joybuy.co.uk",
+        f"{query} site:aliexpress.com",
+        f"{query} site:amazon.co.uk",
     ]
 
     for sq in search_queries:
@@ -344,6 +348,13 @@ def _calculate_profit_and_verdict(result: DeepSearchResult):
 
     if ebay_price <= 0 or supplier_cost <= 0:
         result.verdict = "PENDING"
+        result.filters_passed.append({
+            "name": "Data",
+            "passed": False,
+            "actual": "Missing price data",
+            "expected": "eBay avg price + supplier cost required",
+            "verified": False,
+        })
         return
 
     # eBay fees: 12.8% final value + 3% returns buffer
@@ -358,7 +369,7 @@ def _calculate_profit_and_verdict(result: DeepSearchResult):
     result.profit = round(profit, 2)
     result.margin = round(margin, 1)
 
-    # Apply filters
+    # Apply filters (same as config.py FILTERS)
     filters_passed = []
 
     # Price filter
@@ -367,7 +378,8 @@ def _calculate_profit_and_verdict(result: DeepSearchResult):
         "name": "Supplier Price",
         "passed": price_ok,
         "actual": f"£{supplier_cost:.2f}",
-        "expected": f"£{FILTERS['price_min']:.2f} – £{FILTERS['price_max']:.2f}",
+        "expected": f"£{FILTERS['price_min']:.2f} - £{FILTERS['price_max']:.2f}",
+        "verified": True,
     })
 
     # Profit filter
@@ -377,33 +389,82 @@ def _calculate_profit_and_verdict(result: DeepSearchResult):
         "passed": profit_ok,
         "actual": f"£{profit:.2f}",
         "expected": "> £0.00",
+        "verified": True,
     })
 
-    # Margin filter
-    margin_ok = margin >= 20
+    # Margin filter (>= 25%)
+    margin_min = FILTERS.get("margin_min", 25.0)
+    margin_ok = margin >= margin_min
     filters_passed.append({
         "name": "Margin",
         "passed": margin_ok,
         "actual": f"{margin:.1f}%",
-        "expected": ">= 20%",
+        "expected": f">= {margin_min}%",
+        "verified": True,
     })
 
-    # Demand filter (rough estimate from eBay sold count)
-    demand_ok = True  # Can't strictly verify from deep search
+    # Demand filter (estimated from eBay data)
     filters_passed.append({
         "name": "Demand",
-        "passed": demand_ok,
-        "actual": result.ebay_items_sold_month or "Estimated",
-        "expected": ">= 10 sold/month",
+        "passed": True,  # Can't strictly verify from deep search
+        "actual": result.ebay_items_sold_month or "Estimated (unverified)",
+        "expected": f">= {FILTERS['demand_min_30d']} sold/month",
+        "verified": False,
+    })
+
+    # Delivery filter
+    delivery_max = FILTERS.get("delivery_target_max", 8)
+    delivery_exception = FILTERS.get("delivery_exception_max", 25)
+    demand_strong = FILTERS.get("demand_strong_30d", 30)
+
+    # Parse delivery from suppliers
+    for s in result.suppliers:
+        days_str = s.get("delivery_days", "")
+        if days_str:
+            import re
+            match = re.search(r"(\d+)", str(days_str))
+            if match:
+                days = int(match.group(1))
+                # Exception for high-demand products
+                demand_monthly = 0
+                if result.ebay_items_sold_month:
+                    m = re.search(r"(\d+)", result.ebay_items_sold_month)
+                    if m:
+                        demand_monthly = int(m.group(1))
+
+                if demand_monthly >= demand_strong and days <= delivery_exception:
+                    delivery_ok = True
+                else:
+                    delivery_ok = days <= delivery_max
+
+                filters_passed.append({
+                    "name": f"Delivery ({s.get('name', '')})",
+                    "passed": delivery_ok,
+                    "actual": f"{days} days",
+                    "expected": f"{delivery_max} days max",
+                    "verified": False,
+                })
+                break
+
+    # Brand filter (LLM-estimated)
+    filters_passed.append({
+        "name": "Brand",
+        "passed": True,  # LLM should have filtered, but unverified
+        "actual": "Generic (LLM-estimated)",
+        "expected": "Generic only",
+        "verified": False,
     })
 
     result.filters_passed = filters_passed
 
-    # Verdict
+    # Verdict (same logic as DecisionEngine)
     all_critical = [f for f in filters_passed if f["name"] in ("Supplier Price", "Profitable", "Margin")]
-    if all(f["passed"] for f in all_critical):
+    all_critical_passed = all(f["passed"] for f in all_critical)
+    any_unverified = any(not f["verified"] for f in filters_passed)
+
+    if all_critical_passed and profit > 0:
         result.verdict = "PASS"
-    elif any(f["passed"] for f in all_critical):
+    elif any_unverified and profit > 0:
         result.verdict = "PENDING"
     else:
         result.verdict = "FAIL"
