@@ -1068,17 +1068,22 @@ def render_deep_search_tab():
                 with comp_cols[i + 1]:
                     sprice = s.get("price", 0) if isinstance(s.get("price"), (int, float)) else 0
                     profit = result.ebay_avg_price - sprice if sprice > 0 else 0
-                    delivery_min = s.get("delivery_min", 0)
-                    delivery_max = s.get("delivery_max", 0)
-                    delivery_str = f"{delivery_min}-{delivery_max}d" if delivery_max else "?"
-                    verified = s.get("verified", False)
-                    verify_icon = "API" if verified else "Scrape"
+                    delivery_str = s.get("delivery_days", "?")
+                    supplier_type = s.get("supplier_type", "")
+                    type_icon = "🏪" if supplier_type == "retailer" else "📦"
                     st.metric(
-                        f"{s.get('name', f'Supplier {i+1}')} [{verify_icon}]",
+                        f"{type_icon} {s.get('name', f'Supplier {i+1}')}",
                         f"£{sprice:.2f}",
                         delta=f"+£{profit:.2f} ({delivery_str})" if profit > 0 else f"£{profit:.2f} ({delivery_str})",
                         delta_color="normal",
                     )
+                    # Show full details if available
+                    if s.get("seller_rating"):
+                        st.caption(f"Rating: {s['seller_rating']}")
+                    if s.get("seller_orders"):
+                        st.caption(f"Orders: {s['seller_orders']}")
+                    if s.get("url"):
+                        st.link_button("View →", s["url"], key=f"supplier_{i}")
 
         # ── Profit & Verdict ──
         if result.verdict:
@@ -1304,6 +1309,33 @@ def render_bulk_analysis_tab():
                 m2.metric("Avg Price", f"£{result.ebay_avg_price:.2f}" if result.ebay_avg_price else "—")
                 m3.metric("Profit", f"£{result.profit:.2f}" if result.profit else "—")
                 m4.metric("Margin", f"{result.margin:.1f}%" if result.margin else "—")
+
+                # Show suppliers with full details
+                if result.suppliers:
+                    st.markdown("**Suppliers:**")
+                    for j, s in enumerate(result.suppliers[:3]):
+                        sname = s.get("name", f"Supplier {j+1}")
+                        sprice = s.get("price", 0)
+                        delivery = s.get("delivery_days", "?")
+                        rating = s.get("seller_rating", "")
+                        orders = s.get("seller_orders", "")
+                        url = s.get("url", "")
+
+                        cols = st.columns([3, 1, 1, 1])
+                        cols[0].markdown(f"**{sname}**")
+                        cols[1].markdown(f"£{sprice:.2f}")
+                        cols[2].markdown(f"{delivery}d")
+                        if url:
+                            with cols[3]:
+                                st.link_button("View →", url, key=f"bulk_supplier_{i}_{j}")
+
+                        # Show rating and orders if available
+                        if rating or orders:
+                            detail_cols = st.columns(3)
+                            if rating:
+                                detail_cols[0].caption(f"Rating: {rating}")
+                            if orders:
+                                detail_cols[1].caption(f"Orders: {orders}")
 
                 # Export buttons
                 from export import export_to_csv, export_to_json
