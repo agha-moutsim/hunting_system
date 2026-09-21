@@ -207,9 +207,35 @@ class AliExpressScraper(BaseScraper):
 
         # Seller
         seller = None
-        seller_el = card.select_one("[class*='store'], [class*='seller']")
-        if seller_el:
-            seller = seller_el.get_text(strip=True)
+        seller_full_name = None
+        seller_rating = None
+        seller_orders = None
+        store_name = None
+
+        # Try to extract store info from various selectors
+        store_el = card.select_one("[class*='store'], [class*='seller'], [class*='shop']")
+        if store_el:
+            seller = store_el.get_text(strip=True)
+            store_name = seller
+
+        # Try to get full store name from data attributes
+        store_link = card.select_one("a[href*='store']")
+        if store_link:
+            store_name = store_link.get_text(strip=True) or store_name
+
+        # Try to get rating
+        rating_el = card.select_one("[class*='rating'], [class*='star']")
+        if rating_el:
+            rating_text = rating_el.get_text(strip=True)
+            if rating_text:
+                seller_rating = rating_text
+
+        # Try to get orders count
+        orders_el = card.select_one("[class*='orders'], [class*='sold']")
+        if orders_el:
+            orders_text = orders_el.get_text(strip=True)
+            if orders_text:
+                seller_orders = orders_text
 
         return ScrapedProduct(
             source="aliexpress",
@@ -220,6 +246,10 @@ class AliExpressScraper(BaseScraper):
             delivery_days_min=self.DELIVERY_DAYS_MIN,
             delivery_days_max=self.DELIVERY_DAYS_MAX,
             seller=seller,
+            seller_full_name=seller_full_name,
+            seller_rating=seller_rating,
+            seller_orders=seller_orders,
+            store_name=store_name,
             condition="New",
             verified=True,
         )
