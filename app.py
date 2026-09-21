@@ -1122,29 +1122,43 @@ def render_deep_search_tab():
         </div>
         """, unsafe_allow_html=True)
 
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Est. Monthly Sold", f"{result.ebay_items_sold_month} ⚠️" if result.ebay_items_sold_month else "—")
-        m2.metric("Price Range", f"{result.ebay_price_range} ⚠️" if result.ebay_price_range else "—")
+        # Check if we have real sold data
+        has_real_data = result.ebay_total_sold_30d > 0
 
-        avg_price = "—"
-        if result.ebay_price_range and "avg" in result.ebay_price_range.lower():
-            import re as _re
-            avg_match = _re.search(r"avg\s*£?([\d,.]+)", result.ebay_price_range, _re.IGNORECASE)
-            if avg_match:
-                avg_price = f"£{avg_match.group(1)}"
-        m3.metric("Average Price", avg_price)
+        if has_real_data:
+            # Real sold data
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Sold (30d)", f"{result.ebay_total_sold_30d} items")
+            m2.metric("Sold (7d)", f"{result.ebay_total_sold_7d} items")
+            m3.metric("Price Range", f"£{result.ebay_price_min:.2f} - £{result.ebay_price_max:.2f}")
+            m4.metric("Average Price", f"£{result.ebay_avg_price:.2f}")
+        else:
+            # LLM estimates
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Est. Monthly Sold", f"{result.ebay_items_sold_month} ⚠️" if result.ebay_items_sold_month else "—")
+            m2.metric("Price Range", f"{result.ebay_price_range} ⚠️" if result.ebay_price_range else "—")
+
+            avg_price = "—"
+            if result.ebay_price_range and "avg" in result.ebay_price_range.lower():
+                import re as _re
+                avg_match = _re.search(r"avg\s*£?([\d,.]+)", result.ebay_price_range, _re.IGNORECASE)
+                if avg_match:
+                    avg_price = f"£{avg_match.group(1)}"
+            m3.metric("Average Price", avg_price)
 
         if result.ebay_top_sellers:
             st.markdown("**Top Sellers:**")
-            for seller in result.ebay_top_sellers:
+            for seller in result.ebay_top_sellers[:5]:
                 s_name = seller.get("name", "Unknown")
-                s_price = seller.get("price", "—")
+                s_price = seller.get("avg_price", seller.get("price", "—"))
                 s_url = seller.get("url", "")
-                cols = st.columns([3, 1, 1])
+                s_count = seller.get("sold_count", "")
+                cols = st.columns([3, 1, 1, 1])
                 cols[0].markdown(f"**{s_name}**")
                 cols[1].markdown(f"£{s_price}" if s_price != "—" else "—")
+                cols[2].markdown(f"{s_count} sold" if s_count else "")
                 if s_url:
-                    with cols[2]:
+                    with cols[3]:
                         st.link_button("View →", s_url)
 
         # ── Notes & Analysis ──
