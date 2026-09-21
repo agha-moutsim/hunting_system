@@ -1269,8 +1269,8 @@ def render_bulk_analysis_tab():
             progress.progress((i) / len(products))
 
             try:
-                from deep_search import deep_search_product
-                result = deep_search_product(product)
+                from deep_search import deep_search_fast
+                result = deep_search_fast(product)
                 results.append(result)
             except Exception as e:
                 st.error(f"Failed to analyze '{product}': {e}")

@@ -369,6 +369,84 @@ def deep_search_product(query: str) -> DeepSearchResult:
     return result
 
 
+def deep_search_fast(query: str) -> DeepSearchResult:
+    """Fast bulk analysis — eBay sold data + supplier scrape only, no LLM.
+    
+    Skips web searches and Ollama to run in seconds instead of minutes.
+    """
+    result = DeepSearchResult(product_name=query)
+    sources: List[str] = []
+    collected_data: List[str] = []
+
+    # ── Get real eBay sold data ──
+    try:
+        from scrapers.ebay_sold import EbaySoldScraper
+        sold_scraper = EbaySoldScraper()
+        sold_data = sold_scraper.get_sold_data(query)
+
+        if sold_data.items:
+            result.ebay_total_sold_30d = sold_data.total_sold_30d
+            result.ebay_total_sold_7d = sold_data.total_sold_7d
+            result.ebay_price_min = sold_data.price_min
+            result.ebay_price_max = sold_data.price_max
+            result.ebay_avg_price = sold_data.price_avg
+            result.ebay_price_median = sold_data.price_median
+            result.ebay_top_sellers = sold_data.top_sellers
+            result.ebay_items_sold_month = f"{sold_data.total_sold_30d} items"
+            result.ebay_price_range = f"£{sold_data.price_min:.2f} - £{sold_data.price_max:.2f} (avg £{sold_data.price_avg:.2f})"
+            sources.extend([item.url for item in sold_data.items[:5] if item.url])
+    except Exception as e:
+        print(f"[WARN] eBay sold data failed: {e}")
+
+    # ── Quick supplier scrape (2 suppliers only, no page fetching) ──
+    try:
+        from scrapers.cjdropshipping import CJDropshippingScraper
+        cj = CJDropshippingScraper()
+        import asyncio
+        cj_products = asyncio.run(cj.search(query))
+        for p in cj_products[:2]:
+            result.suppliers.append({
+                "name": "CJ Dropshipping",
+                "price": p.price,
+                "url": p.url,
+                "supplier_type": "dropshipper",
+                "delivery_days": f"{p.delivery_days_min}-{p.delivery_days_max}",
+            })
+    except Exception as e:
+        print(f"[WARN] CJ scrape failed: {e}")
+
+    try:
+        from scrapers.aliexpress import AliExpressScraper
+        ae = AliExpressScraper()
+        import asyncio
+        ae_products = asyncio.run(ae.search(query))
+        for p in ae_products[:2]:
+            result.suppliers.append({
+                "name": "AliExpress",
+                "price": p.price,
+                "url": p.url,
+                "supplier_type": "dropshipper",
+                "delivery_days": f"{p.delivery_days_min}-{p.delivery_days_max}",
+            })
+    except Exception as e:
+        print(f"[WARN] AliExpress scrape failed: {e}")
+
+    # Find best supplier
+    if result.suppliers:
+        valid = [s for s in result.suppliers if isinstance(s.get("price"), (int, float)) and s["price"] > 0]
+        if valid:
+            best = min(valid, key=lambda s: s["price"])
+            result.best_supplier_price = best["price"]
+
+    result.sources = sources
+    result.notes = "Fast analysis (no LLM). For full analysis use Deep Search tab."
+
+    # Calculate profit & verdict
+    _calculate_profit_and_verdict(result)
+
+    return result
+
+
 def _calculate_profit_and_verdict(result: DeepSearchResult):
     """Calculate profit, margin, and verdict using the same rules as the Analyze tab."""
     from config import FILTERS
