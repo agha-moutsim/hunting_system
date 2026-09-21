@@ -395,6 +395,9 @@ def deep_search_fast(query: str) -> DeepSearchResult:
             result.ebay_items_sold_month = f"{sold_data.total_sold_30d} items"
             result.ebay_price_range = f"£{sold_data.price_min:.2f} - £{sold_data.price_max:.2f} (avg £{sold_data.price_avg:.2f})"
             sources.extend([item.url for item in sold_data.items[:5] if item.url])
+            print(f"[OK] eBay sold: {sold_data.total_sold_30d} items, avg £{sold_data.price_avg:.2f}")
+        else:
+            print(f"[WARN] eBay sold: no items found for '{query}'")
     except Exception as e:
         print(f"[WARN] eBay sold data failed: {e}")
 
@@ -406,6 +409,7 @@ def deep_search_fast(query: str) -> DeepSearchResult:
             from scrapers.cjdropshipping import CJDropshippingScraper
             cj = CJDropshippingScraper()
             products = await cj.search(query)
+            print(f"[OK] CJ Dropshipping: {len(products)} products found")
             return [("CJ Dropshipping", p) for p in products[:2]]
         except Exception as e:
             print(f"[WARN] CJ scrape failed: {e}")
@@ -416,6 +420,7 @@ def deep_search_fast(query: str) -> DeepSearchResult:
             from scrapers.aliexpress import AliExpressScraper
             ae = AliExpressScraper()
             products = await ae.search(query)
+            print(f"[OK] AliExpress: {len(products)} products found")
             return [("AliExpress", p) for p in products[:2]]
         except Exception as e:
             print(f"[WARN] AliExpress scrape failed: {e}")
@@ -426,6 +431,7 @@ def deep_search_fast(query: str) -> DeepSearchResult:
             from scrapers.amazon_uk import AmazonUKScraper
             amz = AmazonUKScraper()
             products = await amz.search(query)
+            print(f"[OK] Amazon UK: {len(products)} products found")
             return [("Amazon UK", p) for p in products[:2]]
         except Exception as e:
             print(f"[WARN] Amazon scrape failed: {e}")
@@ -483,15 +489,23 @@ def _calculate_profit_and_verdict(result: DeepSearchResult):
     ebay_price = result.ebay_avg_price
     supplier_cost = result.best_supplier_price
 
-    if ebay_price <= 0 or supplier_cost <= 0:
+    # Show what data is missing
+    missing = []
+    if ebay_price <= 0:
+        missing.append("eBay price (no sold data found)")
+    if supplier_cost <= 0:
+        missing.append("Supplier cost (no suppliers found)")
+
+    if missing:
         result.verdict = "PENDING"
         result.filters_passed.append({
             "name": "Data",
             "passed": False,
-            "actual": "Missing price data",
+            "actual": f"Missing: {', '.join(missing)}",
             "expected": "eBay avg price + supplier cost required",
             "verified": False,
         })
+        result.notes = f"Cannot determine verdict — {', '.join(missing)}. Try Deep Search tab for full analysis with LLM."
         return
 
     # eBay fees: 12.8% final value + 3% returns buffer

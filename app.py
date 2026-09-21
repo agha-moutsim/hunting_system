@@ -1310,6 +1310,16 @@ def render_bulk_analysis_tab():
                 m3.metric("Profit", f"£{result.profit:.2f}" if result.profit else "—")
                 m4.metric("Margin", f"{result.margin:.1f}%" if result.margin else "—")
 
+                # Show what's missing for PENDING
+                if verdict == "PENDING":
+                    missing = []
+                    if not result.ebay_avg_price:
+                        missing.append("eBay sold data")
+                    if not result.best_supplier_price:
+                        missing.append("Supplier prices")
+                    if missing:
+                        st.warning(f"Missing data: {', '.join(missing)}. Try Deep Search tab for full analysis.")
+
                 # Show suppliers with full details
                 if result.suppliers:
                     st.markdown("**Suppliers:**")
