@@ -79,6 +79,7 @@ class JoybuyScraper(BaseScraper):
         """Parse search results page into ScrapedProduct list."""
         soup = self.parse(html)
         products: list[ScrapedProduct] = []
+        seen_titles = set()
 
         cards = soup.select('[class*="product"], [class*="item"], [data-sku]')
         if not cards:
@@ -87,7 +88,7 @@ class JoybuyScraper(BaseScraper):
         for card in cards:
             try:
                 title = self._extract_title(card)
-                if not title:
+                if not title or len(title) < 5 or title in seen_titles:
                     continue
 
                 price = self._extract_price(card)
@@ -97,14 +98,27 @@ class JoybuyScraper(BaseScraper):
                 link = self._extract_link(card)
                 image_url = self._extract_image(card)
 
+                # Try to extract delivery days from card
+                delivery_min, delivery_max = DELIVERY_MIN, DELIVERY_MAX
+                delivery_el = card.select_one("[class*='delivery'], [class*='shipping']")
+                if delivery_el:
+                    import re
+                    days = re.findall(r"(\d+)", delivery_el.get_text())
+                    if len(days) >= 2:
+                        delivery_min = int(days[0])
+                        delivery_max = int(days[1])
+                    elif len(days) == 1:
+                        delivery_min = delivery_max = int(days[0])
+
+                seen_titles.add(title)
                 product = ScrapedProduct(
                     source="joybuy",
                     title=title,
                     price=price,
                     url=link,
                     image_url=image_url,
-                    delivery_days_min=DELIVERY_MIN,
-                    delivery_days_max=DELIVERY_MAX,
+                    delivery_days_min=delivery_min,
+                    delivery_days_max=delivery_max,
                     condition="New",
                     verified=True,
                     raw_html=str(card),
