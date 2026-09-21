@@ -1105,7 +1105,9 @@ def render_deep_search_tab():
                 with st.expander("Filter Details", expanded=True):
                     for f in result.filters_passed:
                         icon = "✅" if f.get("passed") else "❌"
-                        st.markdown(f"{icon} **{f.get('name', '')}**: {f.get('actual', '')} (expected {f.get('expected', '')})")
+                        verified = f.get("verified", False)
+                        verify_tag = "" if verified else " ⚠️ Unverified"
+                        st.markdown(f"{icon} **{f.get('name', '')}**: {f.get('actual', '')} (expected {f.get('expected', '')}){verify_tag}")
 
         # ── eBay Market Data ──
         st.markdown("""
@@ -1116,8 +1118,8 @@ def render_deep_search_tab():
         """, unsafe_allow_html=True)
 
         m1, m2, m3 = st.columns(3)
-        m1.metric("Est. Monthly Sold", result.ebay_items_sold_month or "—")
-        m2.metric("Price Range", result.ebay_price_range or "—")
+        m1.metric("Est. Monthly Sold", f"{result.ebay_items_sold_month} ⚠️" if result.ebay_items_sold_month else "—")
+        m2.metric("Price Range", f"{result.ebay_price_range} ⚠️" if result.ebay_price_range else "—")
 
         avg_price = "—"
         if result.ebay_price_range and "avg" in result.ebay_price_range.lower():
