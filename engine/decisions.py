@@ -115,12 +115,89 @@ class DecisionEngine:
         if supplier_price is not None:
             profit_info = calculate_profit(product.price, supplier_price)
 
+        # --- Margin filter ---
+        margin_min = self.filters.get("margin_min", 25.0)
+        margin_pass = profit_info["margin"] >= margin_min
+        filters.append(FilterResult(
+            name="Margin",
+            passed=margin_pass,
+            actual=f"{profit_info['margin']:.1f}%",
+            expected=f"\u2265{margin_min}%",
+            verified=supplier_price is not None,
+        ))
+
+        # --- Delivery filter ---
+        delivery_min = self.filters.get("delivery_min", 3)
+        delivery_max = self.filters.get("delivery_target_max", 8)
+        delivery_exception_max = self.filters.get("delivery_exception_max", 25)
+        demand_strong = self.filters.get("demand_strong_30d", 30)
+
+        # Check if product has delivery info
+        delivery_days = getattr(product, "delivery_days_max", None)
+        if delivery_days is not None:
+            # Exception: high-demand products can have longer delivery
+            demand_30d = demand.sold_count_30d if demand and demand.sold_count_30d else 0
+            if demand_30d >= demand_strong and delivery_days <= delivery_exception_max:
+                delivery_pass = True
+                delivery_note = f" (exception: {demand_30d} sold/month)"
+            else:
+                delivery_pass = delivery_days <= delivery_max
+                delivery_note = ""
+            filters.append(FilterResult(
+                name="Delivery",
+                passed=delivery_pass,
+                actual=f"{delivery_days} days{delivery_note}",
+                expected=f"{delivery_min}-{delivery_max} days",
+                verified=True,
+            ))
+        else:
+            filters.append(FilterResult(
+                name="Delivery",
+                passed=False,
+                actual="Unknown",
+                expected=f"{delivery_min}-{delivery_max} days",
+                verified=False,
+            ))
+
+        # --- Brand filter (generic only) ---
+        brand_filter = self.filters.get("brand_filter", "generic_only")
+        if brand_filter == "generic_only":
+            # Check if product has brand info
+            brand = getattr(product, "brand", None)
+            if brand:
+                brand_lower = brand.lower()
+                # Known brand indicators
+                brand_indicators = ["apple", "samsung", "sony", "nike", "adidas", "lg", "bose",
+                                   "philips", "dyson", "amazon basics", "microsoft", "google"]
+                is_branded = any(b in brand_lower for b in brand_indicators)
+                filters.append(FilterResult(
+                    name="Brand",
+                    passed=not is_branded,
+                    actual=f"Branded: {brand}" if is_branded else "Generic",
+                    expected="Generic (no brand)",
+                    verified=True,
+                ))
+            else:
+                # No brand info - can't verify
+                filters.append(FilterResult(
+                    name="Brand",
+                    passed=True,
+                    actual="No brand detected",
+                    expected="Generic (no brand)",
+                    verified=False,
+                ))
+
         # --- Verdict ---
         all_passed = all(f.passed for f in filters)
         any_unverified = any(not f.verified for f in filters)
-        verdict_str = "pass" if all_passed and profit_info["profit"] > 0 else (
-            "pending" if any_unverified else "fail"
-        )
+        profit_positive = profit_info["profit"] > 0
+
+        if all_passed and profit_positive:
+            verdict_str = "pass"
+        elif any_unverified and profit_positive:
+            verdict_str = "pending"
+        else:
+            verdict_str = "fail"
 
         return Verdict(
             verdict=verdict_str,
