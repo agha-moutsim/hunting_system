@@ -88,23 +88,23 @@ class AliExpressScraper(BaseScraper):
         except Exception as e:
             print(f"[INFO] AliExpress RapidAPI unavailable: {e}")
             return []
-            return []
 
     def _parse_search_results(self, html: str) -> list[ScrapedProduct]:
         """Parse AliExpress search results page."""
         soup = self.parse(html)
         results = []
+        seen_titles = set()
 
         # AliExpress renders product cards as links with /item/ in the href
         cards = soup.select('a[href*="/item/"]')
         if not cards:
-            # Fallback: try product card containers
             cards = soup.select("div[data-widget='search#productList'] a[href]")
 
         for card in cards:
             try:
                 product = self._extract_search_card(card)
-                if product and product.price > 0:
+                if product and product.price > 0 and product.title not in seen_titles:
+                    seen_titles.add(product.title)
                     results.append(product)
             except Exception as e:
                 print(f"[WARN] Failed to parse AliExpress card: {e}")
@@ -114,13 +114,18 @@ class AliExpressScraper(BaseScraper):
 
     def _extract_search_card(self, card) -> Optional[ScrapedProduct]:
         """Extract product data from a single search result card."""
-        # Title
+        # Title — get from parent container, not just the link
         title = card.get("title", "").strip()
         if not title:
-            title_el = card.select_one("h3, [class*='title'], [class*='name']")
-            if title_el:
-                title = title_el.get_text(strip=True)
-        if not title:
+            # Try multiple selectors for title
+            for sel in ["h3", "[class*='title']", "[class*='name']", "span"]:
+                title_el = card.select_one(sel)
+                if title_el:
+                    text = title_el.get_text(strip=True)
+                    if len(text) > 10:  # Real titles are longer
+                        title = text
+                        break
+        if not title or len(title) < 5:
             return None
 
         # URL
@@ -137,26 +142,55 @@ class AliExpressScraper(BaseScraper):
         if not url:
             return None
 
-        # Price (USD) — look for price spans, extract numeric value
+        # Price — look for specific price containers, avoid duplicates
         price_usd = 0.0
-        for sel in [
-            "[class*='price'] span",
-            "[class*='Price'] span",
-            "[class*='price']",
-        ]:
-            price_els = card.select(sel)
-            for price_el in price_els:
-                text = price_el.get_text(strip=True)
-                match = re.search(r"[\d,.]+", text)
-                if match:
-                    try:
-                        price_usd = float(match.group().replace(",", ""))
-                        if price_usd > 0:
-                            break
-                    except ValueError:
-                        continue
-            if price_usd > 0:
-                break
+
+        # Method 1: Look for data attributes with price
+        price_el = card.select_one("[data-price], [data-product-price]")
+        if price_el:
+            price_attr = price_el.get("data-price") or price_el.get("data-product-price", "")
+            try:
+                price_usd = float(str(price_attr).replace(",", ""))
+            except (ValueError, TypeError):
+                pass
+
+        # Method 2: Look for specific price class patterns
+        if price_usd <= 0:
+            for sel in [
+                "span[data-testid='product-price']",
+                "[class*='Price'] [class*='value']",
+                "[class*='price'] [class*='current']",
+                "[class*='Price']:not([class*='original'])",
+            ]:
+                price_els = card.select(sel)
+                for price_el in price_els:
+                    text = price_el.get_text(strip=True)
+                    # Match patterns like "£3.50", "$4.99", "3.50"
+                    match = re.search(r"[£$]?(\d+\.?\d*)", text)
+                    if match:
+                        try:
+                            val = float(match.group(1))
+                            if 0.1 < val < 1000:  # Sanity check
+                                price_usd = val
+                                break
+                        except ValueError:
+                            continue
+                if price_usd > 0:
+                    break
+
+        # Method 3: Fallback — get all text with price-like patterns
+        if price_usd <= 0:
+            all_text = card.get_text()
+            # Find all price-like values
+            prices = re.findall(r"[£$]?(\d+\.\d{2})", all_text)
+            for p in prices:
+                try:
+                    val = float(p)
+                    if 0.1 < val < 1000:
+                        price_usd = val
+                        break
+                except ValueError:
+                    continue
 
         if price_usd <= 0:
             return None
