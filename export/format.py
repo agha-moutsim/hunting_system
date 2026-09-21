@@ -43,10 +43,15 @@ def format_to_schema(result: Any) -> dict:
     for supplier in result.suppliers:
         suppliers.append({
             "name": supplier.get("name", ""),
+            "full_name": supplier.get("full_name", ""),
             "item_cost": supplier.get("price", 0),
             "link": supplier.get("url", ""),
             "type": supplier.get("supplier_type", "unknown"),
             "delivery_days": supplier.get("delivery_days", "unknown"),
+            "seller_rating": supplier.get("seller_rating", ""),
+            "seller_orders": supplier.get("seller_orders", ""),
+            "product_title": supplier.get("product_title", ""),
+            "image_url": supplier.get("image_url", ""),
         })
 
     # Build output
