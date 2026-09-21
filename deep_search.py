@@ -59,6 +59,11 @@ class DeepSearchResult:
     ebay_top_sellers: List[dict] = field(default_factory=list)
     ebay_price_range: str = ""
     ebay_avg_price: float = 0.0
+    ebay_price_min: float = 0.0
+    ebay_price_max: float = 0.0
+    ebay_price_median: float = 0.0
+    ebay_total_sold_30d: int = 0
+    ebay_total_sold_7d: int = 0
     suppliers: List[dict] = field(default_factory=list)  # [{name, price, url, type, delivery}]
     best_supplier_price: float = 0.0
     profit: float = 0.0
@@ -258,6 +263,27 @@ def deep_search_product(query: str) -> DeepSearchResult:
     sources: List[str] = []
     collected_data: List[str] = []
 
+    # ── Get real eBay sold data first ──
+    try:
+        from scrapers.ebay_sold import EbaySoldScraper
+        sold_scraper = EbaySoldScraper()
+        sold_data = sold_scraper.get_sold_data(query)
+
+        # Use real data instead of LLM estimates
+        if sold_data.items:
+            result.ebay_total_sold_30d = sold_data.total_sold_30d
+            result.ebay_total_sold_7d = sold_data.total_sold_7d
+            result.ebay_price_min = sold_data.price_min
+            result.ebay_price_max = sold_data.price_max
+            result.ebay_avg_price = sold_data.price_avg
+            result.ebay_price_median = sold_data.price_median
+            result.ebay_top_sellers = sold_data.top_sellers
+            result.ebay_items_sold_month = f"{sold_data.total_sold_30d} items"
+            result.ebay_price_range = f"£{sold_data.price_min:.2f} - £{sold_data.price_max:.2f} (avg £{sold_data.price_avg:.2f})"
+            result.sources.extend([item.url for item in sold_data.items[:5] if item.url])
+    except Exception as e:
+        print(f"[WARN] eBay sold data unavailable: {e}")
+
     search_queries = [
         f"{query} eBay UK sold price",
         f"{query} site:godropship.co.uk",
@@ -307,16 +333,20 @@ def deep_search_product(query: str) -> DeepSearchResult:
 
     result.product_name = parsed.get("product_name", query)
     result.product_category = parsed.get("product_category", "")
-    result.ebay_items_sold_month = parsed.get("ebay_items_sold_month", "")
-    result.ebay_top_sellers = parsed.get("ebay_top_sellers", [])
-    result.ebay_price_range = parsed.get("ebay_price_range", "")
 
-    # Parse avg price
-    avg = parsed.get("ebay_avg_price", 0)
-    try:
-        result.ebay_avg_price = float(avg)
-    except (ValueError, TypeError):
-        result.ebay_avg_price = 0.0
+    # Use real eBay sold data if available, otherwise fall back to LLM estimates
+    if result.ebay_total_sold_30d == 0:
+        # No real data, use LLM estimate
+        result.ebay_items_sold_month = parsed.get("ebay_items_sold_month", "")
+        result.ebay_top_sellers = parsed.get("ebay_top_sellers", [])
+        result.ebay_price_range = parsed.get("ebay_price_range", "")
+
+        # Parse avg price
+        avg = parsed.get("ebay_avg_price", 0)
+        try:
+            result.ebay_avg_price = float(avg)
+        except (ValueError, TypeError):
+            result.ebay_avg_price = 0.0
 
     # Parse multiple suppliers
     suppliers = parsed.get("suppliers", [])
