@@ -409,6 +409,11 @@ def render_sidebar():
                 value=int(custom_filters["delivery_target_max"]), key="f_delivery",
             )
 
+            margin_min = st.slider(
+                "Min margin %", min_value=0, max_value=50,
+                value=int(custom_filters.get("margin_min", 25)), key="f_margin",
+            )
+
             btn_col1, btn_col2, btn_col3 = st.columns(3)
             with btn_col1:
                 if st.button("Apply", use_container_width=True, type="primary"):
@@ -418,7 +423,14 @@ def render_sidebar():
                         "demand_min_30d": demand_30d,
                         "demand_min_7d": demand_7d,
                         "demand_strong_30d": custom_filters.get("demand_strong_30d", 30),
+                        "delivery_min": custom_filters.get("delivery_min", 3),
                         "delivery_target_max": delivery_max,
+                        "delivery_exception_max": custom_filters.get("delivery_exception_max", 25),
+                        "margin_min": float(margin_min),
+                        "brand_filter": custom_filters.get("brand_filter", "generic_only"),
+                        "condition": custom_filters.get("condition", "New"),
+                        "buy_it_now": custom_filters.get("buy_it_now", True),
+                        "uk_only": custom_filters.get("uk_only", True),
                     }
                     set_active_filters(new_filters)
                     st.success("Filters updated!")
@@ -455,9 +467,10 @@ def render_sidebar():
         # Show current active filters compactly
         f = get_active_filters()
         st.caption(
-            f"Filters: £{f['price_min']:.0f}–£{f['price_max']:.0f} | "
-            f"30d≥{f['demand_min_30d']} | 7d≥{f['demand_min_7d']} | "
-            f"delivery≤{f['delivery_target_max']}d"
+            f"Filters: £{f['price_min']:.0f}-£{f['price_max']:.0f} | "
+            f"30d>={f['demand_min_30d']} | 7d>={f['demand_min_7d']} | "
+            f"delivery<={f['delivery_target_max']}d | "
+            f"margin>={f.get('margin_min', 25)}%"
         )
 
         st.divider()
