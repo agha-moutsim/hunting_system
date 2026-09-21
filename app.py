@@ -1224,6 +1224,142 @@ def render_deep_search_tab():
                 st.code(result.raw_analysis, language=None)
 
 
+# ─── Bulk Analysis Tab ─────────────────────────────────────────
+
+def render_bulk_analysis_tab():
+    """Render the bulk analysis tab for multiple products."""
+    st.markdown("""
+    <div style="color: #E2E8F0; font-size: 1.1rem; font-weight: 600; margin: 0.5rem 0 1rem 0;
+                 border-bottom: 1px solid #334155; padding-bottom: 8px;">
+        📦  Bulk Analysis
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("""
+    Enter multiple products to analyze at once. Each line = one product.
+    """)
+
+    # Text area for products
+    products_text = st.text_area(
+        "Products (one per line)",
+        placeholder="wireless earbuds\nbluetooth speaker\nphone case\nlaptop stand",
+        height=150,
+        key="bulk_products",
+    )
+
+    # Analyze button
+    if st.button("Analyze All Products", type="primary", use_container_width=True):
+        if not products_text.strip():
+            st.warning("Please enter at least one product.")
+            return
+
+        products = [p.strip() for p in products_text.strip().split("\n") if p.strip()]
+        if not products:
+            st.warning("No valid products entered.")
+            return
+
+        st.info(f"Analyzing {len(products)} products...")
+
+        results = []
+        progress = st.progress(0)
+        status = st.empty()
+
+        for i, product in enumerate(products):
+            status.text(f"Analyzing: {product} ({i+1}/{len(products)})")
+            progress.progress((i) / len(products))
+
+            try:
+                from deep_search import deep_search_product
+                result = deep_search_product(product)
+                results.append(result)
+            except Exception as e:
+                st.error(f"Failed to analyze '{product}': {e}")
+
+        progress.progress(1.0)
+        status.text("Complete!")
+
+        if results:
+            st.session_state["bulk_results"] = results
+            st.success(f"Analyzed {len(results)} products successfully!")
+
+    # Display results if available
+    if "bulk_results" in st.session_state and st.session_state["bulk_results"]:
+        results = st.session_state["bulk_results"]
+
+        st.markdown("""
+        <div style="color: #E2E8F0; font-size: 1.05rem; font-weight: 600; margin: 1.2rem 0 0.6rem 0;
+                     border-bottom: 1px solid #334155; padding-bottom: 6px;">
+            📊  Results
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Summary table
+        for i, result in enumerate(results):
+            verdict = result.verdict.upper() if result.verdict else "PENDING"
+            icon = "✅" if verdict == "PASS" else "❌" if verdict == "FAIL" else "⏳"
+
+            with st.expander(f"{icon} {result.product_name} — {verdict}", expanded=False):
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("Sold (30d)", f"{result.ebay_total_sold_30d}" if result.ebay_total_sold_30d else "—")
+                m2.metric("Avg Price", f"£{result.ebay_avg_price:.2f}" if result.ebay_avg_price else "—")
+                m3.metric("Profit", f"£{result.profit:.2f}" if result.profit else "—")
+                m4.metric("Margin", f"{result.margin:.1f}%" if result.margin else "—")
+
+                # Export buttons
+                from export import export_to_csv, export_to_json
+                exp_col1, exp_col2 = st.columns(2)
+                with exp_col1:
+                    csv_data = export_to_csv(result)
+                    st.download_button(
+                        label="Download CSV",
+                        data=csv_data,
+                        file_name=f"ebay_hunter_{result.product_name.replace(' ', '_')}.csv",
+                        mime="text/csv",
+                        key=f"bulk_csv_{i}",
+                        use_container_width=True,
+                    )
+                with exp_col2:
+                    json_data = export_to_json(result)
+                    st.download_button(
+                        label="Download JSON",
+                        data=json_data,
+                        file_name=f"ebay_hunter_{result.product_name.replace(' ', '_')}.json",
+                        mime="application/json",
+                        key=f"bulk_json_{i}",
+                        use_container_width=True,
+                    )
+
+        # Bulk export buttons
+        st.markdown("""
+        <div style="color: #E2E8F0; font-size: 1.05rem; font-weight: 600; margin: 1.2rem 0 0.6rem 0;
+                     border-bottom: 1px solid #334155; padding-bottom: 6px;">
+            📥  Export All Results
+        </div>
+        """, unsafe_allow_html=True)
+
+        from export import export_bulk_to_csv, export_bulk_to_json
+
+        bulk_col1, bulk_col2 = st.columns(2)
+        with bulk_col1:
+            bulk_csv = export_bulk_to_csv(results)
+            st.download_button(
+                label="Download All CSV",
+                data=bulk_csv,
+                file_name="ebay_hunter_bulk_results.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+        with bulk_col2:
+            bulk_json = export_bulk_to_json(results)
+            st.download_button(
+                label="Download All JSON",
+                data=bulk_json,
+                file_name="ebay_hunter_bulk_results.json",
+                mime="application/json",
+                use_container_width=True,
+            )
+
+
 # ─── Main ───────────────────────────────────────────────────────
 
 def main():
@@ -1268,13 +1404,16 @@ def main():
         return
 
     # Main tabs
-    tab_analyze, tab_deep, tab_history = st.tabs(["🔍  Analyze", "🔬  Deep Search", "📋  History"])
+    tab_analyze, tab_deep, tab_bulk, tab_history = st.tabs(["🔍  Analyze", "🔬  Deep Search", "📦  Bulk Analysis", "📋  History"])
 
     with tab_analyze:
         render_analyze_tab()
 
     with tab_deep:
         render_deep_search_tab()
+
+    with tab_bulk:
+        render_bulk_analysis_tab()
 
     with tab_history:
         render_history_tab()
