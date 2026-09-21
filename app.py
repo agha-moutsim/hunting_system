@@ -1068,10 +1068,15 @@ def render_deep_search_tab():
                 with comp_cols[i + 1]:
                     sprice = s.get("price", 0) if isinstance(s.get("price"), (int, float)) else 0
                     profit = result.ebay_avg_price - sprice if sprice > 0 else 0
+                    delivery_min = s.get("delivery_min", 0)
+                    delivery_max = s.get("delivery_max", 0)
+                    delivery_str = f"{delivery_min}-{delivery_max}d" if delivery_max else "?"
+                    verified = s.get("verified", False)
+                    verify_icon = "API" if verified else "Scrape"
                     st.metric(
-                        s.get("name", f"Supplier {i+1}"),
+                        f"{s.get('name', f'Supplier {i+1}')} [{verify_icon}]",
                         f"£{sprice:.2f}",
-                        delta=f"+£{profit:.2f}" if profit > 0 else f"£{profit:.2f}",
+                        delta=f"+£{profit:.2f} ({delivery_str})" if profit > 0 else f"£{profit:.2f} ({delivery_str})",
                         delta_color="normal",
                     )
 
