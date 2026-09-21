@@ -28,6 +28,10 @@ class ScrapedProduct:
     delivery_days_min: Optional[int] = None
     delivery_days_max: Optional[int] = None
     seller: Optional[str] = None
+    seller_full_name: Optional[str] = None
+    seller_rating: Optional[str] = None
+    seller_orders: Optional[str] = None
+    store_name: Optional[str] = None
     condition: str = "New"
     verified: bool = True
     raw_html: Optional[str] = None
