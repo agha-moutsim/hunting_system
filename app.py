@@ -1184,6 +1184,36 @@ def render_deep_search_tab():
             </div>
             """, unsafe_allow_html=True)
 
+        # ── Export Section ──
+        st.markdown("""
+        <div style="color: #E2E8F0; font-size: 1.05rem; font-weight: 600; margin: 1.2rem 0 0.6rem 0;
+                     border-bottom: 1px solid #334155; padding-bottom: 6px;">
+            📥  Export
+        </div>
+        """, unsafe_allow_html=True)
+
+        from export import export_to_csv, export_to_json
+
+        exp_col1, exp_col2 = st.columns(2)
+        with exp_col1:
+            csv_data = export_to_csv(result)
+            st.download_button(
+                label="Download CSV",
+                data=csv_data,
+                file_name=f"ebay_hunter_{result.product_name.replace(' ', '_')}.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+        with exp_col2:
+            json_data = export_to_json(result)
+            st.download_button(
+                label="Download JSON",
+                data=json_data,
+                file_name=f"ebay_hunter_{result.product_name.replace(' ', '_')}.json",
+                mime="application/json",
+                use_container_width=True,
+            )
+
         if result.sources:
             with st.expander("Sources"):
                 for src in result.sources[:10]:
