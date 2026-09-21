@@ -91,13 +91,13 @@ class AmazonUKScraper(BaseScraper):
             string_to_sign = f"{algorithm}\n{amz_date}\n{credential_scope}\n{hashlib.sha256(canonical_request.encode('utf-8')).hexdigest()}"
 
             def _sign(key, msg):
-                return hmac.new(key, msg.encode("utf-8"), hashlib.sha256).digest()
+                return hmac.HMAC(key, msg.encode("utf-8"), hashlib.sha256).digest()
 
             k_date = _sign(("AWS4" + secret_key).encode("utf-8"), datestamp)
             k_region = _sign(k_date, "eu-west-1")
             k_service = _sign(k_region, "ProductAdvertisingAPI")
             k_signing = _sign(k_service, "aws4_request")
-            signature = hmac.new(k_signing, string_to_sign.encode("utf-8"), hashlib.sha256).hexdigest()
+            signature = hmac.HMAC(k_signing, string_to_sign.encode("utf-8"), hashlib.sha256).hexdigest()
 
             authorization = f"{algorithm} Credential={access_key}/{credential_scope}, SignedHeaders={signed_headers}, Signature={signature}"
 
