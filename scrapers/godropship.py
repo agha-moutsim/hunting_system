@@ -76,7 +76,7 @@ class GoDropshipScraper(BaseScraper):
             "h3",
             "a[href*='/product/']",
         ])
-        if not title:
+        if not title or len(title) < 5:
             return None
 
         price_text = self._extract_text(item, [
@@ -87,6 +87,8 @@ class GoDropshipScraper(BaseScraper):
             "[class*='price']",
         ])
         price = self._parse_price(price_text) if price_text else 0.0
+        if price <= 0:
+            return None
 
         link = self._extract_link(item)
         if not link:
@@ -96,14 +98,30 @@ class GoDropshipScraper(BaseScraper):
 
         image_url = self._extract_image(item)
 
+        # Try to extract delivery days from text
+        delivery_text = self._extract_text(item, [
+            "div.delivery-time",
+            "span.shipping",
+            "[class*='delivery']",
+        ])
+        delivery_min, delivery_max = self.DELIVERY_MIN, self.DELIVERY_MAX
+        if delivery_text:
+            import re
+            days = re.findall(r"(\d+)", delivery_text)
+            if len(days) >= 2:
+                delivery_min = int(days[0])
+                delivery_max = int(days[1])
+            elif len(days) == 1:
+                delivery_min = delivery_max = int(days[0])
+
         return ScrapedProduct(
             source=self.SUPPLIER_ID,
             title=title,
             price=price,
             url=link,
             image_url=image_url,
-            delivery_days_min=self.DELIVERY_MIN,
-            delivery_days_max=self.DELIVERY_MAX,
+            delivery_days_min=delivery_min,
+            delivery_days_max=delivery_max,
             verified=True,
         )
 
