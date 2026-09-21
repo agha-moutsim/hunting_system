@@ -373,10 +373,10 @@ def deep_search_fast(query: str) -> DeepSearchResult:
     """Fast bulk analysis — eBay sold data + supplier scrape only, no LLM.
     
     Skips web searches and Ollama to run in seconds instead of minutes.
+    Runs supplier scrapes in parallel for speed.
     """
     result = DeepSearchResult(product_name=query)
     sources: List[str] = []
-    collected_data: List[str] = []
 
     # ── Get real eBay sold data ──
     try:
@@ -398,38 +398,67 @@ def deep_search_fast(query: str) -> DeepSearchResult:
     except Exception as e:
         print(f"[WARN] eBay sold data failed: {e}")
 
-    # ── Quick supplier scrape (2 suppliers only, no page fetching) ──
-    try:
-        from scrapers.cjdropshipping import CJDropshippingScraper
-        cj = CJDropshippingScraper()
-        import asyncio
-        cj_products = asyncio.run(cj.search(query))
-        for p in cj_products[:2]:
-            result.suppliers.append({
-                "name": "CJ Dropshipping",
-                "price": p.price,
-                "url": p.url,
-                "supplier_type": "dropshipper",
-                "delivery_days": f"{p.delivery_days_min}-{p.delivery_days_max}",
-            })
-    except Exception as e:
-        print(f"[WARN] CJ scrape failed: {e}")
+    # ── Run supplier scrapes in PARALLEL ──
+    import asyncio
 
+    async def _scrape_cj():
+        try:
+            from scrapers.cjdropshipping import CJDropshippingScraper
+            cj = CJDropshippingScraper()
+            products = await cj.search(query)
+            return [("CJ Dropshipping", p) for p in products[:2]]
+        except Exception as e:
+            print(f"[WARN] CJ scrape failed: {e}")
+            return []
+
+    async def _scrape_ae():
+        try:
+            from scrapers.aliexpress import AliExpressScraper
+            ae = AliExpressScraper()
+            products = await ae.search(query)
+            return [("AliExpress", p) for p in products[:2]]
+        except Exception as e:
+            print(f"[WARN] AliExpress scrape failed: {e}")
+            return []
+
+    async def _scrape_amazon():
+        try:
+            from scrapers.amazon_uk import AmazonUKScraper
+            amz = AmazonUKScraper()
+            products = await amz.search(query)
+            return [("Amazon UK", p) for p in products[:2]]
+        except Exception as e:
+            print(f"[WARN] Amazon scrape failed: {e}")
+            return []
+
+    # Run all scrapers in parallel
     try:
-        from scrapers.aliexpress import AliExpressScraper
-        ae = AliExpressScraper()
-        import asyncio
-        ae_products = asyncio.run(ae.search(query))
-        for p in ae_products[:2]:
-            result.suppliers.append({
-                "name": "AliExpress",
-                "price": p.price,
-                "url": p.url,
-                "supplier_type": "dropshipper",
-                "delivery_days": f"{p.delivery_days_min}-{p.delivery_days_max}",
-            })
+        loop = asyncio.new_event_loop()
+        cj_results, ae_results, amz_results = loop.run_until_complete(
+            asyncio.gather(_scrape_cj(), _scrape_ae(), _scrape_amazon())
+        )
+        loop.close()
     except Exception as e:
-        print(f"[WARN] AliExpress scrape failed: {e}")
+        print(f"[WARN] Parallel scrape failed: {e}")
+        cj_results, ae_results, amz_results = [], [], []
+
+    # Process results
+    for source_name, product in cj_results + ae_results + amz_results:
+        supplier_type = "retailer" if source_name == "Amazon UK" else "dropshipper"
+        store_display = product.store_name or product.seller or source_name
+
+        result.suppliers.append({
+            "name": f"{source_name} - {store_display}" if store_display != source_name else source_name,
+            "full_name": store_display,
+            "price": product.price,
+            "url": product.url,
+            "supplier_type": supplier_type,
+            "delivery_days": f"{product.delivery_days_min}-{product.delivery_days_max}",
+            "seller_rating": product.seller_rating,
+            "seller_orders": product.seller_orders,
+            "product_title": product.title,
+            "image_url": product.image_url,
+        })
 
     # Find best supplier
     if result.suppliers:
