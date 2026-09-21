@@ -2,6 +2,7 @@
 CJ Dropshipping scraper — API first, falls back to Playwright scraping.
 """
 
+import json
 import os
 from typing import Optional
 
@@ -43,9 +44,25 @@ class CJDropshippingScraper(BaseScraper):
             import requests
             import time
 
-            # Get token
+            # Get or refresh token
             token = os.getenv("CJ_ACCESS_TOKEN", "")
-            if not token:
+            token_file = os.path.join(os.path.dirname(__file__), "..", "data", "cj_token.json")
+
+            # Check if token is cached and valid
+            cached_token = None
+            if os.path.exists(token_file):
+                try:
+                    with open(token_file, "r") as f:
+                        cache = json.load(f)
+                    if cache.get("expiry", 0) > time.time():
+                        cached_token = cache.get("token")
+                except Exception:
+                    pass
+
+            if cached_token:
+                token = cached_token
+            elif not token:
+                # Get fresh token
                 resp = requests.post(
                     "https://developers.cjdropshipping.com/api2.0/v1/authentication/getAccessToken",
                     json={"apiKey": api_key},
@@ -54,6 +71,11 @@ class CJDropshippingScraper(BaseScraper):
                 data = resp.json()
                 if data.get("code") == 200:
                     token = data["data"]["accessToken"]
+                    # Cache token (expires in 180 days, refresh at 170)
+                    expiry = time.time() + (170 * 24 * 3600)
+                    os.makedirs(os.path.dirname(token_file), exist_ok=True)
+                    with open(token_file, "w") as f:
+                        json.dump({"token": token, "expiry": expiry}, f)
 
             if not token:
                 return []
@@ -74,6 +96,39 @@ class CJDropshippingScraper(BaseScraper):
                 timeout=15,
             )
             data = resp.json()
+
+            # If token expired, refresh and retry
+            if data.get("code") == 1600001:
+                resp = requests.post(
+                    "https://developers.cjdropshipping.com/api2.0/v1/authentication/getAccessToken",
+                    json={"apiKey": api_key},
+                    timeout=15,
+                )
+                data = resp.json()
+                if data.get("code") == 200:
+                    token = data["data"]["accessToken"]
+                    expiry = time.time() + (170 * 24 * 3600)
+                    os.makedirs(os.path.dirname(token_file), exist_ok=True)
+                    with open(token_file, "w") as f:
+                        json.dump({"token": token, "expiry": expiry}, f)
+
+                    # Retry search
+                    resp = requests.get(
+                        "https://developers.cjdropshipping.com/api2.0/v1/product/listV2",
+                        headers={
+                            "CJ-Access-Token": token,
+                            "Content-Type": "application/json",
+                        },
+                        params={
+                            "keyWord": query,
+                            "page": 1,
+                            "size": 10,
+                            "countryCode": "GB",
+                        },
+                        timeout=15,
+                    )
+                    data = resp.json()
+
             if data.get("code") != 200:
                 return []
 
