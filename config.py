@@ -79,7 +79,18 @@ FILTERS = {
     "demand_strong_30d": 30,    # Threshold for slow delivery exception
 
     # Delivery targets (days)
+    "delivery_min": 3,          # Minimum delivery days
     "delivery_target_max": 8,   # Preferred maximum
+    "delivery_exception_max": 25,  # Max for high-demand products
+
+    # Profit requirements
+    "margin_min": 25.0,         # Minimum profit margin percentage
+
+    # Product filters
+    "brand_filter": "generic_only",  # "generic_only" = reject branded items
+    "condition": "New",
+    "buy_it_now": True,
+    "uk_only": True,
 }
 
 # ============================================================
