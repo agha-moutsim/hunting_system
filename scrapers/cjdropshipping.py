@@ -137,6 +137,13 @@ class CJDropshippingScraper(BaseScraper):
                 for p in item.get("productList", []):
                     price_usd = float(p.get("sellPrice", 0))
                     price_gbp = round(price_usd * 0.79, 2)  # USD to GBP
+
+                    # Extract store details from API response
+                    store_name = p.get("storeName", "")
+                    seller = p.get("sellerName", "")
+                    rating = p.get("rating", "")
+                    orders = p.get("sellCount", 0)
+
                     products.append(ScrapedProduct(
                         source=self.SUPPLIER_ID,
                         title=p.get("nameEn", ""),
@@ -145,6 +152,11 @@ class CJDropshippingScraper(BaseScraper):
                         image_url=p.get("bigImage", ""),
                         delivery_days_min=3,
                         delivery_days_max=7,
+                        seller=seller or store_name,
+                        seller_full_name=store_name,
+                        seller_rating=str(rating) if rating else None,
+                        seller_orders=f"{orders}+" if orders else None,
+                        store_name=store_name,
                         verified=True,
                     ))
             return products
