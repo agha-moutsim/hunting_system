@@ -2320,23 +2320,56 @@ def render_dashboard_tab():
                     use_container_width=True,
                 )
 
-        # Sales table
-        for s in sales:
-            cols = st.columns([3, 1, 1, 1, 1])
-            with cols[0]:
-                st.markdown(f"**{s['product_name']}**")
-                if s["notes"]:
-                    st.caption(s["notes"])
-            with cols[1]:
-                st.metric("Sale", f"£{s['sale_price']:.2f}")
-            with cols[2]:
-                st.metric("Profit", f"£{s['profit']:.2f}")
-            with cols[3]:
-                st.metric("Margin", f"{s['margin_percent']:.1f}%")
-            with cols[4]:
-                if st.button("🗑️", key=f"del_sale_{s['id']}"):
-                    delete_sale(s["id"])
-                    st.rerun()
+        # View toggle + sort
+        view_col1, view_col2 = st.columns([1, 1])
+        with view_col1:
+            view_mode = st.radio("View", ["Cards", "Table"], horizontal=True, key="sales_view")
+        with view_col2:
+            sort_by = st.selectbox(
+                "Sort by",
+                ["Sale Date", "Profit", "Margin", "Sale Price"],
+                key="sales_sort",
+            )
+
+        # Apply sort
+        sort_key = {"Sale Date": "sale_date", "Profit": "profit", "Margin": "margin_percent", "Sale Price": "sale_price"}[sort_by]
+        sales_sorted = sorted(sales, key=lambda x: x.get(sort_key) or 0, reverse=True)
+
+        if view_mode == "Table":
+            from components.table import render_sortable_table
+            render_sortable_table(
+                sales_sorted,
+                columns={
+                    "sale_date": "Date",
+                    "product_name": "Product",
+                    "category": "Category",
+                    "sale_price": "Sale Price £",
+                    "supplier_cost": "Cost £",
+                    "shipping_cost": "Shipping £",
+                    "ebay_fees": "Fees £",
+                    "profit": "Profit £",
+                    "margin_percent": "Margin %",
+                    "quantity": "Qty",
+                },
+            )
+        else:
+            # Sales table (cards)
+            for s in sales_sorted:
+                cols = st.columns([3, 1, 1, 1, 1])
+                with cols[0]:
+                    st.markdown(f"**{s['product_name']}**")
+                    if s["notes"]:
+                        st.caption(s["notes"])
+                with cols[1]:
+                    st.metric("Sale", f"£{s['sale_price']:.2f}")
+                with cols[2]:
+                    st.metric("Profit", f"£{s['profit']:.2f}")
+                with cols[3]:
+                    st.metric("Margin", f"{s['margin_percent']:.1f}%")
+                with cols[4]:
+                    if st.button("🗑️", key=f"del_sale_{s['id']}"):
+                        delete_sale(s["id"])
+                        st.rerun()
 
 
 # ─── Main ───────────────────────────────────────────────────────
