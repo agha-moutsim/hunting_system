@@ -58,6 +58,22 @@ class BaseScraper(ABC):
         self._browser: Optional[Browser] = None
         self._page: Optional[Page] = None
 
+    async def close(self):
+        """Close browser and cleanup resources."""
+        try:
+            if self._page:
+                await self._page.close()
+            if self._browser:
+                await self._browser.close()
+            if self._playwright:
+                await self._playwright.stop()
+        except Exception:
+            pass
+        finally:
+            self._page = None
+            self._browser = None
+            self._playwright = None
+
     async def _ensure_browser(self):
         """Lazy-init stealth browser on first use."""
         if self._browser is None:
