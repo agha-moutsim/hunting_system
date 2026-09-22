@@ -1219,32 +1219,59 @@ def render_deep_search_tab():
                 use_container_width=True,
             )
 
-        # Track Price button
+        # Track Price + Watch buttons
         if result.ebay_avg_price > 0:
-            if st.button("📈 Track This Product", use_container_width=True):
-                from tracker.price_tracker import add_to_tracker
-                # Get first supplier URL if available
-                supplier_url = ""
-                supplier_name = ""
-                supplier_price = 0
-                if result.suppliers:
-                    supplier_url = result.suppliers[0].get("url", "")
-                    supplier_name = result.suppliers[0].get("name", "")
-                    supplier_price = result.suppliers[0].get("price", 0)
+            btn_col1, btn_col2 = st.columns(2)
 
-                tracked = add_to_tracker(
-                    product_name=result.product_name,
-                    ebay_url=result.sources[0] if result.sources else "",
-                    ebay_price=result.ebay_avg_price,
-                    target_price=result.ebay_avg_price * 0.9,  # 10% below current
-                    supplier_price=supplier_price,
-                    supplier_url=supplier_url,
-                    supplier_name=supplier_name,
-                )
-                if tracked:
-                    st.success(f"Added '{result.product_name}' to Price Tracker!")
-                else:
-                    st.error("Failed to add to tracker")
+            with btn_col1:
+                if st.button("📈 Track This Product", use_container_width=True):
+                    from tracker.price_tracker import add_to_tracker
+                    supplier_url = ""
+                    supplier_name = ""
+                    supplier_price = 0
+                    if result.suppliers:
+                        supplier_url = result.suppliers[0].get("url", "")
+                        supplier_name = result.suppliers[0].get("name", "")
+                        supplier_price = result.suppliers[0].get("price", 0)
+
+                    tracked = add_to_tracker(
+                        product_name=result.product_name,
+                        ebay_url=result.sources[0] if result.sources else "",
+                        ebay_price=result.ebay_avg_price,
+                        target_price=result.ebay_avg_price * 0.9,
+                        supplier_price=supplier_price,
+                        supplier_url=supplier_url,
+                        supplier_name=supplier_name,
+                    )
+                    if tracked:
+                        st.success(f"Added to Price Tracker!")
+                    else:
+                        st.error("Failed to add")
+
+            with btn_col2:
+                if st.button("⭐ Watch This Product", use_container_width=True):
+                    from watchlist.items import add_to_watchlist
+                    supplier_url = ""
+                    supplier_name = ""
+                    supplier_price = 0
+                    if result.suppliers:
+                        supplier_url = result.suppliers[0].get("url", "")
+                        supplier_name = result.suppliers[0].get("name", "")
+                        supplier_price = result.suppliers[0].get("price", 0)
+
+                    watched = add_to_watchlist(
+                        product_name=result.product_name,
+                        ebay_url=result.sources[0] if result.sources else "",
+                        ebay_price=result.ebay_avg_price,
+                        target_price=result.ebay_avg_price * 0.9,
+                        supplier_price=supplier_price,
+                        supplier_url=supplier_url,
+                        supplier_name=supplier_name,
+                    )
+                    if watched:
+                        st.success(f"Added to Watchlist!")
+                    else:
+                        st.error("Failed to add")
 
         if result.sources:
             with st.expander("Sources"):
@@ -1783,6 +1810,199 @@ def render_price_tracker_tab():
                     st.rerun()
 
 
+# ─── Watchlist Tab ──────────────────────────────────────────────
+
+def render_watchlist_tab():
+    """Render the Watchlist & Saved Searches tab."""
+    st.markdown("""
+    <div style="color: #E2E8F0; font-size: 1.1rem; font-weight: 600; margin: 0.5rem 0 1rem 0;
+                 border-bottom: 1px solid #334155; padding-bottom: 8px;">
+        ⭐  Watchlist & Saved Searches
+    </div>
+    """, unsafe_allow_html=True)
+
+    from watchlist import (
+        get_watchlist_items, remove_from_watchlist,
+        get_saved_searches, save_search, delete_search,
+        run_search, run_all_searches,
+        get_new_results, mark_result_read, get_unread_results_count,
+    )
+
+    # ── New Finds (Unread Results) ──
+    unread_count = get_unread_results_count()
+    if unread_count > 0:
+        st.markdown(f"""
+        <div style="color: #E2E8F0; font-size: 1.05rem; font-weight: 600; margin: 1rem 0 0.6rem 0;
+                     border-bottom: 1px solid #334155; padding-bottom: 6px;">
+            🔔  New Finds ({unread_count})
+        </div>
+        """, unsafe_allow_html=True)
+
+        new_results = get_new_results(unread_only=True)
+        for r in new_results[:5]:
+            cols = st.columns([4, 1])
+            with cols[0]:
+                st.markdown(f"🔔 **{r['product_name']}** found by *{r['search_name']}* — £{r['ebay_price']:.2f} ({r['margin']:.1f}% margin)")
+            with cols[1]:
+                if st.button("✓", key=f"read_result_{r['id']}"):
+                    mark_result_read(r["id"])
+                    st.rerun()
+
+    # ── Watchlist Items ──
+    st.markdown("""
+    <div style="color: #E2E8F0; font-size: 1.05rem; font-weight: 600; margin: 1rem 0 0.6rem 0;
+                 border-bottom: 1px solid #334155; padding-bottom: 6px;">
+        ⭐  Watchlist Items
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Add to watchlist form
+    with st.expander("➕ Add to Watchlist", expanded=False):
+        w_col1, w_col2 = st.columns(2)
+        with w_col1:
+            w_name = st.text_input("Product Name", key="watch_name")
+            w_url = st.text_input("eBay URL", key="watch_url")
+        with w_col2:
+            w_price = st.number_input("eBay Price (£)", min_value=0.0, step=0.01, key="watch_price")
+            w_target = st.number_input("Target Price (£)", min_value=0.0, step=0.01, key="watch_target")
+
+        if st.button("⭐ Add to Watchlist", type="primary"):
+            if w_name:
+                from watchlist.items import add_to_watchlist
+                result = add_to_watchlist(
+                    product_name=w_name,
+                    ebay_url=w_url,
+                    ebay_price=w_price,
+                    target_price=w_target,
+                )
+                if result:
+                    st.success(f"Added '{w_name}' to watchlist!")
+                    st.rerun()
+            else:
+                st.warning("Please enter product name")
+
+    watchlist_items = get_watchlist_items()
+
+    if not watchlist_items:
+        st.info("Watchlist is empty. Add products above.")
+    else:
+        for item in watchlist_items:
+            with st.expander(
+                f"⭐ {item['product_name']} — £{item['ebay_price']:.2f}",
+                expanded=False,
+            ):
+                m1, m2, m3 = st.columns(3)
+                m1.metric("eBay Price", f"£{item['ebay_price']:.2f}")
+                m2.metric("Target Price", f"£{item['target_price']:.2f}" if item['target_price'] > 0 else "—")
+                m3.metric("Supplier Price", f"£{item['supplier_price']:.2f}" if item['supplier_price'] > 0 else "—")
+
+                btn_cols = st.columns(3)
+                with btn_cols[0]:
+                    if item['ebay_url']:
+                        st.link_button("View eBay →", item['ebay_url'], key=f"watch_ebay_{item['id']}")
+                with btn_cols[1]:
+                    if item['supplier_url']:
+                        st.link_button("Supplier →", item['supplier_url'], key=f"watch_supplier_{item['id']}")
+                with btn_cols[2]:
+                    if st.button("🗑️ Remove", key=f"watch_remove_{item['id']}"):
+                        remove_from_watchlist(item["id"])
+                        st.rerun()
+
+    # ── Saved Searches ──
+    st.markdown("""
+    <div style="color: #E2E8F0; font-size: 1.05rem; font-weight: 600; margin: 1.2rem 0 0.6rem 0;
+                 border-bottom: 1px solid #334155; padding-bottom: 6px;">
+        🔍  Saved Searches
+    </div>
+    """, unsafe_allow_html=True)
+
+    saved_searches = get_saved_searches()
+
+    # Run All button
+    if saved_searches:
+        if st.button("▶️ Run All Searches", use_container_width=True):
+            progress = st.progress(0)
+            status = st.empty()
+
+            def search_progress(i, total, name):
+                status.text(f"Running: {name} ({i+1}/{total})")
+                progress.progress((i) / total if total > 0 else 0)
+
+            results = run_all_searches(progress_callback=search_progress)
+            progress.progress(1.0)
+            status.text(f"Complete! {results['searches_run']} searches, {results['total_found']} new finds")
+            st.rerun()
+
+    # Display saved searches
+    if saved_searches:
+        for search in saved_searches:
+            with st.expander(
+                f"🔍 {search['search_name']} — \"{search['query']}\"",
+                expanded=False,
+            ):
+                s1, s2, s3, s4 = st.columns(4)
+                s1.metric("Price Range", f"£{search['price_min']:.0f}-£{search['price_max']:.0f}")
+                s2.metric("Min Margin", f"{search['min_margin']:.0f}%")
+                s3.metric("Total Finds", search['result_count'])
+                s4.metric("Unread", search['unread_count'])
+
+                if search['last_run']:
+                    st.caption(f"Last run: {search['last_run']}")
+
+                btn_cols = st.columns(3)
+                with btn_cols[0]:
+                    if st.button("▶️ Run Now", key=f"run_search_{search['id']}"):
+                        with st.spinner("Running search..."):
+                            result = run_search(search["id"])
+                        if result["found"] > 0:
+                            st.success(f"Found {result['found']} new products!")
+                        else:
+                            st.info("No new products found")
+                        st.rerun()
+                with btn_cols[1]:
+                    if st.button("✏️ Toggle Auto", key=f"toggle_auto_{search['id']}"):
+                        from watchlist.searches import update_search
+                        update_search(search["id"], auto_run=not search["auto_run"])
+                        st.rerun()
+                with btn_cols[2]:
+                    if st.button("🗑️ Delete", key=f"delete_search_{search['id']}"):
+                        delete_search(search["id"])
+                        st.rerun()
+    else:
+        st.info("No saved searches yet. Create one below.")
+
+    # ── Save New Search ──
+    st.markdown("""
+    <div style="color: #E2E8F0; font-size: 1.05rem; font-weight: 600; margin: 1.2rem 0 0.6rem 0;
+                 border-bottom: 1px solid #334155; padding-bottom: 6px;">
+        ➕  Save New Search
+    </div>
+    """, unsafe_allow_html=True)
+
+    ns_col1, ns_col2 = st.columns(2)
+    with ns_col1:
+        ns_name = st.text_input("Search Name", key="new_search_name")
+        ns_query = st.text_input("Query", key="new_search_query")
+    with ns_col2:
+        ns_price_range = st.slider("Price Range (£)", 0, 100, (5, 25), key="new_search_price")
+        ns_margin = st.slider("Min Margin %", 0, 50, 25, key="new_search_margin")
+
+    if st.button("💾 Save Search", type="primary"):
+        if ns_name and ns_query:
+            result = save_search(
+                search_name=ns_name,
+                query=ns_query,
+                price_min=ns_price_range[0],
+                price_max=ns_price_range[1],
+                min_margin=float(ns_margin),
+            )
+            if result:
+                st.success(f"Saved '{ns_name}'!")
+                st.rerun()
+        else:
+            st.warning("Please fill in name and query")
+
+
 # ─── Main ───────────────────────────────────────────────────────
 
 def main():
@@ -1827,8 +2047,8 @@ def main():
         return
 
     # Main tabs
-    tab_analyze, tab_deep, tab_bulk, tab_hunter, tab_tracker, tab_history = st.tabs(
-        ["🔍  Analyze", "🔬  Deep Search", "📦  Bulk Analysis", "🎯  Category Hunter", "📈  Price Tracker", "📋  History"]
+    tab_analyze, tab_deep, tab_bulk, tab_hunter, tab_tracker, tab_watch, tab_history = st.tabs(
+        ["🔍  Analyze", "🔬  Deep Search", "📦  Bulk Analysis", "🎯  Category Hunter", "📈  Price Tracker", "⭐  Watchlist", "📋  History"]
     )
 
     with tab_analyze:
@@ -1845,6 +2065,9 @@ def main():
 
     with tab_tracker:
         render_price_tracker_tab()
+
+    with tab_watch:
+        render_watchlist_tab()
 
     with tab_history:
         render_history_tab()
