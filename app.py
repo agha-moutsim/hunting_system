@@ -1219,6 +1219,33 @@ def render_deep_search_tab():
                 use_container_width=True,
             )
 
+        # Track Price button
+        if result.ebay_avg_price > 0:
+            if st.button("📈 Track This Product", use_container_width=True):
+                from tracker.price_tracker import add_to_tracker
+                # Get first supplier URL if available
+                supplier_url = ""
+                supplier_name = ""
+                supplier_price = 0
+                if result.suppliers:
+                    supplier_url = result.suppliers[0].get("url", "")
+                    supplier_name = result.suppliers[0].get("name", "")
+                    supplier_price = result.suppliers[0].get("price", 0)
+
+                tracked = add_to_tracker(
+                    product_name=result.product_name,
+                    ebay_url=result.sources[0] if result.sources else "",
+                    ebay_price=result.ebay_avg_price,
+                    target_price=result.ebay_avg_price * 0.9,  # 10% below current
+                    supplier_price=supplier_price,
+                    supplier_url=supplier_url,
+                    supplier_name=supplier_name,
+                )
+                if tracked:
+                    st.success(f"Added '{result.product_name}' to Price Tracker!")
+                else:
+                    st.error("Failed to add to tracker")
+
         if result.sources:
             with st.expander("Sources"):
                 for src in result.sources[:10]:
@@ -1607,6 +1634,155 @@ def render_category_hunter_tab():
             )
 
 
+# ─── Price Tracker Tab ──────────────────────────────────────────
+
+def render_price_tracker_tab():
+    """Render the Price Tracker tab."""
+    st.markdown("""
+    <div style="color: #E2E8F0; font-size: 1.1rem; font-weight: 600; margin: 0.5rem 0 1rem 0;
+                 border-bottom: 1px solid #334155; padding-bottom: 8px;">
+        📈  Price Tracker
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("""
+    Track product prices over time and get alerts when prices drop.
+    """)
+
+    # Alerts section
+    from tracker.alerts import get_alerts, get_unread_count, mark_alert_read
+    unread_count = get_unread_count()
+
+    if unread_count > 0:
+        st.markdown(f"""
+        <div style="color: #E2E8F0; font-size: 1.05rem; font-weight: 600; margin: 1rem 0 0.6rem 0;
+                     border-bottom: 1px solid #334155; padding-bottom: 6px;">
+            🔔  Alerts ({unread_count} unread)
+        </div>
+        """, unsafe_allow_html=True)
+
+        alerts = get_alerts(unread_only=True)
+        for alert in alerts[:5]:
+            icon = "🔔" if alert["alert_type"] == "price_drop" else "📈"
+            cols = st.columns([4, 1])
+            with cols[0]:
+                st.markdown(f"{icon} {alert['message']}")
+            with cols[1]:
+                if st.button("✓", key=f"read_alert_{alert['id']}"):
+                    mark_alert_read(alert["id"])
+                    st.rerun()
+
+    # Controls
+    st.markdown("""
+    <div style="color: #E2E8F0; font-size: 1.05rem; font-weight: 600; margin: 1rem 0 0.6rem 0;
+                 border-bottom: 1px solid #334155; padding-bottom: 6px;">
+        📦  Tracked Products
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Add new product form
+    with st.expander("➕ Add Product to Track", expanded=False):
+        add_col1, add_col2 = st.columns(2)
+        with add_col1:
+            new_product_name = st.text_input("Product Name", key="new_track_name")
+            new_ebay_url = st.text_input("eBay URL", key="new_track_url")
+        with add_col2:
+            new_ebay_price = st.number_input("Current Price (£)", min_value=0.0, step=0.01, key="new_track_price")
+            new_target_price = st.number_input("Target Price (£)", min_value=0.0, step=0.01, key="new_track_target")
+
+        if st.button("Add to Tracker", type="primary"):
+            if new_product_name and new_ebay_url:
+                from tracker.price_tracker import add_to_tracker
+                result = add_to_tracker(
+                    product_name=new_product_name,
+                    ebay_url=new_ebay_url,
+                    ebay_price=new_ebay_price,
+                    target_price=new_target_price,
+                )
+                if result:
+                    st.success(f"Added '{new_product_name}' to tracker!")
+                    st.rerun()
+                else:
+                    st.error("Failed to add product")
+            else:
+                st.warning("Please fill in product name and URL")
+
+    # Check all prices button
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.caption("Auto-check: Every 6 hours")
+    with col2:
+        if st.button("🔄 Check All Prices", use_container_width=True):
+            from tracker.price_checker import check_all_prices
+
+            progress = st.progress(0)
+            status = st.empty()
+
+            def check_progress(i, total, name):
+                status.text(f"Checking: {name} ({i+1}/{total})")
+                progress.progress((i) / total if total > 0 else 0)
+
+            results = check_all_prices(progress_callback=check_progress)
+            progress.progress(1.0)
+            status.text(f"Complete! Checked {results['checked']} products, {results['alerts']} alerts")
+            st.rerun()
+
+    # Display tracked products
+    from tracker.price_tracker import get_tracked_products, remove_from_tracker, toggle_alert
+    from tracker.history import get_price_trend
+
+    products = get_tracked_products()
+
+    if not products:
+        st.info("No products tracked yet. Add one above to get started.")
+        return
+
+    for product in products:
+        with st.expander(
+            f"{'🔔' if product['alert_enabled'] else '🔕'} {product['product_name']} — £{product['ebay_price']:.2f}",
+            expanded=False,
+        ):
+            # Metrics
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("eBay Price", f"£{product['ebay_price']:.2f}")
+            m2.metric("Target Price", f"£{product['target_price']:.2f}" if product['target_price'] > 0 else "—")
+            m3.metric("Supplier Price", f"£{product['supplier_price']:.2f}" if product['supplier_price'] > 0 else "—")
+
+            # Price trend
+            trend = get_price_trend(product["id"], days=7)
+            trend_icon = "📈" if trend["trend"] == "up" else "📉" if trend["trend"] == "down" else "➡️"
+            m4.metric("7d Trend", f"{trend_icon} {trend['change_percent']:+.1f}%")
+
+            # Last checked
+            if product["last_checked"]:
+                st.caption(f"Last checked: {product['last_checked']}")
+
+            # Action buttons
+            btn_col1, btn_col2, btn_col3, btn_col4 = st.columns(4)
+
+            with btn_col1:
+                if product["ebay_url"]:
+                    st.link_button("View eBay →", product["ebay_url"], key=f"track_ebay_{product['id']}")
+
+            with btn_col2:
+                if st.button("🔔 Alert", key=f"toggle_alert_{product['id']}"):
+                    toggle_alert(product["id"])
+                    st.rerun()
+
+            with btn_col3:
+                if st.button("🔄 Check", key=f"check_now_{product['id']}"):
+                    from tracker.price_checker import check_single_price
+                    new_price = check_single_price(product["id"])
+                    if new_price:
+                        st.success(f"Updated: £{new_price:.2f}")
+                        st.rerun()
+
+            with btn_col4:
+                if st.button("🗑️ Remove", key=f"remove_{product['id']}"):
+                    remove_from_tracker(product["id"])
+                    st.rerun()
+
+
 # ─── Main ───────────────────────────────────────────────────────
 
 def main():
@@ -1651,7 +1827,9 @@ def main():
         return
 
     # Main tabs
-    tab_analyze, tab_deep, tab_bulk, tab_hunter, tab_history = st.tabs(["🔍  Analyze", "🔬  Deep Search", "📦  Bulk Analysis", "🎯  Category Hunter", "📋  History"])
+    tab_analyze, tab_deep, tab_bulk, tab_hunter, tab_tracker, tab_history = st.tabs(
+        ["🔍  Analyze", "🔬  Deep Search", "📦  Bulk Analysis", "🎯  Category Hunter", "📈  Price Tracker", "📋  History"]
+    )
 
     with tab_analyze:
         render_analyze_tab()
@@ -1664,6 +1842,9 @@ def main():
 
     with tab_hunter:
         render_category_hunter_tab()
+
+    with tab_tracker:
+        render_price_tracker_tab()
 
     with tab_history:
         render_history_tab()
