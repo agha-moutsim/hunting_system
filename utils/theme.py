@@ -320,6 +320,16 @@ def apply_theme():
     """Inject the custom CSS into the Streamlit page."""
     st.markdown(CSS, unsafe_allow_html=True)
 
+    # Load responsive CSS file
+    import os
+    css_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static", "responsive.css")
+    try:
+        with open(css_path, "r", encoding="utf-8") as f:
+            responsive_css = f.read()
+        st.markdown(f"<style>{responsive_css}</style>", unsafe_allow_html=True)
+    except FileNotFoundError:
+        pass
+
 
 # ─── Color Constants (importable) ───────────────────────────────
 SUCCESS = "#10B981"
