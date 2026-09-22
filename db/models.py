@@ -148,3 +148,57 @@ class PriceAlert(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     tracked_product = relationship("TrackedProduct", back_populates="alerts")
+
+
+class WatchlistItem(Base):
+    __tablename__ = "watchlist_items"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    product_name = Column(Text, nullable=False)
+    ebay_url = Column(Text)
+    ebay_price = Column(Float, default=0.0)
+    target_price = Column(Float, default=0.0)
+    supplier_price = Column(Float, default=0.0)
+    supplier_url = Column(Text)
+    supplier_name = Column(String(128))
+    notes = Column(Text)
+    added_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class SavedSearch(Base):
+    __tablename__ = "saved_searches"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    search_name = Column(Text, nullable=False)
+    query = Column(Text, nullable=False)
+    category = Column(String(128))
+    price_min = Column(Float, default=5.0)
+    price_max = Column(Float, default=25.0)
+    min_margin = Column(Float, default=25.0)
+    auto_run = Column(Boolean, default=True)
+    last_run = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    results = relationship("SearchResult", back_populates="saved_search", cascade="all, delete-orphan")
+
+
+class SearchResult(Base):
+    __tablename__ = "search_results"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    search_id = Column(Integer, ForeignKey("saved_searches.id", ondelete="CASCADE"))
+    product_name = Column(Text)
+    ebay_url = Column(Text)
+    ebay_price = Column(Float, default=0.0)
+    supplier_price = Column(Float, default=0.0)
+    supplier_url = Column(Text)
+    supplier_name = Column(String(128))
+    profit = Column(Float, default=0.0)
+    margin = Column(Float, default=0.0)
+    verdict = Column(String(16))
+    is_read = Column(Boolean, default=False)
+    found_at = Column(DateTime, default=datetime.utcnow)
+
+    saved_search = relationship("SavedSearch", back_populates="results")
