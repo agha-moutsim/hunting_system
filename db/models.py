@@ -100,3 +100,51 @@ class Verdict(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     product = relationship("Product", back_populates="verdict")
+
+
+class TrackedProduct(Base):
+    __tablename__ = "tracked_products"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    product_name = Column(Text, nullable=False)
+    ebay_url = Column(Text, nullable=False)
+    ebay_price = Column(Float, default=0.0)
+    target_price = Column(Float, default=0.0)
+    supplier_price = Column(Float, default=0.0)
+    supplier_url = Column(Text)
+    supplier_name = Column(String(128))
+    last_checked = Column(DateTime)
+    alert_enabled = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    price_history = relationship("PriceHistory", back_populates="tracked_product")
+    alerts = relationship("PriceAlert", back_populates="tracked_product")
+
+
+class PriceHistory(Base):
+    __tablename__ = "price_history"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    tracked_product_id = Column(Integer, ForeignKey("tracked_products.id", ondelete="CASCADE"))
+    ebay_price = Column(Float, default=0.0)
+    supplier_price = Column(Float, default=0.0)
+    checked_at = Column(DateTime, default=datetime.utcnow)
+
+    tracked_product = relationship("TrackedProduct", back_populates="price_history")
+
+
+class PriceAlert(Base):
+    __tablename__ = "price_alerts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    tracked_product_id = Column(Integer, ForeignKey("tracked_products.id", ondelete="CASCADE"))
+    alert_type = Column(String(32))  # price_drop, price_increase, margin_alert
+    message = Column(Text)
+    old_price = Column(Float, default=0.0)
+    new_price = Column(Float, default=0.0)
+    is_read = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    tracked_product = relationship("TrackedProduct", back_populates="alerts")
