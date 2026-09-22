@@ -202,3 +202,35 @@ class SearchResult(Base):
     found_at = Column(DateTime, default=datetime.utcnow)
 
     saved_search = relationship("SavedSearch", back_populates="results")
+
+
+class Sale(Base):
+    __tablename__ = "sales"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    product_name = Column(Text, nullable=False)
+    category = Column(String(128))
+    sale_price = Column(Float, nullable=False)
+    supplier_cost = Column(Float, default=0.0)
+    shipping_cost = Column(Float, default=0.0)
+    ebay_fees = Column(Float, default=0.0)
+    profit = Column(Float, default=0.0)
+    margin_percent = Column(Float, default=0.0)
+    quantity = Column(Integer, default=1)
+    sale_date = Column(DateTime, nullable=False)
+    buyer_location = Column(String(128))
+    notes = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class MonthlyStat(Base):
+    __tablename__ = "monthly_stats"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    year = Column(Integer, nullable=False, unique=True)
+    month = Column(Integer, nullable=False, unique=True)
+    total_revenue = Column(Float, default=0.0)
+    total_profit = Column(Float, default=0.0)
+    total_sales = Column(Integer, default=0)
+    avg_margin = Column(Float, default=0.0)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
