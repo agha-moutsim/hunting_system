@@ -1402,6 +1402,211 @@ def render_bulk_analysis_tab():
             )
 
 
+# ─── Category Hunter Tab ────────────────────────────────────────
+
+def render_category_hunter_tab():
+    """Render the Category Hunter tab for auto-scanning eBay categories."""
+    st.markdown("""
+    <div style="color: #E2E8F0; font-size: 1.1rem; font-weight: 600; margin: 0.5rem 0 1rem 0;
+                 border-bottom: 1px solid #334155; padding-bottom: 8px;">
+        🎯  Category Hunter
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("""
+    Auto-scan eBay categories to find profitable products — no manual searching needed.
+    """)
+
+    # Configuration
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        from hunter.category_scan import EBAY_CATEGORIES
+        category = st.selectbox(
+            "Category",
+            options=list(EBAY_CATEGORIES.keys()),
+            key="hunter_category",
+        )
+
+    with col2:
+        price_range = st.slider(
+            "Price Range (£)",
+            min_value=0,
+            max_value=100,
+            value=(5, 25),
+            key="hunter_price_range",
+        )
+
+    with col3:
+        max_results = st.selectbox(
+            "Max Products",
+            options=[10, 20, 50, 100],
+            index=1,
+            key="hunter_max_results",
+        )
+
+    with col4:
+        min_margin = st.slider(
+            "Min Margin %",
+            min_value=0,
+            max_value=50,
+            value=25,
+            key="hunter_min_margin",
+        )
+
+    # Start button
+    if st.button("🔍  Start Hunting", type="primary", use_container_width=True):
+        price_min, price_max = price_range
+
+        # Progress display
+        progress_bar = st.progress(0)
+        status = st.empty()
+
+        # Step 1: Category Scan
+        status.text("Step 1/5: Fetching eBay listings...")
+        from hunter.category_scan import scan_category
+        products = scan_category(category, price_min, price_max, max_results)
+        progress_bar.progress(0.2)
+        status.text(f"Step 1/5: Found {len(products)} listings")
+
+        if not products:
+            st.error("No products found in this category. Try different settings.")
+            return
+
+        # Step 2: Demand Check
+        status.text("Step 2/5: Checking demand...")
+        from hunter.demand_check import batch_demand_check
+
+        def demand_progress(i, total, title):
+            status.text(f"Step 2/5: Checking demand ({i+1}/{total})...")
+
+        products_with_demand = batch_demand_check(
+            products, 
+            min_sold_30d=10, 
+            min_sold_7d=1,
+            progress_callback=demand_progress,
+        )
+        progress_bar.progress(0.4)
+        status.text(f"Step 2/5: {len(products_with_demand)} products with demand")
+
+        # Step 3: Supplier Lookup
+        status.text("Step 3/5: Finding suppliers...")
+        from hunter.supplier_lookup import batch_supplier_lookup
+
+        def supplier_progress(i, total, title):
+            status.text(f"Step 3/5: Finding suppliers ({i+1}/{total})...")
+
+        products_with_supplier = batch_supplier_lookup(
+            products_with_demand,
+            progress_callback=supplier_progress,
+        )
+        progress_bar.progress(0.7)
+        status.text(f"Step 3/5: {len(products_with_supplier)} products with suppliers")
+
+        # Step 4: Profit Calculation
+        status.text("Step 4/5: Calculating profit...")
+        from hunter.profit_calc import batch_profit_calc
+        from config import FILTERS
+        filters = FILTERS.copy()
+        filters["margin_min"] = float(min_margin)
+        products_final = batch_profit_calc(products_with_supplier, filters)
+        progress_bar.progress(0.9)
+        status.text(f"Step 4/5: {sum(1 for p in products_final if p.verdict == 'PASS')} products PASS")
+
+        # Step 5: Generate Report
+        status.text("Step 5/5: Generating report...")
+        from hunter.report import generate_report
+        report = generate_report(
+            products_final,
+            category,
+            price_min,
+            price_max,
+            total_scanned=len(products),
+            total_with_demand=len(products_with_demand),
+            total_with_supplier=len(products_with_supplier),
+        )
+        progress_bar.progress(1.0)
+        status.text("Complete!")
+
+        # Save to session state
+        st.session_state["hunter_report"] = report
+        st.session_state["hunter_products"] = products_final
+        st.success(f"Hunt complete! Found {report.total_pass} profitable products.")
+
+    # Display results if available
+    if "hunter_report" in st.session_state and st.session_state["hunter_report"]:
+        report = st.session_state["hunter_report"]
+        products = st.session_state["hunter_products"]
+
+        st.markdown("""
+        <div style="color: #E2E8F0; font-size: 1.05rem; font-weight: 600; margin: 1.2rem 0 0.6rem 0;
+                     border-bottom: 1px solid #334155; padding-bottom: 6px;">
+            📊  Category Report
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Summary metrics
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Scanned", f"{report.total_scanned}")
+        m2.metric("With Demand", f"{report.total_with_demand}")
+        m3.metric("With Supplier", f"{report.total_with_supplier}")
+        m4.metric("PASS", f"{report.total_pass}", delta=f"{report.total_pass}/{report.total_scanned}")
+
+        # Products table
+        for i, p in enumerate(products[:20], 1):
+            verdict = p.verdict
+            icon = "✅" if verdict == "PASS" else "❌" if verdict == "FAIL" else "⏳"
+
+            with st.expander(f"{icon} {i}. {p.title} — {verdict}", expanded=False):
+                c1, c2, c3, c4, c5 = st.columns(5)
+                c1.metric("eBay Price", f"£{p.price:.2f}")
+                c2.metric("Supplier Price", f"£{p.supplier_price:.2f}")
+                c3.metric("Profit", f"£{p.profit:.2f}")
+                c4.metric("Margin", f"{p.margin:.1f}%")
+                c5.metric("Sold (30d)", f"{p.sold_30d}")
+
+                if p.supplier_name:
+                    st.caption(f"Supplier: {p.supplier_name}")
+
+                link_cols = st.columns(2)
+                with link_cols[0]:
+                    if p.url:
+                        st.link_button("eBay Listing →", p.url, key=f"ebay_{i}")
+                with link_cols[1]:
+                    if p.supplier_url:
+                        st.link_button("Supplier →", p.supplier_url, key=f"supplier_{i}")
+
+        # Export buttons
+        st.markdown("""
+        <div style="color: #E2E8F0; font-size: 1.05rem; font-weight: 600; margin: 1.2rem 0 0.6rem 0;
+                     border-bottom: 1px solid #334155; padding-bottom: 6px;">
+            📥  Export Report
+        </div>
+        """, unsafe_allow_html=True)
+
+        from hunter.report import export_report_csv, export_report_json
+
+        exp_col1, exp_col2 = st.columns(2)
+        with exp_col1:
+            csv_data = export_report_csv(report)
+            st.download_button(
+                label="Download CSV",
+                data=csv_data,
+                file_name=f"hunter_{report.category.replace(' ', '_')}.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+        with exp_col2:
+            json_data = export_report_json(report)
+            st.download_button(
+                label="Download JSON",
+                data=json_data,
+                file_name=f"hunter_{report.category.replace(' ', '_')}.json",
+                mime="application/json",
+                use_container_width=True,
+            )
+
+
 # ─── Main ───────────────────────────────────────────────────────
 
 def main():
@@ -1446,7 +1651,7 @@ def main():
         return
 
     # Main tabs
-    tab_analyze, tab_deep, tab_bulk, tab_history = st.tabs(["🔍  Analyze", "🔬  Deep Search", "📦  Bulk Analysis", "📋  History"])
+    tab_analyze, tab_deep, tab_bulk, tab_hunter, tab_history = st.tabs(["🔍  Analyze", "🔬  Deep Search", "📦  Bulk Analysis", "🎯  Category Hunter", "📋  History"])
 
     with tab_analyze:
         render_analyze_tab()
@@ -1456,6 +1661,9 @@ def main():
 
     with tab_bulk:
         render_bulk_analysis_tab()
+
+    with tab_hunter:
+        render_category_hunter_tab()
 
     with tab_history:
         render_history_tab()
