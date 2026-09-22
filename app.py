@@ -730,12 +730,27 @@ def render_history_tab():
             index=0,
             label_visibility="collapsed",
         )
+    with filter_col2:
+        search_query = st.text_input(
+            "Search",
+            placeholder="🔍 Search products...",
+            label_visibility="collapsed",
+        )
 
     try:
         products = get_recent_products(db, limit=50)
 
         if verdict_filter != "All":
             products = [p for p in products if p.get("verdict") == verdict_filter]
+
+        if search_query:
+            q = search_query.lower()
+            products = [
+                p for p in products
+                if q in (p.get("title") or "").lower()
+                or q in (p.get("category") or "").lower()
+                or q in (p.get("seller") or "").lower()
+            ]
 
         if not products:
             st.info("No products found. Run an analysis first.")
@@ -2366,6 +2381,25 @@ def main():
     if "selected_product_id" in st.session_state:
         render_product_detail(st.session_state["selected_product_id"])
         return
+
+    # Keyboard shortcuts (Ctrl+1..8 for tabs)
+    st.markdown("""
+    <script>
+    document.addEventListener('keydown', function(e) {
+        if (e.ctrlKey && e.key >= '1' && e.key <= '8') {
+            e.preventDefault();
+            const tabIndex = parseInt(e.key) - 1;
+            const tabs = document.querySelectorAll('[data-baseweb="tab"]');
+            if (tabs[tabIndex]) {
+                tabs[tabIndex].click();
+            }
+        }
+    });
+    </script>
+    """, unsafe_allow_html=True)
+
+    # Keyboard shortcut hint
+    st.caption("Shortcuts: Ctrl+1 Analyze · Ctrl+2 Deep Search · Ctrl+3 Bulk · Ctrl+4 Hunter · Ctrl+5 Tracker · Ctrl+6 Watchlist · Ctrl+7 Dashboard · Ctrl+8 History")
 
     # Main tabs
     tab_analyze, tab_deep, tab_bulk, tab_hunter, tab_tracker, tab_watch, tab_dash, tab_history = st.tabs(
