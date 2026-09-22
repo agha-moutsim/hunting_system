@@ -2003,6 +2003,327 @@ def render_watchlist_tab():
             st.warning("Please fill in name and query")
 
 
+# ─── Dashboard Tab ──────────────────────────────────────────────
+
+def render_dashboard_tab():
+    """Render the Sales Dashboard tab."""
+    st.markdown("""
+    <div style="color: #E2E8F0; font-size: 1.1rem; font-weight: 600; margin: 0.5rem 0 1rem 0;
+                 border-bottom: 1px solid #334155; padding-bottom: 8px;">
+        📊  Sales Dashboard
+    </div>
+    """, unsafe_allow_html=True)
+
+    from dashboard import (
+        get_kpis, get_sales, log_sale, delete_sale,
+        get_revenue_trend, get_profit_trend,
+        get_category_breakdown, get_monthly_comparison,
+        get_top_products, get_top_categories,
+    )
+
+    # ── Period selector ──
+    period_col1, period_col2 = st.columns([1, 3])
+    with period_col1:
+        period = st.selectbox("Period", ["7 days", "30 days", "90 days", "365 days"], index=1, key="dash_period")
+    days = {"7 days": 7, "30 days": 30, "90 days": 90, "365 days": 365}[period]
+
+    # ── KPI Cards ──
+    kpis = get_kpis(days=days)
+
+    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+
+    with kpi1:
+        st.metric(
+            "Total Revenue",
+            f"£{kpis['total_revenue']:,.2f}",
+            f"{kpis['growth_revenue']:+.1f}%" if kpis['growth_revenue'] else None,
+        )
+    with kpi2:
+        st.metric(
+            "Total Profit",
+            f"£{kpis['total_profit']:,.2f}",
+            f"{kpis['growth_profit']:+.1f}%" if kpis['growth_profit'] else None,
+        )
+    with kpi3:
+        st.metric("Avg Margin", f"{kpis['avg_margin']:.1f}%")
+    with kpi4:
+        st.metric("Total Sales", f"{kpis['total_units']} units", f"{kpis['total_sales']} orders")
+
+    # Additional info
+    if kpis['best_product'] or kpis['best_category']:
+        info_col1, info_col2 = st.columns(2)
+        if kpis['best_product']:
+            info_col1.caption(f"🏆 Best Product: {kpis['best_product']}")
+        if kpis['best_category']:
+            info_col2.caption(f"📂 Best Category: {kpis['best_category']}")
+
+    st.divider()
+
+    # ── Charts ──
+    st.markdown("""
+    <div style="color: #E2E8F0; font-size: 1.05rem; font-weight: 600; margin: 1rem 0 0.6rem 0;
+                 border-bottom: 1px solid #334155; padding-bottom: 6px;">
+        📈  Charts
+    </div>
+    """, unsafe_allow_html=True)
+
+    try:
+        import plotly.graph_objects as go
+        from plotly.subplots import make_subplots
+
+        chart_col1, chart_col2 = st.columns(2)
+
+        # Revenue trend
+        with chart_col1:
+            rev_trend = get_revenue_trend(days=days)
+            if rev_trend["dates"]:
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=rev_trend["dates"],
+                    y=rev_trend["values"],
+                    mode="lines+markers",
+                    name="Revenue",
+                    line=dict(color="#3B82F6", width=2),
+                    fill="tozeroy",
+                    fillcolor="rgba(59,130,246,0.1)",
+                ))
+                fig.update_layout(
+                    title="Revenue Over Time",
+                    height=300,
+                    margin=dict(l=40, r=20, t=40, b=40),
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    font=dict(color="#E2E8F0"),
+                    xaxis=dict(gridcolor="#334155"),
+                    yaxis=dict(gridcolor="#334155", tickprefix="£"),
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+        # Profit trend
+        with chart_col2:
+            prof_trend = get_profit_trend(days=days)
+            if prof_trend["dates"]:
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=prof_trend["dates"],
+                    y=prof_trend["values"],
+                    mode="lines+markers",
+                    name="Profit",
+                    line=dict(color="#10B981", width=2),
+                    fill="tozeroy",
+                    fillcolor="rgba(16,185,129,0.1)",
+                ))
+                fig.update_layout(
+                    title="Profit Over Time",
+                    height=300,
+                    margin=dict(l=40, r=20, t=40, b=40),
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    font=dict(color="#E2E8F0"),
+                    xaxis=dict(gridcolor="#334155"),
+                    yaxis=dict(gridcolor="#334155", tickprefix="£"),
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+        # Category breakdown + Monthly comparison
+        chart_col3, chart_col4 = st.columns(2)
+
+        with chart_col3:
+            cat_data = get_category_breakdown()
+            if cat_data["categories"]:
+                fig = go.Figure(data=[go.Pie(
+                    labels=cat_data["categories"],
+                    values=cat_data["values"],
+                    hole=0.4,
+                    marker_colors=["#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899"],
+                )])
+                fig.update_layout(
+                    title="Revenue by Category",
+                    height=300,
+                    margin=dict(l=40, r=20, t=40, b=40),
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    font=dict(color="#E2E8F0"),
+                    showlegend=True,
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+        with chart_col4:
+            monthly = get_monthly_comparison(months=6)
+            if monthly["labels"]:
+                fig = go.Figure(data=[
+                    go.Bar(name="Revenue", x=monthly["labels"], y=monthly["revenue"], marker_color="#3B82F6"),
+                    go.Bar(name="Profit", x=monthly["labels"], y=monthly["profit"], marker_color="#10B981"),
+                ])
+                fig.update_layout(
+                    title="Monthly Comparison",
+                    barmode="group",
+                    height=300,
+                    margin=dict(l=40, r=20, t=40, b=40),
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    font=dict(color="#E2E8F0"),
+                    xaxis=dict(gridcolor="#334155"),
+                    yaxis=dict(gridcolor="#334155", tickprefix="£"),
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02),
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+    except ImportError:
+        st.info("Install plotly for charts: pip install plotly")
+
+    st.divider()
+
+    # ── Top Products & Categories ──
+    st.markdown("""
+    <div style="color: #E2E8F0; font-size: 1.05rem; font-weight: 600; margin: 1rem 0 0.6rem 0;
+                 border-bottom: 1px solid #334155; padding-bottom: 6px;">
+        🏆  Top Performers
+    </div>
+    """, unsafe_allow_html=True)
+
+    top_col1, top_col2 = st.columns(2)
+
+    with top_col1:
+        st.subheader("Top Products")
+        top_products = get_top_products(limit=5)
+        if top_products:
+            for i, p in enumerate(top_products, 1):
+                st.markdown(f"**{i}.** {p['product_name']} — £{p['total_profit']:,.2f} profit ({p['total_units']} units)")
+        else:
+            st.info("No sales data yet")
+
+    with top_col2:
+        st.subheader("Top Categories")
+        top_cats = get_top_categories(limit=5)
+        if top_cats:
+            for i, c in enumerate(top_cats, 1):
+                st.markdown(f"**{i}.** {c['category']} — £{c['total_profit']:,.2f} profit ({c['total_units']} units)")
+        else:
+            st.info("No category data yet")
+
+    st.divider()
+
+    # ── Log New Sale ──
+    st.markdown("""
+    <div style="color: #E2E8F0; font-size: 1.05rem; font-weight: 600; margin: 1rem 0 0.6rem 0;
+                 border-bottom: 1px solid #334155; padding-bottom: 6px;">
+        ➕  Log New Sale
+    </div>
+    """, unsafe_allow_html=True)
+
+    with st.form("log_sale_form", clear_on_submit=True):
+        form_col1, form_col2 = st.columns(2)
+
+        with form_col1:
+            sale_product = st.text_input("Product Name *", key="sale_product")
+            sale_category = st.selectbox("Category", ["Electronics", "Home & Garden", "Sports", "Toys", "Clothing", "Beauty", "Automotive", "Other"], key="sale_category")
+            sale_price = st.number_input("Sale Price (£) *", min_value=0.0, step=0.01, key="sale_price")
+            sale_qty = st.number_input("Quantity", min_value=1, value=1, key="sale_qty")
+
+        with form_col2:
+            sale_cost = st.number_input("Supplier Cost (£)", min_value=0.0, step=0.01, key="sale_cost")
+            sale_ship = st.number_input("Shipping Cost (£)", min_value=0.0, step=0.01, key="sale_ship")
+            sale_fees = st.number_input("eBay Fees (£)", min_value=0.0, step=0.01, key="sale_fees")
+            sale_date = st.date_input("Sale Date", key="sale_date")
+
+        sale_notes = st.text_area("Notes", key="sale_notes")
+
+        submitted = st.form_submit_button("💾 Log Sale", type="primary", use_container_width=True)
+        if submitted:
+            if sale_product and sale_price > 0:
+                result = log_sale(
+                    product_name=sale_product,
+                    sale_price=sale_price,
+                    supplier_cost=sale_cost,
+                    shipping_cost=sale_ship,
+                    ebay_fees=sale_fees,
+                    quantity=int(sale_qty),
+                    sale_date=sale_date,
+                    category=sale_category,
+                    notes=sale_notes,
+                )
+                if result:
+                    st.success(f"Sale logged! Profit: £{result.profit:.2f} ({result.margin_percent:.1f}%)")
+                    st.rerun()
+                else:
+                    st.error("Failed to log sale")
+            else:
+                st.warning("Please fill in product name and sale price")
+
+    # ── Sales History ──
+    st.markdown("""
+    <div style="color: #E2E8F0; font-size: 1.05rem; font-weight: 600; margin: 1.2rem 0 0.6rem 0;
+                 border-bottom: 1px solid #334155; padding-bottom: 6px;">
+        📋  Sales History
+    </div>
+    """, unsafe_allow_html=True)
+
+    sales = get_sales(limit=50)
+
+    if not sales:
+        st.info("No sales logged yet. Use the form above to log your first sale.")
+    else:
+        # Export buttons
+        exp_col1, exp_col2 = st.columns(2)
+        with exp_col1:
+            if st.button("📥 Export CSV", use_container_width=True):
+                import csv
+                import io
+                output = io.StringIO()
+                writer = csv.writer(output)
+                writer.writerow(["Date", "Product", "Category", "Sale Price", "Cost", "Shipping", "Fees", "Profit", "Margin %", "Qty"])
+                for s in sales:
+                    writer.writerow([
+                        s["sale_date"][:10] if s["sale_date"] else "",
+                        s["product_name"],
+                        s["category"],
+                        s["sale_price"],
+                        s["supplier_cost"],
+                        s["shipping_cost"],
+                        s["ebay_fees"],
+                        s["profit"],
+                        s["margin_percent"],
+                        s["quantity"],
+                    ])
+                st.download_button(
+                    label="Download CSV",
+                    data=output.getvalue(),
+                    file_name="sales_history.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+
+        with exp_col2:
+            if st.button("📥 Export JSON", use_container_width=True):
+                import json
+                st.download_button(
+                    label="Download JSON",
+                    data=json.dumps(sales, indent=2, default=str),
+                    file_name="sales_history.json",
+                    mime="application/json",
+                    use_container_width=True,
+                )
+
+        # Sales table
+        for s in sales:
+            cols = st.columns([3, 1, 1, 1, 1])
+            with cols[0]:
+                st.markdown(f"**{s['product_name']}**")
+                if s["notes"]:
+                    st.caption(s["notes"])
+            with cols[1]:
+                st.metric("Sale", f"£{s['sale_price']:.2f}")
+            with cols[2]:
+                st.metric("Profit", f"£{s['profit']:.2f}")
+            with cols[3]:
+                st.metric("Margin", f"{s['margin_percent']:.1f}%")
+            with cols[4]:
+                if st.button("🗑️", key=f"del_sale_{s['id']}"):
+                    delete_sale(s["id"])
+                    st.rerun()
+
+
 # ─── Main ───────────────────────────────────────────────────────
 
 def main():
@@ -2047,8 +2368,8 @@ def main():
         return
 
     # Main tabs
-    tab_analyze, tab_deep, tab_bulk, tab_hunter, tab_tracker, tab_watch, tab_history = st.tabs(
-        ["🔍  Analyze", "🔬  Deep Search", "📦  Bulk Analysis", "🎯  Category Hunter", "📈  Price Tracker", "⭐  Watchlist", "📋  History"]
+    tab_analyze, tab_deep, tab_bulk, tab_hunter, tab_tracker, tab_watch, tab_dash, tab_history = st.tabs(
+        ["🔍  Analyze", "🔬  Deep Search", "📦  Bulk Analysis", "🎯  Category Hunter", "📈  Price Tracker", "⭐  Watchlist", "📊  Dashboard", "📋  History"]
     )
 
     with tab_analyze:
@@ -2068,6 +2389,9 @@ def main():
 
     with tab_watch:
         render_watchlist_tab()
+
+    with tab_dash:
+        render_dashboard_tab()
 
     with tab_history:
         render_history_tab()
