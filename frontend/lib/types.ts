@@ -44,8 +44,10 @@ export interface LLMAnalysis {
   demand_assessment?: string;
   demand_reasoning?: string;
   supplier_type_reasoning?: string;
+  supplier_match_notes?: string;
   recommended_action?: string;
   raw_response?: string;
+  llm_raw_response?: string;
 }
 
 export interface FilterCheck {
