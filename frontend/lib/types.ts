@@ -1,0 +1,358 @@
+/** TypeScript mirrors of FastAPI Phase A responses. */
+
+// ── Status ──────────────────────────────────────────────────────
+
+export interface SystemStatus {
+  db: boolean;
+  ollama: boolean;
+  ollama_model: string;
+  ebay_api: boolean;
+}
+
+// ── Analyze ─────────────────────────────────────────────────────
+
+export interface ScrapedProduct {
+  source: string;
+  title: string;
+  price: number;
+  url: string;
+  image_url?: string | null;
+  delivery_days_min?: number | null;
+  delivery_days_max?: number | null;
+  seller?: string | null;
+  seller_full_name?: string | null;
+  seller_rating?: string | null;
+  seller_orders?: string | null;
+  store_name?: string | null;
+  condition?: string;
+  verified?: boolean;
+}
+
+export interface DemandData {
+  sold_count_30d?: number | null;
+  sold_count_7d?: number | null;
+  last_sale_date?: string | null;
+  avg_sold_price?: number | null;
+  lowest_sold_price?: number | null;
+  highest_sold_price?: number | null;
+  verified?: boolean;
+}
+
+export interface LLMAnalysis {
+  brand_verdict?: string;
+  brand_reasoning?: string;
+  demand_assessment?: string;
+  demand_reasoning?: string;
+  supplier_type_reasoning?: string;
+  recommended_action?: string;
+  raw_response?: string;
+}
+
+export interface FilterCheck {
+  name: string;
+  passed: boolean;
+  actual?: string;
+  expected?: string;
+}
+
+export interface VerdictData {
+  verdict: string; // pass | fail | pending
+  profit?: number;
+  margin?: number;
+  filters?: FilterCheck[];
+}
+
+export interface AnalyzeResponse {
+  ebay_product: ScrapedProduct | null;
+  demand: DemandData | null;
+  supplier_matches: ScrapedProduct[];
+  llm_analysis: LLMAnalysis | null;
+  verdict: VerdictData | null;
+  scorecard: string;
+  errors: string[];
+}
+
+// ── Deep Search ─────────────────────────────────────────────────
+
+export interface SupplierInfo {
+  name: string;
+  full_name?: string;
+  price: number;
+  url: string;
+  supplier_type?: string;
+  delivery_days?: string | number;
+  seller_rating?: string | number;
+  seller_orders?: string | number;
+  product_title?: string;
+  image_url?: string;
+  notes?: string;
+}
+
+export interface TopSeller {
+  name: string;
+  url: string;
+  sold_count?: number;
+  avg_price?: number;
+}
+
+export interface DeepSearchResult {
+  product_name: string;
+  product_category: string;
+  ebay_items_sold_month: string;
+  ebay_top_sellers: TopSeller[];
+  ebay_price_range: string;
+  ebay_avg_price: number;
+  ebay_price_min: number;
+  ebay_price_max: number;
+  ebay_price_median: number;
+  ebay_total_sold_30d: number;
+  ebay_total_sold_7d: number;
+  suppliers: SupplierInfo[];
+  best_supplier_price: number;
+  profit: number;
+  margin: number;
+  verdict: string; // PASS | FAIL | PENDING
+  filters_passed: FilterCheck[];
+  competition_level: string;
+  profit_potential: string;
+  delivery_info: string;
+  notes: string;
+  sources: string[];
+  raw_analysis: string;
+}
+
+export interface BulkResponse {
+  results: DeepSearchResult[];
+  errors: { query: string; error: string }[];
+  total: number;
+  succeeded: number;
+}
+
+// ── Hunter ──────────────────────────────────────────────────────
+
+export interface CategoryProduct {
+  title: string;
+  price: number;
+  url: string;
+  image_url?: string | null;
+  seller?: string | null;
+  condition?: string;
+  category?: string;
+  sold_30d?: number;
+  sold_7d?: number;
+  supplier_price?: number;
+  supplier_name?: string;
+  supplier_url?: string;
+  profit?: number;
+  margin?: number;
+  verdict?: string;
+}
+
+export interface HunterScanResponse {
+  products: CategoryProduct[];
+  total_scanned: number;
+  total_with_demand: number;
+}
+
+export interface HunterReport {
+  category: string;
+  price_min: number;
+  price_max: number;
+  total_scanned: number;
+  total_with_demand: number;
+  total_with_supplier: number;
+  total_pass: number;
+  products: CategoryProduct[];
+  scanned_at: string;
+}
+
+// ── Tracker ─────────────────────────────────────────────────────
+
+export interface TrackedProduct {
+  id: number;
+  product_name: string;
+  ebay_url: string;
+  ebay_price: number;
+  target_price: number;
+  supplier_price: number;
+  supplier_url: string;
+  supplier_name: string;
+  last_checked?: string | null;
+  alert_enabled: boolean;
+  created_at?: string | null;
+}
+
+export interface PriceAlert {
+  id: number;
+  product_id: number;
+  product_name: string;
+  alert_type: string;
+  message: string;
+  old_price: number;
+  new_price: number;
+  is_read: boolean;
+  created_at?: string | null;
+}
+
+export interface PriceHistoryPoint {
+  ebay_price: number;
+  supplier_price: number;
+  checked_at?: string | null;
+}
+
+export interface PriceTrend {
+  trend: "up" | "down" | "stable";
+  change: number;
+  change_percent: number;
+}
+
+// ── Watchlist ───────────────────────────────────────────────────
+
+export interface WatchlistItem {
+  id: number;
+  product_name: string;
+  ebay_url: string;
+  ebay_price: number;
+  target_price: number;
+  supplier_price: number;
+  supplier_url: string;
+  supplier_name: string;
+  notes: string;
+  added_at?: string | null;
+}
+
+export interface SavedSearch {
+  id: number;
+  search_name: string;
+  query: string;
+  category: string;
+  price_min: number;
+  price_max: number;
+  min_margin: number;
+  auto_run: boolean;
+  last_run?: string | null;
+  created_at?: string | null;
+  result_count: number;
+  unread_count: number;
+}
+
+export interface SearchResult {
+  id: number;
+  search_id: number;
+  search_name: string;
+  product_name: string;
+  ebay_url: string;
+  ebay_price: number;
+  supplier_price: number;
+  supplier_url: string;
+  supplier_name: string;
+  profit: number;
+  margin: number;
+  verdict: string;
+  is_read: boolean;
+  found_at?: string | null;
+}
+
+// ── Dashboard ───────────────────────────────────────────────────
+
+export interface Kpis {
+  total_revenue: number;
+  total_profit: number;
+  avg_margin: number;
+  total_sales: number;
+  total_units: number;
+  best_product: string;
+  best_category: string;
+  growth_revenue: number;
+  growth_profit: number;
+  days: number;
+  error?: string;
+}
+
+export interface TrendChart {
+  dates: string[];
+  values: number[];
+  total: number;
+}
+
+export interface CategoryBreakdown {
+  categories: string[];
+  values: number[];
+}
+
+export interface MonthlyComparison {
+  labels: string[];
+  revenue: number[];
+  profit: number[];
+}
+
+export interface TopItem {
+  product_name?: string;
+  category?: string;
+  total_revenue: number;
+  total_profit: number;
+  total_units: number;
+}
+
+export interface Sale {
+  id: number;
+  product_name: string;
+  category: string;
+  sale_price: number;
+  supplier_cost: number;
+  shipping_cost: number;
+  ebay_fees: number;
+  profit: number;
+  margin_percent: number;
+  quantity: number;
+  sale_date?: string | null;
+  buyer_location: string;
+  notes: string;
+}
+
+// ── History ─────────────────────────────────────────────────────
+
+export interface HistoryItem {
+  id: number;
+  title: string;
+  price?: number | null;
+  url?: string;
+  image_url?: string | null;
+  verdict?: string | null;
+  profit?: number | null;
+  margin?: number | null;
+  created_at: string;
+}
+
+export interface ProductDetail {
+  product: {
+    id: number;
+    title: string;
+    price: number;
+    condition: string;
+    format: string;
+    seller?: string;
+    image_url?: string;
+    category?: string;
+    ebay_url: string;
+    created_at?: string;
+    updated_at?: string;
+  };
+  demand: DemandData | null;
+  suppliers: {
+    supplier_name: string;
+    supplier_url?: string;
+    supplier_title?: string;
+    supplier_price?: number;
+    delivery_days_min?: number;
+    delivery_days_max?: number;
+  }[];
+  analysis: LLMAnalysis | null;
+  verdict: {
+    verdict: string;
+    profit_amount?: number;
+    profit_margin?: number;
+    filter_results?: FilterCheck[] | string;
+    scorecard?: string;
+  } | null;
+}
