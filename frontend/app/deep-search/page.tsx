@@ -6,7 +6,6 @@ import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import Badge from "@/components/ui/Badge";
 import Spinner from "@/components/Spinner";
-import SupplierCard from "@/components/SupplierCard";
 import { apiPost, downloadFile } from "@/lib/api";
 import { DeepSearchResult } from "@/lib/types";
 import { formatGBP, formatPercent } from "@/lib/format";
