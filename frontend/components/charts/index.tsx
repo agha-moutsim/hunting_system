@@ -16,13 +16,20 @@ import {
   Legend,
 } from "recharts";
 
-const COLORS = ["#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#06B6D4"];
+const COLORS = [
+  "#0D1CC4",
+  "#CBFD03",
+  "#BEC97D",
+  "#8A90A0",
+  "#FF5C5C",
+  "#FFC857",
+];
 
 const tooltipStyle = {
-  background: "#1E293B",
-  border: "1px solid #334155",
+  background: "#312C4D",
+  border: "1px solid #4B525E",
   borderRadius: 8,
-  color: "#F8FAFC",
+  color: "#FFFFFF",
   fontSize: 12,
 };
 
@@ -30,7 +37,7 @@ export function TrendLine({
   data,
   xKey = "date",
   yKey = "value",
-  color = "#3B82F6",
+  color = "#0D1CC4",
   height = 240,
 }: {
   data: Record<string, string | number>[];
@@ -49,9 +56,13 @@ export function TrendLine({
   return (
     <ResponsiveContainer width="100%" height={height}>
       <LineChart data={data}>
-        <CartesianGrid stroke="#334155" strokeDasharray="3 3" />
-        <XAxis dataKey={xKey} stroke="#64748B" fontSize={11} />
-        <YAxis stroke="#64748B" fontSize={11} />
+        <CartesianGrid
+          stroke="#4B525E"
+          strokeOpacity={0.3}
+          strokeDasharray="3 3"
+        />
+        <XAxis dataKey={xKey} stroke="#8A90A0" fontSize={11} />
+        <YAxis stroke="#8A90A0" fontSize={11} />
         <Tooltip contentStyle={tooltipStyle} />
         <Line
           type="monotone"
@@ -89,13 +100,17 @@ export function RevenueProfitChart({
   return (
     <ResponsiveContainer width="100%" height={260}>
       <BarChart data={data}>
-        <CartesianGrid stroke="#334155" strokeDasharray="3 3" />
-        <XAxis dataKey="month" stroke="#64748B" fontSize={11} />
-        <YAxis stroke="#64748B" fontSize={11} />
+        <CartesianGrid
+          stroke="#4B525E"
+          strokeOpacity={0.3}
+          strokeDasharray="3 3"
+        />
+        <XAxis dataKey="month" stroke="#8A90A0" fontSize={11} />
+        <YAxis stroke="#8A90A0" fontSize={11} />
         <Tooltip contentStyle={tooltipStyle} />
         <Legend wrapperStyle={{ fontSize: 12 }} />
-        <Bar dataKey="revenue" fill="#3B82F6" radius={[4, 4, 0, 0]} />
-        <Bar dataKey="profit" fill="#10B981" radius={[4, 4, 0, 0]} />
+        <Bar dataKey="revenue" fill="#0D1CC4" radius={[4, 4, 0, 0]} />
+        <Bar dataKey="profit" fill="#CBFD03" radius={[4, 4, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>
   );

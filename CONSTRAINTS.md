@@ -163,7 +163,7 @@ GET    /api/export/json?type=sales|analysis
 
 ## 6. UI / UX constraints
 
-- **Dark theme only** for v1. Colors come from the existing `utils/theme.py` palette (`#0B1120` background, `#3B82F6` primary, `#10B981` profit, `#EF4444` fail).
+- **Dark theme only** for v1. Colors: primary `#0D1CC4`, hover `#0B17A8`, success/profit `#CBFD03`, success-soft `#BEC97D`, app bg `#27233F`, white `#FFFFFF`, gray `#4B525E`. Danger `#FF5C5C`, warning/Unverified `#FFC857`. Fonts: Plus Jakarta Sans (UI) + JetBrains Mono (numbers). See `design.md` for full token set. (Amended by UI redesign — supersedes old `#0B1120` / `#3B82F6` palette.)
 - **Responsive from day one.** Must work at 360px wide (phone) and 1920px (desktop). Breakpoints: 640px, 1024px.
 - **Every result that can be exported has Export CSV and Export JSON buttons.**
 - **Destructive actions** (delete tracker item, delete watchlist item, delete sale) require a confirmation step. No one-click deletes.

@@ -4,23 +4,80 @@ import { ReactNode, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import StatusDots from "@/components/StatusDots";
+import IconAnalyze from "@/components/icons/IconAnalyze";
+import IconDeepDive from "@/components/icons/IconDeepDive";
+import IconBulk from "@/components/icons/IconBulk";
+import IconCategories from "@/components/icons/IconCategories";
+import IconPricing from "@/components/icons/IconPricing";
+import IconWishlist from "@/components/icons/IconWishlist";
+import IconDashboard from "@/components/icons/IconDashboard";
+import IconHistory from "@/components/icons/IconHistory";
 
-const NAV = [
-  { href: "/analyze", label: "Analyze", icon: "🔍", key: "1" },
-  { href: "/deep-search", label: "Deep Search", icon: "🔬", key: "2" },
-  { href: "/bulk", label: "Bulk Analysis", icon: "📦", key: "3" },
-  { href: "/hunter", label: "Category Hunter", icon: "🎯", key: "4" },
-  { href: "/tracker", label: "Price Tracker", icon: "📈", key: "5" },
-  { href: "/watchlist", label: "Watchlist", icon: "⭐", key: "6" },
-  { href: "/dashboard", label: "Dashboard", icon: "📊", key: "7" },
-  { href: "/history", label: "History", icon: "📋", key: "8" },
+type NavIcon = (props: { className?: string }) => ReactNode;
+
+const NAV: {
+  href: string;
+  label: string;
+  key: string;
+  group: string;
+  Icon: NavIcon;
+}[] = [
+  { href: "/analyze", label: "Analyze", key: "1", group: "Research", Icon: IconAnalyze },
+  { href: "/deep-search", label: "Deep Search", key: "2", group: "Research", Icon: IconDeepDive },
+  { href: "/bulk", label: "Bulk Analysis", key: "3", group: "Research", Icon: IconBulk },
+  { href: "/hunter", label: "Category Hunter", key: "4", group: "Research", Icon: IconCategories },
+  { href: "/tracker", label: "Price Tracker", key: "5", group: "Track", Icon: IconPricing },
+  { href: "/watchlist", label: "Watchlist", key: "6", group: "Track", Icon: IconWishlist },
+  { href: "/dashboard", label: "Dashboard", key: "7", group: "Review", Icon: IconDashboard },
+  { href: "/history", label: "History", key: "8", group: "Review", Icon: IconHistory },
 ];
+
+function Brand() {
+  return (
+    <div className="flex items-center gap-3">
+      <div className="w-9 h-9 rounded-card bg-brand-blue flex items-center justify-center shrink-0">
+        <span className="font-bold text-brand-lime text-sm tracking-tight">
+          EH
+        </span>
+      </div>
+      <div className="min-w-0">
+        <div className="font-bold text-white text-[15px] leading-tight">
+          eBay <span className="text-brand-lime">Hunter</span>
+        </div>
+        <div className="text-[10px] text-text-dim leading-tight">
+          Sourcing Intelligence
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MenuIcon({ open }: { open: boolean }) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden>
+      {open ? (
+        <path
+          d="M4 4l10 10M14 4L4 14"
+          stroke="currentColor"
+          strokeWidth="1.75"
+          strokeLinecap="round"
+        />
+      ) : (
+        <path
+          d="M3 5h12M3 9h12M3 13h12"
+          stroke="currentColor"
+          strokeWidth="1.75"
+          strokeLinecap="round"
+        />
+      )}
+    </svg>
+  );
+}
 
 export default function Layout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Ctrl+1..8 keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key >= "1" && e.key <= "8") {
@@ -33,18 +90,18 @@ export default function Layout({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
+  const groups = ["Research", "Track", "Review"];
+
   return (
     <div className="flex min-h-screen">
-      {/* Mobile hamburger */}
       <button
-        className="fixed top-3 left-3 z-50 md:hidden bg-bg-surface border border-border rounded-lg px-3 py-2 text-text-secondary"
+        className="fixed top-3 left-3 z-50 md:hidden bg-bg-surface border border-border rounded-control px-3 py-2 text-text-secondary hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-lime"
         onClick={() => setSidebarOpen(!sidebarOpen)}
         aria-label="Toggle menu"
       >
-        ☰
+        <MenuIcon open={sidebarOpen} />
       </button>
 
-      {/* Overlay */}
       {sidebarOpen && (
         <div
           className="fixed inset-0 bg-black/60 z-30 md:hidden"
@@ -52,20 +109,13 @@ export default function Layout({ children }: { children: ReactNode }) {
         />
       )}
 
-      {/* Sidebar */}
       <aside
-        className={`fixed md:static inset-y-0 left-0 z-40 w-60 bg-bg-secondary border-r border-border flex flex-col transform transition-transform md:transform-none ${
+        className={`fixed md:static inset-y-0 left-0 z-40 w-60 bg-bg-sidebar border-r border-border flex flex-col transform transition-transform duration-150 ease-out md:transform-none ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
         }`}
       >
-        <div className="p-4 border-b border-border text-center">
-          <div className="w-10 h-10 mx-auto rounded-xl bg-gradient-to-br from-accent-blue to-blue-700 flex items-center justify-center text-lg mb-2">
-            🎯
-          </div>
-          <div className="font-bold text-text-primary text-lg">eBay Hunter</div>
-          <div className="text-xs text-text-secondary">
-            Product Sourcing Intelligence
-          </div>
+        <div className="p-4 border-b border-border">
+          <Brand />
         </div>
 
         <div className="px-4 py-3 border-b border-border">
@@ -73,25 +123,38 @@ export default function Layout({ children }: { children: ReactNode }) {
         </div>
 
         <nav className="flex-1 overflow-y-auto p-2">
-          {NAV.map((item) => {
-            const active = pathname === item.href;
+          {groups.map((group) => {
+            const items = NAV.filter((n) => n.group === group);
+            if (!items.length) return null;
             return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={() => setSidebarOpen(false)}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm mb-1 ${
-                  active
-                    ? "bg-accent-blue/15 text-accent-blue border border-accent-blue/30"
-                    : "text-text-secondary hover:bg-bg-surface hover:text-text-primary border border-transparent"
-                }`}
-              >
-                <span>{item.icon}</span>
-                <span className="flex-1">{item.label}</span>
-                <kbd className="hidden lg:inline text-[10px] text-text-dim border border-border rounded px-1">
-                  ^{item.key}
-                </kbd>
-              </Link>
+              <div key={group} className="mb-3">
+                <div className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim">
+                  {group}
+                </div>
+                {items.map((item) => {
+                  const active = pathname === item.href;
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={() => setSidebarOpen(false)}
+                      className={`flex items-center gap-3 px-3 py-2.5 rounded-control text-sm mb-0.5 transition-colors duration-150 ${
+                        active
+                          ? "bg-brand-blue/20 text-brand-lime font-semibold"
+                          : "text-text-secondary hover:bg-bg-surface hover:text-white"
+                      }`}
+                    >
+                      <item.Icon
+                        className={`w-5 h-5 shrink-0 ${active ? "text-brand-lime" : ""}`}
+                      />
+                      <span className="flex-1">{item.label}</span>
+                      <kbd className="hidden lg:inline text-[10px] text-text-dim border border-border rounded px-1 font-mono">
+                        ^{item.key}
+                      </kbd>
+                    </Link>
+                  );
+                })}
+              </div>
             );
           })}
         </nav>
@@ -101,7 +164,6 @@ export default function Layout({ children }: { children: ReactNode }) {
         </div>
       </aside>
 
-      {/* Main */}
       <main className="flex-1 min-w-0 pt-14 md:pt-6 lg:pt-8 px-4 pb-6 md:px-6 lg:px-8">
         {children}
       </main>

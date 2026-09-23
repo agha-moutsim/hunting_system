@@ -26,7 +26,7 @@ export default function StatusDots() {
     if (!checked || status === null)
       return <span className="text-text-dim">●</span>;
     return ok ? (
-      <span className="text-accent-green">●</span>
+      <span className="text-brand-lime">●</span>
     ) : (
       <span className="text-accent-amber">●</span>
     );
@@ -34,11 +34,11 @@ export default function StatusDots() {
 
   return (
     <div className="space-y-1.5 text-xs">
-      <div className="text-[10px] uppercase tracking-wider text-text-dim font-semibold">
+      <div className="text-[10px] uppercase tracking-[0.08em] text-text-dim font-semibold">
         System Status
       </div>
       <div className="flex items-center gap-2 text-text-secondary">
-        {dot(status?.db)} Database {status?.db ? "" : checked && status ? "" : ""}
+        {dot(status?.db)} Database{" "}
         <span className="text-text-dim">
           {!checked ? "…" : status?.db ? "Connected" : "Disconnected"}
         </span>

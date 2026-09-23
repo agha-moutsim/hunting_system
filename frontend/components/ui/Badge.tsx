@@ -3,15 +3,18 @@
 import { ReactNode } from "react";
 
 const tones: Record<string, string> = {
-  pass: "bg-emerald-600 text-white",
-  fail: "bg-red-600 text-white",
-  pending: "bg-amber-600 text-white",
-  PASS: "bg-emerald-600 text-white",
-  FAIL: "bg-red-600 text-white",
-  PENDING: "bg-amber-600 text-white",
-  info: "bg-accent-blue/15 text-accent-blue border border-accent-blue/30",
-  neutral: "bg-bg-surface text-text-secondary border border-border",
-  warn: "bg-amber-500/15 text-amber-400 border border-amber-500/30",
+  pass: "bg-brand-lime/15 text-brand-lime border border-brand-lime/40",
+  PASS: "bg-brand-lime/15 text-brand-lime border border-brand-lime/40",
+  fail: "bg-accent-red/15 text-accent-red border border-accent-red/40",
+  FAIL: "bg-accent-red/15 text-accent-red border border-accent-red/40",
+  pending:
+    "bg-accent-amber/15 text-accent-amber border border-accent-amber/40",
+  PENDING:
+    "bg-accent-amber/15 text-accent-amber border border-accent-amber/40",
+  info: "bg-accent-blue/30 text-white border border-accent-blue/50",
+  neutral:
+    "bg-bg-surface text-text-secondary border border-border",
+  warn: "bg-accent-amber/15 text-accent-amber border border-accent-amber/40",
 };
 
 export default function Badge({
@@ -24,7 +27,7 @@ export default function Badge({
   const cls = tones[tone] || tones.neutral;
   return (
     <span
-      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${cls}`}
+      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold tracking-[0.02em] ${cls}`}
     >
       {children}
     </span>

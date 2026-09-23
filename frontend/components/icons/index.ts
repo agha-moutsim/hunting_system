@@ -1,0 +1,8 @@
+﻿export { default as IconCategories } from "./IconCategories";
+export { default as IconDashboard } from "./IconDashboard";
+export { default as IconDeepDive } from "./IconDeepDive";
+export { default as IconAnalyze } from "./IconAnalyze";
+export { default as IconBulk } from "./IconBulk";
+export { default as IconHistory } from "./IconHistory";
+export { default as IconWishlist } from "./IconWishlist";
+export { default as IconPricing } from "./IconPricing";

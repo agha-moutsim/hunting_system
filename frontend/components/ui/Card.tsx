@@ -15,12 +15,12 @@ export default function Card({
 }) {
   return (
     <div
-      className={`bg-bg-secondary border border-border rounded-xl p-4 md:p-5 ${className}`}
+      className={`bg-bg-secondary border border-border rounded-card shadow-card p-4 md:p-5 ${className}`}
     >
       {(title || action) && (
         <div className="flex items-center justify-between mb-3">
           {title && (
-            <h3 className="text-sm font-semibold text-text-primary">{title}</h3>
+            <h3 className="text-sm font-semibold text-white">{title}</h3>
           )}
           {action}
         </div>

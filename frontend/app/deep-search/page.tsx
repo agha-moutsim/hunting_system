@@ -224,7 +224,7 @@ export default function DeepSearchPage() {
           {/* Suppliers */}
           <div>
             <h3 className="text-sm font-semibold text-text-primary mb-3">
-              🏪 Suppliers ({result.suppliers?.length || 0})
+              Suppliers ({result.suppliers?.length || 0})
             </h3>
             {result.suppliers?.length ? (
               <div className="space-y-3">

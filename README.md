@@ -208,6 +208,18 @@ c86f427 feat: Phase 2-3 — DB models, eBay scraper
 2325964 Phase 1: Project setup
 ```
 
+## Icons
+
+Navigation icons from [Noun Project](https://nounproject.com), used under the Noun Project license:
+
+- Analyze — Keyy Creative
+- Deep Dive & Categories — Trimanggolo Mulyo
+- Bulk — Awicon
+- Pricing — Hermanto
+- Wishlist — VectorVibe Designs
+- Dashboard — Lulis Dian RP
+- History — Mia Elysia
+
 ## License
 
 Private — eBay Hunter

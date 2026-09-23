@@ -42,23 +42,23 @@ export default function DataTable<T>({
 
   if (rows.length === 0) {
     return (
-      <div className="text-center py-10 text-sm text-text-dim border border-dashed border-border rounded-xl">
+      <div className="text-center py-10 text-sm text-text-dim border border-dashed border-border rounded-card">
         {emptyMessage}
       </div>
     );
   }
 
   return (
-    <div className="overflow-x-auto border border-border rounded-xl">
+    <div className="overflow-x-auto border border-border rounded-card bg-bg-secondary shadow-card">
       <table className="w-full text-sm min-w-[640px]">
         <thead>
           <tr className="bg-bg-surface border-b border-border">
             {columns.map((col) => (
               <th
                 key={col.key}
-                className={`px-3 py-2.5 text-xs font-semibold text-text-secondary uppercase tracking-wide ${
+                className={`px-3 py-2.5 text-[11px] font-semibold text-text-dim uppercase tracking-[0.06em] ${
                   col.align === "right" ? "text-right" : "text-left"
-                } ${col.sortValue ? "cursor-pointer select-none hover:text-text-primary" : ""}`}
+                } ${col.sortValue ? "cursor-pointer select-none hover:text-white" : ""}`}
                 onClick={() => {
                   if (!col.sortValue) return;
                   if (sortKey === col.key) {
@@ -79,13 +79,15 @@ export default function DataTable<T>({
           {sorted.map((row, i) => (
             <tr
               key={keyFn(row, i)}
-              className="border-b border-border last:border-0 hover:bg-bg-surface/50"
+              className="border-b border-border last:border-0 hover:bg-bg-surface/60 transition-colors duration-150"
             >
               {columns.map((col) => (
                 <td
                   key={col.key}
-                  className={`px-3 py-2.5 text-text-primary ${
-                    col.align === "right" ? "text-right" : "text-left"
+                  className={`px-3 py-2.5 text-white ${
+                    col.align === "right"
+                      ? "text-right font-mono tabular-nums"
+                      : "text-left"
                   }`}
                 >
                   {col.render(row)}

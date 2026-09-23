@@ -365,13 +365,13 @@ export default function DashboardPage() {
             <Card title={`Revenue trend (${days}d)`}>
               <TrendLine
                 data={toPoints(revenue)}
-                color="#3B82F6"
+                color="#0D1CC4"
               />
             </Card>
             <Card title={`Profit trend (${days}d)`}>
               <TrendLine
                 data={toPoints(profit)}
-                color="#10B981"
+                color="#CBFD03"
               />
             </Card>
           </div>

@@ -22,7 +22,7 @@ export default function Input({
 }: InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
-      className={`w-full bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder-text-dim focus:outline-none focus:border-accent-blue focus:ring-1 focus:ring-accent-blue/40 ${className}`}
+      className={`w-full bg-bg-surface border border-border rounded-control px-3 py-2 text-sm text-white placeholder-text-dim focus:outline-none focus:border-accent-blue focus:ring-2 focus:ring-brand-lime/40 transition-colors duration-150 ${className}`}
       {...props}
     />
   );

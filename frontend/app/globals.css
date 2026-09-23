@@ -3,15 +3,23 @@
 @tailwind utilities;
 
 :root {
-  --bg-primary: #0b1120;
-  --bg-secondary: #111827;
-  --bg-surface: #1e293b;
-  --border: #334155;
-  --text-primary: #f8fafc;
-  --text-secondary: #94a3b8;
-  --accent-blue: #3b82f6;
-  --accent-green: #10b981;
-  --accent-red: #ef4444;
+  --blue: #0d1cc4;
+  --blue-dark: #0b17a8;
+  --lime: #cbfd03;
+  --lime-soft: #bec97d;
+  --dark: #27233f;
+  --white: #ffffff;
+  --gray: #4b525e;
+  --bg-primary: #27233f;
+  --bg-secondary: #312c4d;
+  --bg-surface: #3b3560;
+  --border: #4b525e;
+  --text-primary: #ffffff;
+  --text-secondary: #b7bbc6;
+  --accent-blue: #0d1cc4;
+  --accent-green: #cbfd03;
+  --accent-red: #ff5c5c;
+  --accent-amber: #ffc857;
 }
 
 html,
@@ -23,6 +31,21 @@ body {
 
 * {
   box-sizing: border-box;
+}
+
+body {
+  font-feature-settings: "ss01" on;
+}
+
+/* Focus — lime ring, always visible for keyboard */
+:focus-visible {
+  outline: 2px solid var(--lime);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: rgba(203, 253, 3, 0.35);
+  color: var(--white);
 }
 
 /* Scrollbars */
@@ -38,16 +61,16 @@ body {
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #475569;
+  background: #5e6575;
 }
 
 /* Skeleton loading */
 .skeleton {
   background: linear-gradient(
     90deg,
-    #1e293b 25%,
-    #334155 50%,
-    #1e293b 75%
+    #3b3560 25%,
+    #4b525e 50%,
+    #3b3560 75%
   );
   background-size: 200% 100%;
   animation: skeleton-loading 1.5s infinite;
@@ -63,7 +86,42 @@ body {
   }
 }
 
-/* Button transitions */
+/* Buttons */
 button {
-  transition: all 0.15s ease;
+  transition: background-color 150ms ease-out, color 150ms ease-out,
+    border-color 150ms ease-out, transform 120ms ease-out, opacity 150ms ease-out;
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+/* Subtle page enter */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.rise {
+  animation: rise-in 180ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  button:active:not(:disabled) {
+    transform: none;
+  }
 }

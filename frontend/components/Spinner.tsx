@@ -11,7 +11,7 @@ export default function Spinner({
   return (
     <div className="flex items-center gap-3 text-text-secondary">
       <div
-        className={`${dims[size]} border-2 border-border border-t-accent-blue rounded-full animate-spin`}
+        className={`${dims[size]} border-2 border-border border-t-brand-lime rounded-full animate-spin`}
       />
       <span className="text-sm">{label}</span>
     </div>

@@ -13,8 +13,10 @@ export default function EmptyState({
 }) {
   return (
     <div className="text-center py-12 px-4">
-      <div className="text-4xl mb-3 opacity-50">{icon}</div>
-      <div className="text-text-primary font-semibold mb-1">{title}</div>
+      <div className="w-12 h-12 mx-auto mb-3 rounded-card bg-bg-surface border border-border flex items-center justify-center text-xl opacity-80">
+        {icon}
+      </div>
+      <div className="text-white font-semibold mb-1">{title}</div>
       {message && (
         <div className="text-sm text-text-dim max-w-md mx-auto">{message}</div>
       )}
