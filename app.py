@@ -6,8 +6,13 @@ Product sourcing analysis: scrape eBay, find suppliers, run LLM analysis, show v
 
 import asyncio
 import logging
+import os
+import sys
 from datetime import datetime
 from typing import Optional
+
+# Existing modules live in backend/ after the FastAPI split.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "backend"))
 
 import streamlit as st
 from sqlalchemy import text
@@ -34,6 +39,14 @@ from utils.filters import load_filters, save_filters, reset_filters, save_preset
 from utils.theme import apply_theme
 from deep_search import deep_search_product, DeepSearchResult
 
+# Shared pipeline (single source of truth with the FastAPI backend)
+from analysis_pipeline import (
+    run_async as _run_async,
+    search_all_suppliers,
+    run_analysis_pipeline,
+    save_analysis_to_db as _save_to_db,
+)
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -44,16 +57,8 @@ st.set_page_config(
     layout="wide",
 )
 
-# ─── Async Helper ────────────────────────────────────────────────
-
-def _run_async(coro):
-    """Run an async coroutine from synchronous Streamlit code."""
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
-
+# _run_async / search_all_suppliers / run_analysis_pipeline / _save_to_db
+# are imported from analysis_pipeline (shared with the FastAPI backend).
 
 # ─── Status Checks ──────────────────────────────────────────────
 
@@ -87,226 +92,6 @@ def check_ollama_status() -> bool:
 def get_db_session():
     """Return a cached SQLAlchemy session factory."""
     return SessionLocal
-
-
-# ─── Supplier Search ────────────────────────────────────────────
-
-async def search_all_suppliers(query: str, progress=None) -> list[ScrapedProduct]:
-    """Search all 7 supplier scrapers in parallel and return combined results."""
-    from scrapers.aliexpress import AliExpressScraper
-    from scrapers.amazon_uk import AmazonUKScraper
-    from scrapers.bandq import BandQScraper
-    from scrapers.cjdropshipping import CJDropshippingScraper
-    from scrapers.godropship import GoDropshipScraper
-    from scrapers.joybuy import JoybuyScraper
-    from scrapers.toolstation import ToolstationScraper
-
-    scrapers = [
-        ("AliExpress", AliExpressScraper),
-        ("Amazon UK", AmazonUKScraper),
-        ("CJ Dropshipping", CJDropshippingScraper),
-        ("GoDropship", GoDropshipScraper),
-        ("Joybuy", JoybuyScraper),
-        ("B&Q", BandQScraper),
-        ("Toolstation", ToolstationScraper),
-    ]
-
-    async def _run_one(name: str, ScraperClass):
-        try:
-            scraper = ScraperClass()
-            try:
-                results = await scraper.search(query)
-            finally:
-                await scraper.close()
-            return name, results
-        except Exception as e:
-            logger.warning("Supplier search failed for %s: %s", name, e)
-            return name, []
-
-    pairs = await asyncio.gather(*(_run_one(name, cls) for name, cls in scrapers))
-
-    all_results: list[ScrapedProduct] = []
-    for name, results in pairs:
-        icon = "✓" if results else "–"
-        if progress:
-            progress(f"{icon} {name}: {len(results)} product(s)")
-        all_results.extend(results)
-
-    all_results.sort(key=lambda p: p.price)
-    return all_results
-
-
-# ─── Full Analysis Pipeline ─────────────────────────────────────
-
-async def run_analysis_pipeline(
-    query: str,
-    is_url: bool = False,
-    progress=None,
-    filters: dict | None = None,
-) -> dict:
-    """Execute the full analysis: scrape eBay → suppliers → LLM → verdict."""
-
-    def _report(msg: str):
-        if progress:
-            progress(msg)
-
-    ebay = EbayScraper()
-    results = {
-        "ebay_product": None,
-        "demand": None,
-        "supplier_matches": [],
-        "llm_analysis": None,
-        "verdict": None,
-        "scorecard": "",
-        "errors": [],
-    }
-
-    try:
-        # Step 1: Get eBay product
-        _report("Step 1/5 — Searching eBay…")
-        if is_url:
-            ebay_product = ebay.get_details(query)
-        else:
-            search_results = ebay.search(query, limit=5)
-            if not search_results:
-                results["errors"].append(
-                    "eBay requires API keys to search. "
-                    "Get free keys at https://developer.ebay.com and add them to .env"
-                )
-                return results
-            ebay_product = search_results[0]
-
-        results["ebay_product"] = ebay_product
-        _report(f"✓ Found: {ebay_product.title[:60]}")
-
-        # Step 2: Get demand data
-        _report("Step 2/5 — Fetching demand data…")
-        search_term = ebay_product.title if not is_url else query
-        demand = ebay.get_sold_data(search_term)
-        results["demand"] = demand
-        if demand and demand.sold_count_30d:
-            _report(f"✓ Demand: {demand.sold_count_30d} sold in 30 days")
-        else:
-            _report("– No demand counts available (marked Unverified)")
-
-        # Step 3: Search suppliers
-        _report("Step 3/5 — Searching 7 suppliers in parallel (slowest step, ~1–2 min)…")
-        supplier_results = await search_all_suppliers(ebay_product.title, progress=_report)
-        results["supplier_matches"] = supplier_results
-        _report(f"✓ Supplier search done: {len(supplier_results)} total matches")
-
-        # Step 4: LLM analysis
-        _report("Step 4/5 — Running AI analysis (llama3.1)…")
-        supplier_dicts = [
-            {
-                "name": s.title[:60],
-                "price": s.price,
-                "delivery_days": s.delivery_days_max or "?",
-                "source": s.source,
-            }
-            for s in supplier_results[:5]
-        ]
-        demand_dict = {
-            "sold_count_30d": demand.sold_count_30d,
-            "sold_count_7d": demand.sold_count_7d,
-            "avg_sold_price": demand.avg_sold_price,
-            "lowest_sold_price": demand.lowest_sold_price,
-            "highest_sold_price": demand.highest_sold_price,
-        }
-        product_dict = {
-            "title": ebay_product.title,
-            "price": ebay_product.price,
-            "condition": ebay_product.condition,
-            "seller": ebay_product.seller or "Unknown",
-        }
-
-        analyzer = ProductAnalyzer()
-        llm_result = await analyzer.analyze(product_dict, demand_dict, supplier_dicts)
-        results["llm_analysis"] = llm_result
-        await analyzer.close()
-        if llm_result:
-            _report(f"✓ AI verdict: {llm_result.brand_verdict} brand, {llm_result.demand_assessment} demand → {llm_result.recommended_action}")
-        else:
-            _report("– AI analysis unavailable (Ollama offline)")
-
-        # Step 5: Decision verdict
-        _report("Step 5/5 — Applying business rules and profit calculation…")
-        best_supplier_price = supplier_results[0].price if supplier_results else None
-        engine = DecisionEngine(filters=filters)
-        verdict = engine.evaluate(ebay_product, demand, best_supplier_price)
-        results["verdict"] = verdict
-        if verdict:
-            _report(f"✓ Verdict: {verdict.verdict.upper()}")
-
-        # Step 6: Scorecard
-        scorecard = format_scorecard(ebay_product, supplier_results, demand, verdict)
-        results["scorecard"] = scorecard
-
-    except Exception as e:
-        logger.exception("Analysis pipeline failed")
-        results["errors"].append(str(e))
-    finally:
-        ebay.close()
-
-    return results
-
-
-def _save_to_db(results: dict):
-    """Persist analysis results to PostgreSQL."""
-    db: Session = SessionLocal()
-    try:
-        ebay_product: ScrapedProduct = results["ebay_product"]
-        demand: DemandDataDTO = results["demand"]
-        suppliers: list[ScrapedProduct] = results["supplier_matches"]
-        llm: Optional[LLMAnalysis] = results["llm_analysis"]
-        verdict: Optional[VerdictData] = results["verdict"]
-
-        product_id = save_product(db, ebay_product)
-
-        if demand:
-            save_demand_data(db, product_id, demand)
-
-        for s in suppliers[:5]:
-            save_supplier_match_data(db, product_id, {
-                "supplier_name": s.source,
-                "supplier_url": s.url,
-                "supplier_title": s.title,
-                "supplier_price": s.price,
-                "delivery_days_min": s.delivery_days_min,
-                "delivery_days_max": s.delivery_days_max,
-                "supplier_type": "dropship",
-                "confidence": "medium",
-                "match_score": 0.5,
-            })
-
-        if llm:
-            save_analysis_data(db, product_id, {
-                "brand_verdict": llm.brand_verdict,
-                "brand_reasoning": llm.brand_reasoning,
-                "demand_assessment": llm.demand_assessment,
-                "demand_reasoning": llm.demand_reasoning,
-                "supplier_match_notes": llm.supplier_type_reasoning,
-                "llm_raw_response": llm.raw_response,
-            })
-
-        if verdict:
-            save_verdict_data(db, product_id, {
-                "verdict": verdict.verdict,
-                "profit_amount": verdict.profit,
-                "profit_margin": verdict.margin,
-                "filter_results": [
-                    {"name": f.name, "passed": f.passed, "actual": f.actual, "expected": f.expected}
-                    for f in verdict.filters
-                ],
-                "scorecard": results.get("scorecard", ""),
-            })
-
-        db.commit()
-    except Exception as e:
-        db.rollback()
-        logger.exception("Failed to save to database: %s", e)
-    finally:
-        db.close()
 
 
 # ─── Custom Filters ──────────────────────────────────────────────

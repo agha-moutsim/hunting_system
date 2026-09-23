@@ -1,0 +1,16 @@
+# Render.com — eBay Hunter FastAPI backend
+# https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: ebay-hunter-api
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt && playwright install chromium
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        value: sqlite:///data/ebay_hunter.db
+      - key: PYTHON_VERSION
+        value: 3.11.9
+    healthCheckPath: /api/health
+    freePlan: true

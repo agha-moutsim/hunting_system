@@ -23,6 +23,7 @@ build/
 
 # Data (local only)
 data/screenshots/
+backend/data/screenshots/
 *.db
 
 # OS

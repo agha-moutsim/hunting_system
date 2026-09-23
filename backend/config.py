@@ -21,12 +21,12 @@ SCREENSHOTS_DIR = DATA_DIR / "screenshots"
 SUPPLIERS_JSON = BASE_DIR / "suppliers.json"
 
 # ============================================================
-# Database (PostgreSQL)
+# Database (SQLite by default; set DATABASE_URL to override)
 # ============================================================
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql://postgres:postgres@localhost:5432/ebay_hunter"
+    f"sqlite:///{BASE_DIR / 'data' / 'ebay_hunter.db'}",
 )
 
 # ============================================================
