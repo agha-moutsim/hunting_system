@@ -1,12 +1,18 @@
 """POST /api/analyze — full single-product analysis pipeline."""
 
+import asyncio
 import logging
 
 from fastapi import APIRouter
 from dataclasses import asdict
 
 from api.schemas import AnalyzeRequest
-from analysis_pipeline import run_analysis_pipeline, run_async, save_analysis_to_db
+from analysis_pipeline import (
+    PIPELINE_TIMEOUT_S,
+    run_analysis_pipeline,
+    run_async,
+    save_analysis_to_db,
+)
 from utils.filters import load_filters
 
 router = APIRouter()
@@ -33,13 +39,29 @@ def analyze(req: AnalyzeRequest):
     """Run the full pipeline: eBay → demand → 7 suppliers → LLM → verdict → scorecard."""
     filters = req.filters or load_filters()
 
-    raw = run_async(
-        run_analysis_pipeline(
-            req.query,
-            is_url=req.is_url,
-            filters=filters,
+    try:
+        raw = run_async(
+            run_analysis_pipeline(
+                req.query,
+                is_url=req.is_url,
+                filters=filters,
+            ),
+            timeout=PIPELINE_TIMEOUT_S,
         )
-    )
+    except (TimeoutError, asyncio.TimeoutError):
+        logger.error("Analysis pipeline exceeded %.0fs budget", PIPELINE_TIMEOUT_S)
+        return {
+            "ebay_product": None,
+            "demand": None,
+            "supplier_matches": [],
+            "llm_analysis": None,
+            "verdict": None,
+            "scorecard": "",
+            "errors": [
+                f"Analysis timed out after {int(PIPELINE_TIMEOUT_S)}s. "
+                "Supplier scrapers or the LLM hung — retry, or try Deep Search → Fast."
+            ],
+        }
 
     # Persist (same path Streamlit uses)
     if raw.get("ebay_product"):

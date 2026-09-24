@@ -69,14 +69,15 @@ export default function AnalyzePage() {
           </Button>
         </form>
         <p className="text-xs text-text-dim mt-2">
-          Takes ~3 minutes (7 scrapers + LLM). Results are saved to History.
+          Usually 30–90s (capped at 3 min). Results are saved to History. If it
+          times out, retry or use Deep Search → Fast.
         </p>
       </Card>
 
       {loading && (
         <Card>
           <div className="flex flex-col items-center gap-4 py-6">
-            <Spinner size="lg" label="Running analysis — this takes about 3 minutes…" />
+            <Spinner size="lg" label="Running analysis — usually under 90 seconds…" />
             <div className="w-full max-w-md space-y-2" aria-hidden>
               <div className="skeleton h-20 rounded-xl" />
               <div className="skeleton h-10 rounded-lg" />
@@ -84,7 +85,8 @@ export default function AnalyzePage() {
               <div className="skeleton h-10 rounded-lg" />
             </div>
             <p className="text-xs text-text-dim text-center">
-              Scraping eBay, demand data, 7 suppliers, then LLM verdict.
+              eBay → demand → suppliers (2 at a time, 45s each cap) → LLM (45s
+              cap). Backend: <span className="font-mono">localhost:8000</span>
             </p>
           </div>
         </Card>

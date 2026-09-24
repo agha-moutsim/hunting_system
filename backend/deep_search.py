@@ -105,7 +105,7 @@ class DeepSearchResult:
 # Ollama LLM
 # ---------------------------------------------------------------------------
 
-def _ollama_generate(prompt: str, system: str = "") -> str:
+def _ollama_generate(prompt: str, system: str = "", timeout: float = 45.0) -> str:
     """Send a prompt to the local Ollama API and return the generated text."""
     url = f"{OLLAMA_BASE_URL}/api/generate"
     payload = {
@@ -114,12 +114,12 @@ def _ollama_generate(prompt: str, system: str = "") -> str:
         "system": system,
         "stream": False,
         "options": {
-            "num_predict": 2000,
+            "num_predict": 800,
         },
     }
 
     try:
-        resp = requests.post(url, json=payload, timeout=180)
+        resp = requests.post(url, json=payload, timeout=timeout)
         resp.raise_for_status()
         data = resp.json()
         return data.get("response", "")
@@ -129,7 +129,7 @@ def _ollama_generate(prompt: str, system: str = "") -> str:
             "Make sure Ollama is running (ollama serve)."
         )
     except requests.exceptions.Timeout:
-        raise RuntimeError("Ollama request timed out after 180 seconds.")
+        raise RuntimeError(f"Ollama request timed out after {timeout:.0f} seconds.")
     except Exception as exc:
         raise RuntimeError(f"Ollama request failed: {exc}")
 
@@ -295,19 +295,19 @@ def deep_search_product(query: str) -> DeepSearchResult:
         f"{query} site:amazon.co.uk",
     ]
 
-    for sq in search_queries:
-        hits = _web_search(sq, num_results=6)
+    for sq in search_queries[:5]:
+        hits = _web_search(sq, num_results=5)
         for hit in hits:
             if hit["url"]:
                 sources.append(hit["url"])
             collected_data.append(
                 f"[Search: {sq}] {hit['title']}\n{hit['snippet']}\nURL: {hit['url']}"
             )
-        time.sleep(1.5)
+        time.sleep(0.4)
 
     fetch_count = 0
-    for src in sources[:6]:
-        if fetch_count >= 4:
+    for src in sources[:4]:
+        if fetch_count >= 2:
             break
         if not src.startswith("http"):
             continue
@@ -315,7 +315,7 @@ def deep_search_product(query: str) -> DeepSearchResult:
         if page_text:
             collected_data.append(f"[Page: {src}]\n{page_text[:2000]}")
             fetch_count += 1
-            time.sleep(1)
+            time.sleep(0.3)
 
     combined = "\n\n---\n\n".join(collected_data)
 
@@ -325,11 +325,21 @@ def deep_search_product(query: str) -> DeepSearchResult:
         f"Analyse the above and return the JSON object as specified."
     )
 
-    raw_llm = _ollama_generate(user_prompt, system=_SYSTEM_PROMPT)
-    result.raw_analysis = raw_llm
-    result.sources = list(dict.fromkeys(sources))
+    try:
+        raw_llm = _ollama_generate(user_prompt, system=_SYSTEM_PROMPT, timeout=45.0)
+        result.raw_analysis = raw_llm
+        parsed = _parse_llm_json(raw_llm)
+    except RuntimeError as e:
+        # Rule-based fallback — never fabricate: leave LLM fields empty/Unverified
+        print(f"[WARN] Deep search LLM failed: {e}")
+        result.raw_analysis = ""
+        result.notes = (
+            f"LLM unavailable ({e}). Showing real eBay sold data only — "
+            "supplier estimates marked Unverified."
+        )
+        parsed = {}
 
-    parsed = _parse_llm_json(raw_llm)
+    result.sources = list(dict.fromkeys(sources))
 
     result.product_name = parsed.get("product_name", query)
     result.product_category = parsed.get("product_category", "")
@@ -437,13 +447,32 @@ def deep_search_fast(query: str) -> DeepSearchResult:
             print(f"[WARN] Amazon scrape failed: {e}")
             return []
 
-    # Run all scrapers in parallel
+    # Run all scrapes with a hard cap so one hung site can't block the API
+    import concurrent.futures
+
     try:
-        loop = asyncio.new_event_loop()
-        cj_results, ae_results, amz_results = loop.run_until_complete(
-            asyncio.gather(_scrape_cj(), _scrape_ae(), _scrape_amazon())
-        )
-        loop.close()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+            futs = [
+                pool.submit(asyncio.run, _scrape_cj()),
+                pool.submit(asyncio.run, _scrape_ae()),
+                pool.submit(asyncio.run, _scrape_amazon()),
+            ]
+            done, not_done = concurrent.futures.wait(futs, timeout=50.0)
+            cj_results = ae_results = amz_results = []
+            for i, fut in enumerate(futs):
+                try:
+                    val = fut.result(timeout=0) if fut in done else []
+                except Exception as e:
+                    print(f"[WARN] supplier scrape error: {e}")
+                    val = []
+                if i == 0:
+                    cj_results = val
+                elif i == 1:
+                    ae_results = val
+                else:
+                    amz_results = val
+            if not_done:
+                print(f"[WARN] {len(not_done)} supplier scrape(s) timed out at 50s")
     except Exception as e:
         print(f"[WARN] Parallel scrape failed: {e}")
         cj_results, ae_results, amz_results = [], [], []

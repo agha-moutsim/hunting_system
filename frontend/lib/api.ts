@@ -2,6 +2,24 @@
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+/** Default per-endpoint timeouts (ms). Long ops can override. */
+const DEFAULT_TIMEOUT_MS = 60_000;
+const TIMEOUT_OVERRIDES: Record<string, number> = {
+  "/api/analyze": 180_000,
+  "/api/deep-search": 240_000,
+  "/api/deep-search/fast": 90_000,
+  "/api/bulk": 180_000,
+  "/api/hunter/scan": 90_000,
+  "/api/hunter/lookup": 120_000,
+};
+
+function timeoutFor(path: string): number {
+  for (const [prefix, ms] of Object.entries(TIMEOUT_OVERRIDES)) {
+    if (path.startsWith(prefix)) return ms;
+  }
+  return DEFAULT_TIMEOUT_MS;
+}
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -15,23 +33,49 @@ export async function apiFetch<T>(
   options: RequestInit = {}
 ): Promise<T> {
   const url = `${BASE}${path.startsWith("/") ? path : `/${path}`}`;
-  const res = await fetch(url, {
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-    ...options,
-  });
+  const controller = new AbortController();
+  const ms = timeoutFor(path);
+  const timer = setTimeout(() => controller.abort(), ms);
 
-  if (!res.ok) {
-    let detail = res.statusText;
-    try {
-      const body = await res.json();
-      detail = body.detail || body.error || JSON.stringify(body);
-    } catch {
-      /* keep statusText */
+  try {
+    const res = await fetch(url, {
+      headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+      signal: options.signal ?? controller.signal,
+      ...options,
+    });
+
+    if (!res.ok) {
+      let detail = res.statusText;
+      try {
+        const body = await res.json();
+        detail = body.detail || body.error || JSON.stringify(body);
+      } catch {
+        /* keep statusText */
+      }
+      throw new ApiError(res.status, detail);
     }
-    throw new ApiError(res.status, detail);
-  }
 
-  return res.json() as Promise<T>;
+    return res.json() as Promise<T>;
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      const secs = Math.round(ms / 1000);
+      throw new ApiError(
+        408,
+        `Request timed out after ${secs}s. The backend may still be working — check http://localhost:8000/api/status, then retry.`
+      );
+    }
+    if (err instanceof TypeError && /fetch/i.test(err.message)) {
+      throw new ApiError(
+        0,
+        "Cannot reach the backend at " +
+          BASE +
+          ". Is the API running? (cd backend && python -m uvicorn main:app --port 8000)"
+      );
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** POST JSON helper. */

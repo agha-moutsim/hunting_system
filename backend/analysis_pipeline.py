@@ -28,13 +28,34 @@ from scrapers.base import ScrapedProduct, DemandData as DemandDataDTO
 logger = logging.getLogger(__name__)
 
 
-def run_async(coro):
-    """Run an async coroutine from synchronous code."""
+def run_async(coro, timeout: float | None = None):
+    """Run an async coroutine from synchronous code (optional hard timeout)."""
     loop = asyncio.new_event_loop()
     try:
-        return loop.run_until_complete(coro)
+        if timeout is None:
+            return loop.run_until_complete(coro)
+        return loop.run_until_complete(asyncio.wait_for(coro, timeout=timeout))
     finally:
+        try:
+            pending = asyncio.all_tasks(loop)
+            for t in pending:
+                t.cancel()
+            if pending:
+                loop.run_until_complete(
+                    asyncio.gather(*pending, return_exceptions=True)
+                )
+        except Exception:
+            pass
         loop.close()
+
+
+# Cap concurrent Playwright browsers — 7 full Chromium instances
+# thrash the machine and can OOM/kill the API process.
+_BROWSER_SEMAPHORE = asyncio.Semaphore(2)
+# Hard cap per supplier scraper so one hung site can't stall the pipeline.
+SCRAPER_TIMEOUT_S = 45.0
+# Overall pipeline budget (eBay + suppliers + LLM + verdict).
+PIPELINE_TIMEOUT_S = 150.0
 
 
 async def search_all_suppliers(query: str, progress=None) -> list[ScrapedProduct]:
@@ -58,16 +79,24 @@ async def search_all_suppliers(query: str, progress=None) -> list[ScrapedProduct
     ]
 
     async def _run_one(name: str, ScraperClass):
+        scraper = ScraperClass()
         try:
-            scraper = ScraperClass()
-            try:
-                results = await scraper.search(query)
-            finally:
-                await scraper.close()
+            async with _BROWSER_SEMAPHORE:
+                results = await asyncio.wait_for(
+                    scraper.search(query), timeout=SCRAPER_TIMEOUT_S
+                )
             return name, results
+        except asyncio.TimeoutError:
+            logger.warning("Supplier search timed out for %s (%.0fs)", name, SCRAPER_TIMEOUT_S)
+            return name, []
         except Exception as e:
             logger.warning("Supplier search failed for %s: %s", name, e)
             return name, []
+        finally:
+            try:
+                await asyncio.wait_for(scraper.close(), timeout=5.0)
+            except Exception:
+                pass
 
     pairs = await asyncio.gather(*(_run_one(name, cls) for name, cls in scrapers))
 
@@ -134,8 +163,18 @@ async def run_analysis_pipeline(
             _report("– No demand counts available (marked Unverified)")
 
         # Step 3: Search suppliers
-        _report("Step 3/5 — Searching 7 suppliers in parallel (slowest step, ~1–2 min)…")
-        supplier_results = await search_all_suppliers(ebay_product.title, progress=_report)
+        _report("Step 3/5 — Searching 7 suppliers (max ~45s each, 2 at a time)…")
+        try:
+            supplier_results = await asyncio.wait_for(
+                search_all_suppliers(ebay_product.title, progress=_report),
+                timeout=90.0,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("Supplier search budget exceeded (90s) — continuing with partial/empty")
+            results["errors"].append(
+                "⚠️ Supplier search timed out (90s) — results may be incomplete (Unverified)."
+            )
+            supplier_results = []
         results["supplier_matches"] = supplier_results
         _report(f"✓ Supplier search done: {len(supplier_results)} total matches")
 
@@ -165,9 +204,24 @@ async def run_analysis_pipeline(
         }
 
         analyzer = ProductAnalyzer()
-        llm_result = await analyzer.analyze(product_dict, demand_dict, supplier_dicts)
+        try:
+            llm_result = await asyncio.wait_for(
+                analyzer.analyze(product_dict, demand_dict, supplier_dicts),
+                timeout=45.0,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("LLM analysis timed out (45s) — using unverified defaults")
+            results["errors"].append(
+                "⚠️ AI analysis timed out — brand/demand marked Unverified."
+            )
+            from llm.analyzer import UNVERIFIED_DEFAULT
+            llm_result = UNVERIFIED_DEFAULT
+        finally:
+            try:
+                await analyzer.close()
+            except Exception:
+                pass
         results["llm_analysis"] = llm_result
-        await analyzer.close()
         if llm_result:
             _report(
                 f"✓ AI verdict: {llm_result.brand_verdict} brand, "
