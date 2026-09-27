@@ -1,87 +1,208 @@
 # eBay Hunter
 
-Product sourcing intelligence for eBay UK resellers. Enter an eBay listing or a search term, and the system checks sold history, prices the same product at 7 approved suppliers, runs your business rules against it, and returns a pass/fail scorecard with the maths shown.
+Sourcing intelligence for eBay UK resellers. The system takes an eBay listing or search query and returns a sourcing decision: real sold-listing demand, matched prices from seven approved suppliers, profit after eBay fees, and a pass/fail verdict against configurable business rules.
 
-The target workflow: a decision that takes 20 minutes of tab-hopping, done in about 90 seconds.
+The design priorities are data integrity and bounded execution. The system never estimates a value it could not measure — unavailable fields are reported as Unverified — and every stage of processing runs under an explicit time budget, degrading to partial results instead of blocking.
 
-Everything is local-first and costs nothing to run — SQLite on disk, a local LLM through Ollama, free-tier hosting. There is no paid API tier anywhere in the stack.
+## Features
 
-## Tech stack
+**Analysis**
+- Single-product analysis: eBay listing → demand → supplier comparison → AI verdict → profit scorecard
+- Deep search research mode, with a fast variant that skips the LLM (~20s) and a full variant with LLM analysis (≤ 2 min)
+- Bulk analysis of multiple queries with CSV/JSON export
 
-| Layer | Choice | Why this one |
-|---|---|---|
-| Frontend | Next.js 16 (App Router), React 19, TypeScript 5.7 | Static pages, fast builds, one deploy target on Vercel's free tier |
-| Styling | Tailwind CSS 3.4 | Design tokens live in `tailwind.config.js`, one place to change theme |
-| Charts | Recharts | Declarative React charts, fits the component model |
-| Backend | FastAPI + Uvicorn | Async by default (the pipeline is I/O-bound), Pydantic validation, `/docs` generated for free |
-| HTTP | httpx / requests | httpx for async scraper calls, requests for simple sync paths |
-| Scraping | Playwright + playwright-stealth, BeautifulSoup | The supplier sites are JavaScript-rendered — plain HTTP requests get nothing back |
-| LLM | Ollama (`llama3.1:8b`) | Runs on the machine, no per-call cost, no data leaves the laptop |
-| Database | SQLite via SQLAlchemy 2 | A single file, zero setup, no server to keep alive; `DATABASE_URL` switches to Postgres later without code changes |
-| Validation | Pydantic 2 | Same schema shapes shared across API request/response models |
-| Export | pandas + openpyxl | CSV and real `.xlsx` files |
-| Deploy | Vercel (frontend) + Render (backend) | Both have free tiers; `backend/render.yaml` defines the service |
+**Discovery**
+- Category Hunter: scan a category against active filters, then resolve supplier matches
+- Watchlist with saved searches; saved searches can be re-run individually or in bulk
 
-Legacy note: `app.py` at the repo root is the original Streamlit UI. It imports the same backend modules, so it still works, but the Next.js app is the real interface.
+**Monitoring**
+- Price tracker with price-history tables and configurable drop alerts
+- Dashboard: sales KPIs, revenue and profit trends, category breakdowns, manual sales log
+
+**Reporting**
+- Complete analysis history with filtering by verdict
+- CSV and XLSX/JSON export for sales, analyses, and bulk results
 
 ## Architecture
 
-Three processes talk to each other: the Next.js app on port 3000, the FastAPI app on port 8000, and Ollama on port 11434. SQLite sits behind the API as the persistence layer.
+### Overview
+
+The system runs as three local services plus a file database:
 
 ```
-Browser
-  │
-  ▼
-Next.js (Vercel / localhost:3000)
-  │  fetch /api/*  — every call has a client-side timeout
-  ▼
-FastAPI (Render / localhost:8000)
-  │
-  ├──► eBay Browse API + sold-listings scraper   (price, demand)
-  ├──► 7 supplier sources                        (API first, Playwright fallback)
-  ├──► Ollama llama3.1:8b                        (brand / demand judgement)
-  └──► decision engine                           (filters, profit, verdict)
-  │
-  ▼
-SQLite — 13 tables
+┌────────────┐   HTTPS/JSON    ┌───────────────┐    async calls    ┌────────────┐
+│  Next.js   │ ──────────────► │    FastAPI    │ ────────────────► │   Ollama   │
+│  frontend  │  /api/*         │   backend     │                   │ llama3.1:8b│
+│  :3000     │ ◄────────────── │    :8000      │                   │  :11434    │
+└────────────┘   scorecard     └──────┬────────┘                   └────────────┘
+                                      │
+                    ┌─────────────────┼─────────────────┐
+                    ▼                 ▼                 ▼
+             ┌────────────┐   ┌──────────────┐   ┌────────────┐
+             │ eBay API   │   │  Supplier    │   │  SQLite    │
+             │ (listings, │   │  clients     │   │  13 tables │
+             │  sold data)│   │  (7 sources) │   │            │
+             └────────────┘   └──────────────┘   └────────────┘
 ```
 
-### What happens on `/api/analyze`
+- **Frontend** — Next.js 16 (App Router) served by Vercel or `next start`. All data access goes through the REST API; there is no direct database access from the browser.
+- **Backend** — FastAPI with 10 routers and 40 endpoints. All business logic (pipeline, engine, scrapers, LLM) lives here and is shared with the legacy Streamlit client through common imports.
+- **LLM** — Ollama running locally. The LLM is used only for brand and demand judgement; every LLM-dependent field has a non-LLM fallback.
+- **Database** — SQLite file at `backend/data/ebay_hunter.db`, accessed through SQLAlchemy 2. `DATABASE_URL` switches the same models to PostgreSQL without code changes.
 
-1. The eBay product is fetched through the Browse API (listings, price, condition, seller).
-2. Sold listings are scraped to get real demand: how many sold in 30 days and 7 days, and the actual price range. No estimates — if it can't be measured, the field says Unverified.
-3. All 7 suppliers are searched for the same product. Each scraper prefers a real API (eBay, Amazon PA, CJ) and only falls back to Playwright when there isn't one. At most 2 browsers run at once — this used to be 7, which crashed the process.
-4. The LLM looks at title, price, and suppliers and judges two things: is this a generic (unbranded) product, and is demand real. It has 45 seconds. If Ollama is slow or offline, the step is skipped and those fields are marked Unverified — the request never hangs on it.
-5. The decision engine applies the business rules below and computes profit after eBay's fees.
-6. Result is written to SQLite and returned as a scorecard.
+### Processing pipeline
 
-### Time budgets
+`backend/analysis_pipeline.py` is the single source of truth for analysis, used by both the API and the Streamlit client. One call executes:
 
-Nothing in this pipeline is allowed to run forever. Every step has a limit, and hitting a limit degrades the answer instead of blocking it:
+1. **eBay product retrieval** — Browse API for listing data (price, condition, seller, format).
+2. **Demand measurement** — sold-listings scrape producing actual 30-day and 7-day sold counts and the observed price range. Values are written only when observed; otherwise the demand fields are marked Unverified.
+3. **Supplier search** — all seven suppliers queried for the same product. Each supplier prefers a direct API where one exists (eBay, Amazon PA, CJ, RapidAPI) and falls back to Playwright otherwise. Two browsers run concurrently; each scraper is capped at 45s and the stage at 90s.
+4. **LLM analysis** — brand verdict and demand assessment, capped at 45s. On timeout or Ollama failure the step is skipped and affected fields are marked Unverified.
+5. **Decision engine** — five business-rule filters plus profit calculation (12.8% final value fee and 3% returns buffer).
+6. **Scorecard and persistence** — formatted verdict, saved to SQLite, returned to the client.
 
-| Bound | Value |
-|---|---|
-| Whole pipeline | 150s hard cap |
-| Each supplier scraper | 45s |
-| Supplier step total | 90s (returns partial results) |
-| LLM step | 45s (falls back to Unverified) |
-| Concurrent browsers | 2 |
-| Frontend timeout | 180s for analyze, 90s fast, 240s deep search |
+### Execution limits
 
-The same applies to Deep Search: the full variant is capped at 120s and the fast variant at 75s, and both return a partial result with a note if they run out of time.
+| Bound | Value | Behaviour on expiry |
+|---|---|---|
+| Full pipeline | 150s | Structured error response |
+| Supplier stage | 90s | Partial supplier results |
+| Individual scraper | 45s | That supplier skipped, marked Unverified |
+| LLM step | 45s | Rule-based fallback, Unverified fields |
+| Concurrent browsers | 2 | Queue |
+| Deep search (full) | 120s | Partial result with timeout note |
+| Deep search (fast) | 75s | Partial result with timeout note |
+| Client-side timeout | 90–240s depending on endpoint | Cancelled request with explicit message |
+
+Client-side timeouts are defined in `frontend/lib/api.ts` and match the server-side budgets plus network margin.
+
+## Technology stack
+
+| Layer | Technology | Notes |
+|---|---|---|
+| Frontend | Next.js 16.3, React 19, TypeScript 5.7 | App Router; 8 routes, statically prerendered |
+| Styling | Tailwind CSS 3.4 | Design tokens in `tailwind.config.js` |
+| Charts | Recharts 2.15 | Dashboard visualisations |
+| Backend | FastAPI ≥ 0.115, Uvicorn | Async request handling; OpenAPI at `/docs` |
+| HTTP clients | httpx, requests | Async in scrapers, sync for simple calls |
+| Browser automation | Playwright ≥ 1.48, playwright-stealth | JS-rendered supplier pages |
+| HTML parsing | BeautifulSoup 4 | Static page extraction |
+| ORM | SQLAlchemy ≥ 2.0 | Declarative models, shared across API and legacy client |
+| Validation | Pydantic ≥ 2.0 | Request/response schemas |
+| LLM | Ollama, `llama3.1:8b` | Local inference; rule-based fallback when unavailable |
+| Data/export | pandas, openpyxl | CSV and XLSX export |
+| Tests | pytest | `tests/` with path bootstrap in `conftest.py` |
+
+## Requirements
+
+- Python 3.11 or newer
+- Node.js 20 or newer
+- Ollama (optional) — without it, LLM steps use the rule-based fallback
+- eBay Developer API keys (required for product search)
+
+## Installation
+
+```bash
+git clone https://github.com/agha-moutsim/hunting_system.git
+cd ebay-hunter
+```
+
+**Backend**
+
+```bash
+cd backend
+python -m venv venv
+venv\Scripts\activate          # Windows: source venv/bin/activate on macOS/Linux
+pip install -r requirements.txt
+playwright install chromium
+```
+
+**Frontend**
+
+```bash
+cd frontend
+npm install
+```
+
+## Configuration
+
+Copy the root `.env.example` to `.env` and fill in the values you have:
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET` | Yes | eBay Browse API (free, 5,000 calls/day) |
+| `EBAY_ENVIRONMENT`, `EBAY_MARKETPLACE` | No | Defaults: `production`, `EBAY_GB` |
+| `OLLAMA_BASE_URL`, `OLLAMA_MODEL` | No | Defaults: `http://localhost:11434`, `llama3.1:8b` |
+| `DATABASE_URL` | No | Defaults to SQLite file; set for PostgreSQL |
+| `CJ_API_KEY`, `CJ_ACCESS_TOKEN` | No | CJ Dropshipping API |
+| `AMAZON_PA_ACCESS_KEY`, `AMAZON_PA_SECRET_KEY`, `AMAZON_PA_PARTNER_TAG` | No | Amazon Product Advertising API |
+| `RAPIDAPI_KEY` | No | AliExpress API |
+| `SERPAPI_KEY` | No | Google Shopping results for B&Q and Toolstation |
+| `SCRAPINGBEE_API_KEY`, `SCRAPERAPI_KEY` | No | Paid anti-bot bypass services |
+
+Suppliers without an API key fall back to browser scraping, which is slower and subject to rate limiting.
+
+## Usage
+
+```bash
+# Backend (terminal 1)
+cd backend
+python -m uvicorn main:app --port 8000
+
+# Frontend (terminal 2)
+cd frontend
+npm run dev                      # http://localhost:3000
+```
+
+Production build:
+
+```bash
+cd frontend && npm run build && npm run start
+```
+
+Interactive API documentation is served at `http://localhost:8000/docs`.
+
+## API reference
+
+Base URL: `http://localhost:8000`
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/status` | Service health: database, Ollama, eBay credentials |
+| POST | `/api/analyze` | Full single-product pipeline |
+| POST | `/api/deep-search` | Deep research with LLM (≤ 120s) |
+| POST | `/api/deep-search/fast` | Deep research without LLM (≤ 75s) |
+| POST | `/api/bulk` | Batch queries |
+| POST | `/api/hunter/scan` | Category scan against filters |
+| POST | `/api/hunter/lookup` | Supplier lookup for scan results |
+| GET | `/api/tracker` | Tracked products |
+| POST | `/api/tracker` | Start tracking / trigger check |
+| DELETE | `/api/tracker/{id}` | Stop tracking |
+| GET | `/api/tracker/{id}/history` | Price history |
+| GET | `/api/tracker/alerts` | Price alerts |
+| GET | `/api/watchlist` | Watchlist items |
+| POST | `/api/watchlist` | Add to watchlist |
+| GET | `/api/searches` | Saved searches |
+| POST | `/api/searches/run-all` | Run all saved searches |
+| GET | `/api/dashboard/kpis` | Dashboard KPI figures |
+| GET | `/api/dashboard/charts/*` | Revenue, profit, category, monthly series |
+| GET/POST/DELETE | `/api/sales` | Sales log |
+| GET | `/api/history` | Past analyses |
+| GET/POST | `/api/export/csv`, `/api/export/json` | Exports |
 
 ## Business rules
 
-Configured in `backend/config.py`, enforced by `backend/engine/`.
+Enforced by `backend/engine/`, configured in `backend/config.py`.
 
 | Rule | Threshold |
 |---|---|
 | Buy price | £5 – £25 |
 | Minimum margin | ≥ 25% |
-| Demand | ≥ 10 sold in 30 days, ≥ 1 sold in 7 days |
-| Delivery | ≤ 8 days (≤ 25 days when the product sells ≥ 30/month) |
-| Brand | Generic only — branded items fail |
-| Listing | New, Buy It Now, UK only |
+| Demand (30 days) | ≥ 10 sold |
+| Demand (7 days) | ≥ 1 sold |
+| Delivery | ≤ 8 days (≤ 25 days when sales ≥ 30/month) |
+| Brand | Generic only; branded items fail |
+| Listing condition | New, Buy It Now, UK only |
 | eBay fees | 12.8% final value + 3% returns buffer |
 
 ```
@@ -89,128 +210,42 @@ profit = sale_price − supplier_price − (sale_price × 0.158)
 margin = profit / sale_price × 100
 ```
 
-Approved suppliers, and only these: AliExpress, Amazon UK, CJ Dropshipping, GoDropship, Joybuy UK, B&Q, Toolstation.
+Approved suppliers: AliExpress, Amazon UK, CJ Dropshipping, GoDropship, Joybuy UK, B&Q, Toolstation. No other source is accepted.
 
-## Getting started
+## Data model
 
-Prerequisites: Python 3.11+, Node 20+, and optionally [Ollama](https://ollama.com) with `llama3.1:8b` pulled.
+13 tables in SQLite (models in `backend/db/models.py`):
+
+| Domain | Tables |
+|---|---|
+| Product and analysis | `products`, `demand_data`, `supplier_matches`, `analyses`, `verdicts` |
+| Price monitoring | `tracked_products`, `price_history`, `price_alerts` |
+| Watchlist | `watchlist_items`, `saved_searches`, `search_results` |
+| Sales reporting | `sales`, `monthly_stats` |
+
+## Testing
 
 ```bash
-git clone https://github.com/agha-moutsim/hunting_system.git
 cd ebay-hunter
-
-# backend
-cd backend
-python -m venv venv
-venv\Scripts\activate            # Windows; source venv/bin/activate on macOS/Linux
-pip install -r requirements.txt
-playwright install chromium
-python -m uvicorn main:app --port 8000
-
-# frontend — new terminal
-cd frontend
-npm install
-npm run dev                      # http://localhost:3000
+pytest tests/ -v
 ```
 
-### API keys
+The suite runs against live services where available and degrades gracefully when keys are absent (a scraper test reports API mode or scraping mode rather than failing). Debug scripts for the eBay API are in `tests/debug_ebay.py` and `tests/debug_listing.py`.
 
-eBay keys are required (the app can't list products without them):
+## Deployment
 
-1. Create an app at https://developer.ebay.com
-2. Put the credentials in `backend/.env`:
-
-```
-EBAY_CLIENT_ID=your_client_id
-EBAY_CLIENT_SECRET=your_client_secret
-```
-
-Optional keys unlock faster, more reliable paths for individual suppliers:
-
-| Key | Unlocks |
-|---|---|
-| `SERPAPI_KEY` | B&Q and Toolstation via Google Shopping |
-| `AMAZON_PA_*` | Amazon Product Advertising API |
-| `CJ_API_KEY` | CJ Dropshipping API |
-| `RAPIDAPI_KEY` | AliExpress API |
-
-Without them those suppliers fall back to browser scraping, which is slower and sometimes rate-limited.
-
-## API
-
-Base URL `http://localhost:8000`. Interactive documentation at `/docs`.
-
-```
-GET    /api/status                    service health (DB, Ollama, eBay key)
-POST   /api/analyze                   full single-product pipeline
-POST   /api/deep-search               deep research with LLM (≤ 2 min)
-POST   /api/deep-search/fast          deep research without LLM (~20s)
-POST   /api/bulk                      batch queries
-POST   /api/hunter/scan               category scan
-POST   /api/hunter/lookup             supplier lookup for scan results
-GET    /api/tracker                   tracked products, price alerts
-POST   /api/tracker                   start tracking / check now
-DELETE /api/tracker/{id}              stop tracking
-GET    /api/watchlist                 watchlist, saved searches
-POST   /api/watchlist                 add item
-GET    /api/dashboard/kpis            dashboard numbers
-GET    /api/dashboard/charts/*        revenue, profit, category, monthly
-GET/POST/DELETE /api/sales            sales log
-GET    /api/history                   past analyses
-GET    /api/export/csv|json           exports
-```
-
-## Project layout
-
-```
-ebay-hunter/
-├── CONSTRAINTS.md          product spec: rules, API surface, quality bar
-├── design.md               UI redesign spec: palette, type, structure, plan
-├── app.py                  legacy Streamlit UI (shares backend modules)
-├── backend/
-│   ├── main.py             FastAPI entry, CORS, router mounting
-│   ├── api/                10 routers, 40 endpoints
-│   ├── analysis_pipeline.py  the shared pipeline (eBay → suppliers → LLM → verdict)
-│   ├── scrapers/           eBay + sold-listings + 7 suppliers + API clients
-│   ├── engine/             filters, profit calculator, scorecard
-│   ├── llm/                Ollama client, prompts, fallback verdicts
-│   ├── db/                 SQLAlchemy models, 13 tables, queries
-│   ├── hunter/ tracker/ watchlist/ dashboard/ export/
-│   └── render.yaml         Render deploy config
-├── frontend/
-│   ├── app/                8 pages: analyze, deep-search, bulk, hunter,
-│   │                       tracker, watchlist, dashboard, history
-│   ├── components/         Layout, Scorecard, DataTable, charts, ui/, icons/
-│   ├── lib/                api.ts (timeouts), types, formatting
-│   └── tailwind.config.js  theme tokens
-├── icons/                  Noun Project source SVGs
-└── tests/
-```
-
-## Design
-
-Dark theme only for v1. Indigo `#0D1CC4` and lime `#CBFD03` on deep indigo `#27233F`. Plus Jakarta Sans for interface text, JetBrains Mono for every number — prices and percentages need tabular figures so columns line up. Full spec in [`design.md`](design.md).
+- **Frontend** — Vercel. Build command `npm run build`, output automatic. Production origin must be added to the backend CORS list in `backend/main.py`.
+- **Backend** — Render. Definition in `backend/render.yaml`. Free tier sleeps after ~15 minutes idle; the first request after cold start takes ~30 seconds.
+- **Database** — SQLite on the Render disk for v1, or any PostgreSQL via `DATABASE_URL`.
+- **Migration** — `backend/scripts/migrate_pg_to_sqlite.py` converts an existing PostgreSQL database to SQLite.
 
 ## Known limitations
 
-- GoDropship and Joybuy have no API, so they run through Playwright and get blocked by anti-bot protection sometimes. Results from them are marked Unverified rather than guessed.
-- Amazon, AliExpress, and CJ are rate-limited without their API keys.
-- Ollama does not exist on Render, so the production build runs on the rule-based fallback for LLM steps. This is by design.
-- Render's free tier sleeps after ~15 minutes idle; first request after that takes ~30 seconds.
-- No authentication in v1.
-
-## Icons
-
-Navigation icons from [Noun Project](https://nounproject.com), used under the Noun Project license:
-
-- Analyze — Keyy Creative
-- Deep Dive & Categories — Trimanggolo Mulyo
-- Bulk — Awicon
-- Pricing — Hermanto
-- Wishlist — VectorVibe Designs
-- Dashboard — Lulis Dian RP
-- History — Mia Elysia
+- GoDropship and Joybuy have no public API and rely on Playwright; anti-bot protection may block them. Affected results are marked Unverified rather than inferred.
+- Amazon, AliExpress, and CJ are rate-limited unless their API keys are configured.
+- Ollama is not available on Render; the deployed instance runs LLM steps through the rule-based fallback.
+- No authentication in v1. The deployment model is a private link within a trusted group.
 
 ## License
 
-Private — eBay Hunter
+Private — eBay Hunter. Interface icons from [Noun Project](https://nounproject.com) (Keyy Creative, Trimanggolo Mulyo, Awicon, Hermanto, VectorVibe Designs, Lulis Dian RP, Mia Elysia) used under the Noun Project license.
