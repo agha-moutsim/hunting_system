@@ -1,212 +1,186 @@
-# eBay Hunter 🎯
+# eBay Hunter
 
-Product sourcing intelligence system for eBay UK resellers.
+**Product sourcing intelligence for eBay UK resellers.**
 
-**Scrapes eBay → Finds Suppliers → AI Analysis → Profit Calculation → Scorecard**
+Search eBay → compare 7 suppliers → AI verdict → profit scorecard — in one click. Built as a full-stack web app (FastAPI + Next.js), designed to answer one question: *should I source and resell this product?*
 
-## What It Does
+> **Never fabricate data.** Missing information is shown as ⚠️ Unverified. A wrong number costs real money.
 
-1. **Search eBay UK** for products (via Browse API)
-2. **Search 7 suppliers** in parallel (AliExpress, Amazon UK, CJ, GoDropship, Joybuy, B&Q, Toolstation)
-3. **LLM Analysis** — AI judges brand, demand, supplier type
-4. **Business Rules** — 5 filters (price, demand, brand, delivery)
-5. **Profit Calculator** — eBay fees + returns buffer
-6. **Scorecard** — PASS/FAIL verdict with full breakdown
+---
+
+## Why it exists
+
+Reselling on eBay UK is a numbers game: buy generic products in the £5–£25 range, resell with ≥25% margin, keep delivery inside 3–8 days. Doing that research by hand — checking sold listings, opening 7 supplier sites, calculating eBay's 12.8% fee + 3% returns buffer — takes 20+ minutes per product.
+
+eBay Hunter does it in ~90 seconds with a pass/fail scorecard you can trust.
+
+## Features
+
+| Page | What it does |
+|------|-------------|
+| **Analyze** | Full pipeline: eBay listing → demand data → 7 suppliers → LLM brand/demand check → profit verdict + scorecard |
+| **Deep Search** | Research mode with real eBay sold history; Fast (~20s, no LLM) or Full (LLM) |
+| **Bulk Analysis** | Queue multiple queries, export CSV/JSON |
+| **Category Hunter** | Scan a category for products matching your filters, then look up suppliers |
+| **Price Tracker** | Track products over time, price-drop alerts |
+| **Watchlist** | Save items + saved searches; auto-run finds new opportunities |
+| **Dashboard** | Sales KPIs, revenue/profit trends, category breakdowns, log sales |
+| **History** | Every past analysis, searchable and filterable by verdict |
+
+**Keyboard:** `Ctrl+1` … `Ctrl+8` jump between pages.
+
+## Business rules (configurable in `config.py`)
+
+| Rule | Threshold |
+|------|-----------|
+| Buy price | £5 – £25 |
+| Minimum margin | ≥ 25% |
+| Demand (30d) | ≥ 10 sold, and ≥ 1 sold in 7d |
+| Delivery | ≤ 8 days (≤ 25 days if ≥ 30 sold/30d) |
+| Brand | Generic only — branded items are FAIL |
+| Condition | New · Buy It Now · UK only |
+| eBay fees | 12.8% final value + 3% returns buffer |
+
+```
+Profit = eBay Price − Supplier Price − (eBay Price × 15.8%)
+Margin = Profit / eBay Price × 100
+```
+
+**Approved suppliers (only these 7):** AliExpress · Amazon UK · CJ Dropshipping · GoDropship · Joybuy UK · B&Q · Toolstation
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Streamlit Dashboard                       │
-│                  (app.py - Web UI)                          │
-└────────────────────────┬────────────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    Pipeline Orchestrator                     │
-│                 (pipeline.py - 7 steps)                     │
-└──┬────────┬────────┬────────┬────────┬────────┬────────────┘
-   │        │        │        │        │        │
-   ▼        ▼        ▼        ▼        ▼        ▼
-┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐
-│eBay  │ │Suppl-│ │ LLM  │ │Filter│ │Profit│ │  DB  │
-│API   │ │iers  │ │      │ │Engine│ │Calc  │ │      │
-└──────┘ └──────┘ └──────┘ └──────┘ └──────┘ └──────┘
-   │        │        │        │        │        │
-   │        ▼        │        │        │        │
-   │   ┌─────────┐   │        │        │        │
-   │   │ 7 scrapers  │        │        │        │
-   │   │ running  │   │        │        │        │
-   │   │ parallel │   │        │        │        │
-   │   └─────────┘   │        │        │        │
-   │                 ▼        ▼        ▼        ▼
-   │          ┌──────────────────────────────────┐
-   └──────────│         PostgreSQL DB            │
-              └──────────────────────────────────┘
+┌──────────────────────┐     ┌──────────────────────┐
+│   Next.js frontend   │     │   Streamlit (legacy)  │
+│  Vercel · port 3000  │     │   app.py · port 8501  │
+└──────────┬───────────┘     └──────────┬───────────┘
+           │  REST /api/*               │ import
+           ▼                            ▼
+┌──────────────────────────────────────────────────┐
+│              FastAPI backend :8000               │
+│  main.py · api/ (10 routers, 40+ endpoints)      │
+│  analysis_pipeline.py  ← single source of truth  │
+└──┬──────────┬──────────┬──────────┬─────────────┘
+   │          │          │          │
+   ▼          ▼          ▼          ▼
+┌───────┐ ┌────────┐ ┌───────┐ ┌─────────┐
+│ eBay  │ │ 7 sup- │ │ Ollama│ │ Engine  │
+│ Browse│ │ pliers │ │ LLM   │ │ filters │
+│  API  │ │(API +  │ │(local,│ │ profit  │
+│       │ │Play-   │ │ rule  │ │ verdict │
+│       │ │wright) │ │fallbk)│ │ scorecd │
+└───────┘ └────────┘ └───────┘ └────┬────┘
+                                    ▼
+                              ┌──────────┐
+                              │ SQLite   │
+                              │ 13 tables│
+                              └──────────┘
 ```
 
-## File Structure
+- **Frontend** → `frontend/` — Next.js 16, Tailwind, Plus Jakarta Sans + JetBrains Mono, indigo/lime dark theme (`design.md`)
+- **Backend** → `backend/` — FastAPI, Pydantic, shared pipeline with Streamlit
+- **LLM** → local Ollama (`llama3.1:8b`) with **rule-based fallback** — the app never crashes if the LLM is down
+- **Database** → SQLite file (swap to Postgres via `DATABASE_URL` env var only)
+- **Timeouts everywhere** — 150s pipeline cap, 45s per scraper, 45s LLM; browser concurrency capped at 2
 
-```
-ebay-hunter/
-├── app.py                    # Streamlit dashboard (web UI)
-├── pipeline.py               # Orchestrator (runs all steps)
-├── cli.py                    # CLI for quick testing
-├── config.py                 # All settings (thresholds, URLs)
-├── suppliers.json            # List of 7 approved suppliers
-├── mock_data.py              # Mock data for testing
-├── profit_calc.py            # Standalone profit calculator
-├── batch.py                  # Batch analysis
-├── export.py                 # CSV/JSON export
-├── .env                      # Secrets (DB password, API keys)
-├── .env.example              # Template for .env
-├── requirements.txt          # Python dependencies
-│
-├── scrapers/
-│   ├── base.py               # Base class (Playwright + stealth)
-│   ├── ebay.py               # eBay scraper (Browse API)
-│   ├── aliexpress.py         # AliExpress scraper
-│   ├── amazon_uk.py          # Amazon UK scraper
-│   ├── cjdropshipping.py     # CJ Dropshipping scraper
-│   ├── godropship.py         # GoDropship scraper
-│   ├── joybuy.py             # Joybuy scraper
-│   ├── bandq.py              # B&Q scraper
-│   └── toolstation.py        # Toolstation scraper
-│
-├── llm/
-│   ├── analyzer.py           # AI analysis wrapper
-│   ├── ollama_client.py      # Ollama API client
-│   └── prompts.py            # AI prompts
-│
-├── engine/
-│   ├── decisions.py          # Business rules (5 filters)
-│   ├── profit.py             # Profit calculator
-│   └── scorecard.py          # Scorecard formatter
-│
-├── db/
-│   ├── database.py           # PostgreSQL connection
-│   ├── models.py             # 5 database tables
-│   ├── queries.py            # Save/load functions
-│   └── init_db.py            # DB setup script
-│
-└── utils/
-    ├── rate_limiter.py       # Rate limiting
-    ├── health_check.py       # Scraper health check
-    ├── history.py            # Search history
-    ├── bookmarks.py          # Product bookmarks
-    ├── notifications.py      # Price drop alerts
-    ├── price_tracker.py      # Price tracking
-    ├── freshness.py          # Data freshness
-    ├── supplier_score.py     # Supplier reliability
-    ├── profit_trends.py      # Profit trends
-    └── theme.py              # Dark/light theme
-```
-
-## Quick Start
+## Quick start
 
 ### Prerequisites
-- Python 3.11+
-- PostgreSQL 14+
-- Ollama (for local LLM)
+
+- Python 3.11+, Node 20+
+- (optional) [Ollama](https://ollama.com) for local LLM — without it, rule-based fallback is used
 
 ### Setup
 
 ```bash
-# 1. Clone
 git clone https://github.com/agha-moutsim/hunting_system.git
 cd ebay-hunter
 
-# 2. Create database
-psql -U postgres -c "CREATE DATABASE ebay_hunter;"
-
-# 3. Setup environment
+# Backend
+cd backend
 python -m venv venv
-venv\Scripts\activate        # Windows
+venv\Scripts\activate          # Windows
 pip install -r requirements.txt
 playwright install chromium
+copy .env.example .env         # add your eBay API keys
+python -m uvicorn main:app --port 8000
 
-# 4. Configure
-copy .env.example .env
-# Edit .env with your PostgreSQL password and eBay API keys
-
-# 5. Install Ollama + model
-ollama pull llama3.1:8b
-
-# 6. Run
-streamlit run app.py
+# Frontend (new terminal)
+cd frontend
+npm install
+npm run dev                    # http://localhost:3000
 ```
 
-## Getting eBay API Keys (Free)
+### Getting eBay API keys (free)
 
-1. Go to https://developer.ebay.com
-2. Create account → Apps → Create new app
-3. Copy **Client ID** and **Client Secret**
-4. Add to `.env`:
-```
-EBAY_CLIENT_ID=your_client_id_here
-EBAY_CLIENT_SECRET=your_client_secret_here
-```
-
-## Usage
-
-### Web Dashboard
-```bash
-streamlit run app.py
-# Open http://localhost:8501
-```
-
-### CLI
-```bash
-# Search eBay
-python cli.py search "wireless earbuds"
-
-# Full analysis
-python cli.py analyze "wireless earbuds"
-
-# Calculate profit
-python cli.py profit 15.99 8.50
-
-# List suppliers
-python cli.py suppliers
-
-# System status
-python cli.py status
-```
-
-## Business Rules
-
-| Filter | Threshold | Description |
-|--------|-----------|-------------|
-| Price | £5-£25 | Must be in this range |
-| Demand (30d) | ≥10 sold | Must have demand |
-| Demand (7d) | ≥1 sold | Recent activity |
-| Brand | Generic only | No trademarked items |
-| Delivery | ≤8 days | Target delivery time |
-
-## Profit Formula
+1. <https://developer.ebay.com> → create account → Apps → create app
+2. Copy **Client ID** + **Client Secret** into `backend/.env`:
 
 ```
-Profit = eBay Price - Supplier Price - eBay Fee (12.8%) - Returns Buffer (3%)
+EBAY_CLIENT_ID=your_client_id
+EBAY_CLIENT_SECRET=your_client_secret
 ```
 
-## Database Tables
+### Optional keys
 
-1. **products** — eBay listings
-2. **demand_data** — Sales counts, prices
-3. **supplier_matches** — Supplier comparisons
-4. **analyses** — LLM verdicts
-5. **verdicts** — Pass/fail decisions
+| Key | Enables |
+|-----|---------|
+| `SERPAPI_KEY` | B&Q + Toolstation via Google Shopping |
+| `AMAZON_PA_*` | Amazon UK Product Advertising API |
+| `CJ_API_KEY` | CJ Dropshipping API (faster than scraping) |
+| `RAPIDAPI_KEY` | AliExpress via RapidAPI |
 
-## GitHub Commits
+Without them, those suppliers fall back to Playwright scraping (slower, may be rate-limited).
+
+## API
+
+Base URL: `http://localhost:8000` · interactive docs at `/docs`
 
 ```
-73436ab Fix: Show clear error when eBay API keys are missing
-15aed79 feat: Phase 8-9 — Streamlit dashboard + pipeline orchestrator
-8b9fd16 feat: Phase 5-7 — LLM analyzer, decision engine, DB operations
-57c53a8 feat: Phase 4 — 7 supplier scrapers
-c86f427 feat: Phase 2-3 — DB models, eBay scraper
-2325964 Phase 1: Project setup
+GET    /api/status                     DB / Ollama / eBay key health
+POST   /api/analyze                    full single-product pipeline
+POST   /api/deep-search                deep research (LLM, ≤2 min)
+POST   /api/deep-search/fast           deep research, no LLM (~20s)
+POST   /api/bulk                       batch queries
+POST   /api/hunter/scan · /lookup      category scan → supplier lookup
+GET/POST/DELETE /api/tracker           price tracking + alerts
+GET/POST/DELETE /api/watchlist         watchlist + saved searches
+GET    /api/dashboard/*                KPIs, charts, top products
+GET/POST/DELETE /api/sales             sales log
+GET    /api/history                    past analyses
+GET    /api/export/csv|json            exports (type=sales|analysis)
 ```
+
+## Project structure
+
+```
+ebay-hunter/
+├── design.md              UI redesign spec (theme, structure, plan)
+├── CONSTRAINTS.md         Product spec — hard constraints, API surface, quality bar
+├── app.py                 Legacy Streamlit UI (kept until full parity)
+├── backend/
+│   ├── main.py            FastAPI app + CORS
+│   ├── api/               10 routers → 40+ endpoints
+│   ├── analysis_pipeline.py  shared eBay→suppliers→LLM→verdict pipeline
+│   ├── scrapers/          eBay API + 7 supplier scrapers (API-first, Playwright fallback)
+│   ├── engine/            filters, profit calculator, scorecard
+│   ├── llm/               Ollama client + prompts + safe fallbacks
+│   ├── db/                SQLAlchemy models + queries (SQLite)
+│   ├── hunter/ tracker/ watchlist/ dashboard/ export/
+│   └── render.yaml        Render.com deploy config
+├── frontend/
+│   ├── app/               8 pages (analyze, deep-search, bulk, hunter, tracker, …)
+│   ├── components/        Layout, Scorecard, DataTable, charts, ui/, icons/
+│   ├── lib/               api.ts (timeouts), types.ts, format.ts
+│   └── tailwind.config.js design tokens
+├── icons/                 Noun Project source SVGs
+└── tests/
+```
+
+## Design
+
+Dark theme, indigo (`#0D1CC4`) + lime (`#CBFD03`) on deep indigo (`#27233F`). **Plus Jakarta Sans** for UI, **JetBrains Mono** for all money and percentages (tabular figures). Full spec in [`design.md`](design.md).
 
 ## Icons
 
@@ -219,6 +193,14 @@ Navigation icons from [Noun Project](https://nounproject.com), used under the No
 - Wishlist — VectorVibe Designs
 - Dashboard — Lulis Dian RP
 - History — Mia Elysia
+
+## Known limitations
+
+- GoDropship / Joybuy use Playwright and may be blocked by anti-bot (results marked Unverified)
+- AliExpress / CJ / Amazon are rate-limited without their API keys
+- Ollama unavailable in production → rule-based fallback (by design)
+- Render free tier sleeps after ~15 min idle (~30s cold start)
+- No auth in v1 — the app is shared by link inside a trusted circle
 
 ## License
 
