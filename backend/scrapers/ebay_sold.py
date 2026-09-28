@@ -12,7 +12,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from config import EBAY_UK_BASE, EBAY_CLIENT_ID, EBAY_CLIENT_SECRET, EBAY_API_BASE, EBAY_MARKETPLACE, SCRAPE_CONFIG
-from engine.price_gate import PRICE_MIN, PRICE_MAX, in_band
+from engine.price_gate import active_bounds, in_band
 
 
 @dataclass
@@ -34,7 +34,8 @@ class EbaySoldData:
     product_name: str
     query: str
     total_sold_30d: int = 0
-    total_sold_7d: int = 0
+    # None = no parseable sale dates → unknown (C1: never estimated).
+    total_sold_7d: Optional[int] = None
     sold_prices: list[float] = field(default_factory=list)
     price_min: float = 0.0
     price_max: float = 0.0
@@ -123,6 +124,7 @@ class EbaySoldScraper:
             return []
 
         try:
+            lo, hi = active_bounds()
             resp = requests.get(
                 f"{EBAY_API_BASE}/buy/browse/v1/item_summary/search",
                 params={
@@ -130,7 +132,7 @@ class EbaySoldScraper:
                     "limit": 50,
                     "filter": (
                         "buyingOptions:{FIXED_PRICE},deliveryCountry:GB,"
-                        f"price:[{PRICE_MIN:.0f}..{PRICE_MAX:.0f}],priceCurrency:GBP"
+                        f"price:[{lo:.0f}..{hi:.0f}],priceCurrency:GBP"
                     ),
                     "sort": "-relevance",
                 },
@@ -158,7 +160,7 @@ class EbaySoldScraper:
                     url=item.get("itemWebUrl", ""),
                     seller=seller_info.get("username", ""),
                     seller_url=f"https://www.ebay.co.uk/str/{seller_info.get('username', '')}",
-                    sold_date=datetime.now().strftime("%Y-%m-%d"),
+                    sold_date="",  # Browse summaries carry no sale date — never fake one
                     image_url=item.get("thumbnailImages", [{}])[0].get("imageUrl")
                         if item.get("thumbnailImages") else None,
                 ))
@@ -174,12 +176,13 @@ class EbaySoldScraper:
 
         for page in range(1, self.MAX_PAGES + 1):
             try:
+                lo, hi = active_bounds()
                 url = (
                     f"{self.SOLD_URL}?"
                     f"_nkw={query.replace(' ', '+')}"
                     f"&LH_Complete=1&LH_Sold=1"
                     f"&_sop=13"  # Sort by most recently sold
-                    f"&_udlo={PRICE_MIN:.0f}&_udhi={PRICE_MAX:.0f}"
+                    f"&_udlo={lo:.0f}&_udhi={hi:.0f}"
                     f"&_pgn={page}"
                 )
 
@@ -252,9 +255,9 @@ class EbaySoldScraper:
                         seller = seller_match.group(1)
                         seller_url = f"https://www.ebay.co.uk/str/{seller}"
 
-                # Sold date (if available)
+                # Sold date (if available) — "" when the page omits it, never faked
                 date_el = item.select_one("span.POSITIVE")
-                sold_date = date_el.get_text(strip=True) if date_el else datetime.now().strftime("%Y-%m-%d")
+                sold_date = date_el.get_text(strip=True) if date_el else ""
 
                 # Image
                 img_el = item.select_one("img.s-item__image-img")
@@ -292,10 +295,20 @@ class EbaySoldScraper:
             mid = len(sorted_prices) // 2
             result.price_median = sorted_prices[mid] if len(sorted_prices) % 2 else (sorted_prices[mid-1] + sorted_prices[mid]) / 2
 
-        # Sold counts (approximate from items collected)
-        # Note: Without dates, we estimate based on item count
+        # Sold counts. 30d = items collected (existing accepted source);
+        # 7d = ONLY from parseable sale dates — None when the pages carry no
+        # usable dates. Never an estimate (C1/C4: no assumed counts).
         result.total_sold_30d = len(result.items)
-        result.total_sold_7d = min(len(result.items), len(result.items) // 4)  # Rough estimate
+        from datetime import date as _date
+        from utils.purchase_history import parse_date
+        today = _date.today()
+        parsed = [d for d in (parse_date(i.sold_date) for i in result.items) if d]
+        if parsed:
+            result.total_sold_7d = sum(
+                1 for d in parsed if d <= today and (today - d).days <= 7
+            )
+        else:
+            result.total_sold_7d = None
 
         # Top sellers
         seller_counts = {}

@@ -4,18 +4,26 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
-from engine.price_gate import band_label, excluded_note, in_band
+from engine.price_gate import in_band
+from utils.filters import active_range, outside_range, price_in_range, resolve_range
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
 @router.get("/history")
-def list_history(verdict: str = "All", q: str = "", limit: int = 50):
-    """Recent analyses with optional verdict filter and text search.
+def list_history(
+    verdict: str = "All",
+    q: str = "",
+    limit: int = 50,
+    price_min: float | None = None,
+    price_max: float | None = None,
+):
+    """Recent analyses with optional verdict filter, text search and range view filter.
 
-    PR-2 layer 4: out-of-band rows stored before the gate existed are
-    filtered on read and counted — never shown, never silently dropped.
+    PR-6/PR-7: rows are stored regardless of price; the default view shows only
+    rows inside the active range (user may override with price_min/price_max),
+    rows inside the view but outside the active range carry `outside_band`.
     """
     from db.database import SessionLocal
     from db.queries import get_recent_products
@@ -23,9 +31,15 @@ def list_history(verdict: str = "All", q: str = "", limit: int = 50):
     db = SessionLocal()
     try:
         products = get_recent_products(db, limit=limit)
-        before = len(products)
-        products = [p for p in products if in_band(p.get("price"))]
-        excluded = before - len(products)
+        active = active_range()
+        view = resolve_range(price_min, price_max)
+
+        products = [
+            p for p in products
+            if price_in_range(p.get("price"), view)
+        ]
+        for p in products:
+            p["outside_band"] = outside_range(p.get("price"), active)
 
         if verdict and verdict != "All":
             products = [p for p in products if (p.get("verdict") or "pending") == verdict]
@@ -37,10 +51,7 @@ def list_history(verdict: str = "All", q: str = "", limit: int = 50):
                 if ql in (p.get("title") or "").lower()
             ]
 
-        resp = {"products": products, "count": len(products)}
-        if excluded:
-            resp["excluded_note"] = excluded_note("saved analyses", excluded)
-        return resp
+        return {"products": products, "count": len(products), "range_filter": view}
     finally:
         db.close()
 
@@ -60,22 +71,14 @@ def product_detail(product_id: int):
         product = db.query(Product).filter(Product.id == product_id).first()
         if not product:
             raise HTTPException(status_code=404, detail="Product not found")
-        if not in_band(product.price):
-            raise HTTPException(
-                status_code=404,
-                detail=(
-                    f"This saved listing is £{product.price:.2f} — outside your "
-                    f"{band_label()} band."
-                ),
-            )
 
         demand = db.query(DemandData).filter(DemandData.product_id == product_id).first()
         suppliers = db.query(SupplierMatch).filter(SupplierMatch.product_id == product_id).all()
         analysis = db.query(Analysis).filter(Analysis.product_id == product_id).first()
         verdict = db.query(Verdict).filter(Verdict.product_id == product_id).first()
 
-        kept_suppliers = [s for s in suppliers if in_band(s.supplier_price)]
-        excluded_suppliers = len(suppliers) - len(kept_suppliers)
+        # Supplier prices are never range-gated (PR-1) — show every row.
+        kept_suppliers = suppliers
 
         def _stat(v):
             return v if in_band(v) else None
@@ -85,6 +88,9 @@ def product_detail(product_id: int):
                 "id": product.id,
                 "title": product.title,
                 "price": product.price,
+                # Same semantics as the list endpoint: a missing price is
+                # never flagged, only a real price outside the active range.
+                "outside_band": outside_range(product.price, active_range()),
                 "condition": product.condition,
                 "format": product.format,
                 "seller": product.seller,
@@ -130,8 +136,6 @@ def product_detail(product_id: int):
                 "scorecard": verdict.scorecard,
             } if verdict else None,
         }
-        if excluded_suppliers:
-            resp["excluded_note"] = excluded_note("supplier matches", excluded_suppliers)
         return resp
     finally:
         db.close()

@@ -1,13 +1,16 @@
 {
-    "active":  {
-                   "price_min":  5,
-                   "price_max":  35,
-                   "demand_min_30d":  15,
-                   "demand_min_7d":  5,
-                   "demand_strong_30d":  30,
-                   "delivery_target_max":  8
-               },
-    "presets":  {
-
-                }
+  "active": {
+    "price_min": 5.0,
+    "price_max": 35.0,
+    "demand_min_30d": 30,
+    "demand_min_7d": 8,
+    "delivery_target_max": 8,
+    "delivery_min": 3,
+    "margin_min": 25.0,
+    "brand_filter": "vero",
+    "condition": "New",
+    "buy_it_now": true,
+    "uk_only": true
+  },
+  "presets": {}
 }

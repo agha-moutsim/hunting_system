@@ -1,14 +1,20 @@
 ﻿"use client";
 
-import { useState, FormEvent } from "react";
+import { useEffect, useState, FormEvent } from "react";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import Badge from "@/components/ui/Badge";
 import Spinner from "@/components/Spinner";
 import DataTable, { Column } from "@/components/DataTable";
-import { apiPost } from "@/lib/api";
-import { CategoryProduct, HunterScanResponse, HunterReport } from "@/lib/types";
+import { apiFetch, apiPost } from "@/lib/api";
+import {
+  CategoryProduct,
+  FiltersResponse,
+  HunterScanResponse,
+  HunterReport,
+  PriceRange,
+} from "@/lib/types";
 import { formatGBP, formatPercent } from "@/lib/format";
 
 export default function HunterPage() {
@@ -19,6 +25,16 @@ export default function HunterPage() {
   const [error, setError] = useState<string | null>(null);
   const [scan, setScan] = useState<HunterScanResponse | null>(null);
   const [report, setReport] = useState<HunterReport | null>(null);
+  const [activeRange, setActiveRange] = useState<PriceRange | null>(null);
+
+  useEffect(() => {
+    apiFetch<FiltersResponse>("/api/filters")
+      .then((d) => setActiveRange(d.range))
+      .catch(() => setActiveRange(null));
+  }, []);
+
+  const priceMin = activeRange?.min ?? 5;
+  const priceMax = activeRange?.max ?? 35;
 
   async function runScan(e: FormEvent) {
     e.preventDefault();
@@ -31,8 +47,10 @@ export default function HunterPage() {
     try {
       const data = await apiPost<HunterScanResponse>("/api/hunter/scan", {
         category: category.trim(),
-        price_min: 5,
-        price_max: 35,
+        // Omitted when the active range failed to load — the server then
+        // resolves the scan to the persisted active range (PR-7).
+        price_min: activeRange?.min,
+        price_max: activeRange?.max,
         max_results: parseInt(maxResults) || 30,
       });
       setScan(data);
@@ -51,13 +69,13 @@ export default function HunterPage() {
       const products = scan.products.map((p) => ({
         ...p,
         _total_scanned: scan.total_scanned,
-        _price_min: 5,
-        _price_max: 35,
+        _price_min: activeRange?.min,
+        _price_max: activeRange?.max,
         category,
       }));
       const data = await apiPost<HunterReport>("/api/hunter/lookup", {
         products,
-        filters: null,
+        filters: { price_min: activeRange?.min, price_max: activeRange?.max },
       });
       setReport(data);
     } catch (err) {
@@ -97,7 +115,11 @@ export default function HunterPage() {
       header: "Sold 30d",
       align: "right",
       render: (r) =>
-        r.sold_30d != null ? r.sold_30d : <span className="text-text-dim">⚠️</span>,
+        r.sold_30d != null ? (
+          r.sold_30d
+        ) : (
+          <span className="text-text-dim">⚠️</span>
+        ),
       sortValue: (r) => r.sold_30d ?? -1,
     },
     {
@@ -114,9 +136,7 @@ export default function HunterPage() {
             {r.supplier_name} {formatGBP(r.supplier_price)}
           </a>
         ) : (
-          <span className="text-text-dim">
-            {report ? "None" : "…"}
-          </span>
+          <span className="text-text-dim">{report ? "None" : "…"}</span>
         ),
       sortValue: (r) => r.supplier_price ?? -1,
     },
@@ -126,7 +146,9 @@ export default function HunterPage() {
       align: "right",
       render: (r) =>
         r.profit != null ? (
-          <span className={r.profit > 0 ? "text-accent-green" : "text-accent-red"}>
+          <span
+            className={r.profit > 0 ? "text-accent-green" : "text-accent-red"}
+          >
             {formatGBP(r.profit)} ({formatPercent(r.margin)})
           </span>
         ) : (
@@ -139,7 +161,9 @@ export default function HunterPage() {
       header: "Verdict",
       render: (r) =>
         r.verdict ? (
-          <Badge tone={r.verdict.toLowerCase()}>{r.verdict.toUpperCase()}</Badge>
+          <Badge tone={r.verdict.toLowerCase()}>
+            {r.verdict.toUpperCase()}
+          </Badge>
         ) : (
           <span className="text-text-dim">—</span>
         ),
@@ -160,7 +184,9 @@ export default function HunterPage() {
         <form onSubmit={runScan} className="space-y-3">
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <div className="sm:col-span-2">
-              <label className="block text-xs text-text-secondary mb-1">Category</label>
+              <label className="block text-xs text-text-secondary mb-1">
+                Category
+              </label>
               <Input
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
@@ -169,23 +195,29 @@ export default function HunterPage() {
               />
             </div>
             <div>
-              <label className="block text-xs text-text-secondary mb-1">Price min</label>
+              <label className="block text-xs text-text-secondary mb-1">
+                Price min
+              </label>
               <Input
                 type="number"
-                value={5}
+                value={priceMin}
                 disabled
                 readOnly
-                title="Price band is fixed at £5–£35 (CONSTRAINTS_PRICING.md)"
+                title="From your active price range (edit it on Analyze or Deep Search)"
+                className="font-mono tabular-nums"
               />
             </div>
             <div>
-              <label className="block text-xs text-text-secondary mb-1">Price max</label>
+              <label className="block text-xs text-text-secondary mb-1">
+                Price max
+              </label>
               <Input
                 type="number"
-                value={35}
+                value={priceMax}
                 disabled
                 readOnly
-                title="Price band is fixed at £5–£35 (CONSTRAINTS_PRICING.md)"
+                title="From your active price range (edit it on Analyze or Deep Search)"
+                className="font-mono tabular-nums"
               />
             </div>
           </div>
@@ -254,8 +286,12 @@ export default function HunterPage() {
                 key={m.label}
                 className="bg-bg-surface border border-border rounded-lg p-3"
               >
-                <div className="text-xs text-text-secondary mb-1">{m.label}</div>
-                <div className="text-lg font-bold text-text-primary">{m.value}</div>
+                <div className="text-xs text-text-secondary mb-1">
+                  {m.label}
+                </div>
+                <div className="text-lg font-bold text-text-primary">
+                  {m.value}
+                </div>
               </div>
             ))}
           </div>
@@ -281,7 +317,7 @@ export default function HunterPage() {
             columns={columns}
             rows={products}
             keyFn={(r, i) => r.url || i}
-            emptyMessage="No products matched this category in the price range."
+            emptyMessage="No products matched this category in the active price range."
           />
         </div>
       )}

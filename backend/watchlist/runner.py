@@ -6,7 +6,7 @@ from typing import Optional
 from db.database import SessionLocal
 from db.models import SavedSearch, SearchResult
 from watchlist.searches import mark_last_run
-from engine.price_gate import PRICE_MAX, PRICE_MIN, in_band
+from utils.filters import active_range, outside_range, price_in_range
 
 
 def run_search(search_id: int) -> dict:
@@ -27,14 +27,15 @@ def run_search(search_id: int) -> dict:
 
             # Check if it meets filters
             if result.ebay_avg_price > 0 and result.best_supplier_price > 0:
-                # Price filter — stored band is clamped AND re-checked against
-                # the hard gate (PR-5/PR-7: config always wins)
-                band_min = max(search.price_min, PRICE_MIN)
-                band_max = min(search.price_max, PRICE_MAX)
-                price_ok = (
-                    band_min <= result.best_supplier_price <= band_max
-                    and in_band(result.ebay_avg_price)
+                # Per-search range (PR-5/PR-7): honour the stored band when
+                # sane, else fall back to the ACTIVE range.
+                from utils.filters import resolve_range, valid_range
+                view = (
+                    resolve_range(search.price_min, search.price_max)
+                    if valid_range(search.price_min, search.price_max)
+                    else active_range()
                 )
+                price_ok = price_in_range(result.ebay_avg_price, view)
 
                 # Check margin filter
                 margin_ok = result.margin >= search.min_margin
@@ -109,8 +110,12 @@ def run_all_searches(progress_callback=None) -> dict:
         db.close()
 
 
-def get_new_results(unread_only: bool = True, limit: int = 50) -> list[dict]:
-    """Get search results (new finds) — out-of-band rows filtered (PR-2 layer 4)."""
+def get_new_results(
+    unread_only: bool = True,
+    limit: int = 50,
+    price_range: dict | None = None,
+) -> list[dict]:
+    """Get search results (new finds) — view-filtered by range, out-of-range rows flagged."""
     db = SessionLocal()
     try:
         query = db.query(SearchResult).join(SavedSearch)
@@ -119,13 +124,14 @@ def get_new_results(unread_only: bool = True, limit: int = 50) -> list[dict]:
             query = query.filter(SearchResult.is_read == False)
 
         results = query.order_by(SearchResult.found_at.desc()).limit(limit).all()
-        results = [
-            r for r in results
-            if in_band(r.ebay_price) and in_band(r.supplier_price)
-        ]
 
-        return [
-            {
+        active = active_range()
+        view = price_range if price_range is not None else active
+        rows = []
+        for r in results:
+            if not price_in_range(r.ebay_price, view):
+                continue
+            row = {
                 "id": r.id,
                 "search_id": r.search_id,
                 "search_name": r.saved_search.search_name if r.saved_search else "",
@@ -140,9 +146,10 @@ def get_new_results(unread_only: bool = True, limit: int = 50) -> list[dict]:
                 "verdict": r.verdict,
                 "is_read": r.is_read,
                 "found_at": r.found_at.isoformat() if r.found_at else None,
+                "outside_band": outside_range(r.ebay_price, active),
             }
-            for r in results
-        ]
+            rows.append(row)
+        return rows
 
     except Exception as e:
         print(f"[ERROR] Failed to get new results: {e}")

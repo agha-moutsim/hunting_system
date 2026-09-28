@@ -9,12 +9,16 @@ import Spinner from "@/components/Spinner";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import DataTable, { Column } from "@/components/DataTable";
 import EmptyState from "@/components/EmptyState";
+import RangeFilterBar from "@/components/ui/RangeFilterBar";
+import OutsideBandBadge from "@/components/ui/OutsideBandBadge";
 import { apiFetch, apiPost, apiDelete } from "@/lib/api";
 import {
   TrackedProduct,
   PriceAlert,
   PriceHistoryPoint,
   PriceTrend,
+  PriceRange,
+  TrackerListResponse,
 } from "@/lib/types";
 import { formatGBP, formatSigned, formatDateTime } from "@/lib/format";
 
@@ -25,6 +29,10 @@ export default function TrackerPage() {
   const [checkingId, setCheckingId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<number | null>(null);
+  const [viewMin, setViewMin] = useState("");
+  const [viewMax, setViewMax] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
+  const [rangeFilter, setRangeFilter] = useState<PriceRange | null>(null);
   const [history, setHistory] = useState<{
     product: TrackedProduct;
     points: PriceHistoryPoint[];
@@ -42,12 +50,17 @@ export default function TrackerPage() {
   async function load() {
     setLoading(true);
     try {
+      const qs =
+        viewMin && viewMax
+          ? `?price_min=${encodeURIComponent(viewMin)}&price_max=${encodeURIComponent(viewMax)}`
+          : "";
       const [p, a] = await Promise.all([
-        apiFetch<{ products: TrackedProduct[] }>("/api/tracker"),
+        apiFetch<TrackerListResponse>(`/api/tracker${qs}`),
         apiFetch<{ alerts: PriceAlert[] }>("/api/tracker/alerts?limit=20"),
       ]);
       setProducts(p.products || []);
       setAlerts(a.alerts || []);
+      setRangeFilter(p.range_filter || null);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load tracker");
@@ -58,7 +71,8 @@ export default function TrackerPage() {
 
   useEffect(() => {
     load();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMin, viewMax, reloadKey]);
 
   async function add(e: FormEvent) {
     e.preventDefault();
@@ -149,7 +163,12 @@ export default function TrackerPage() {
       key: "ebay",
       header: "eBay",
       align: "right",
-      render: (r) => formatGBP(r.ebay_price),
+      render: (r) => (
+        <span className="inline-flex items-center justify-end gap-1.5">
+          {formatGBP(r.ebay_price)}
+          {r.outside_band && <OutsideBandBadge />}
+        </span>
+      ),
       sortValue: (r) => r.ebay_price,
     },
     {
@@ -240,7 +259,8 @@ export default function TrackerPage() {
                   {a.product_name}
                 </span>
                 <span className="text-text-secondary">
-                  {a.message} ({formatGBP(a.old_price)} → {formatGBP(a.new_price)})
+                  {a.message} ({formatGBP(a.old_price)} →{" "}
+                  {formatGBP(a.new_price)})
                 </span>
               </div>
             ))}
@@ -250,7 +270,10 @@ export default function TrackerPage() {
 
       {/* Add form */}
       <Card title="Add product to track">
-        <form onSubmit={add} className="grid sm:grid-cols-2 lg:grid-cols-5 gap-3">
+        <form
+          onSubmit={add}
+          className="grid sm:grid-cols-2 lg:grid-cols-5 gap-3"
+        >
           <div className="lg:col-span-2">
             <Label>Product name</Label>
             <Input
@@ -328,7 +351,8 @@ export default function TrackerPage() {
                       : "neutral"
                 }
               >
-                {history.trend.trend} ({formatSigned(history.trend.change_percent)})
+                {history.trend.trend} (
+                {formatSigned(history.trend.change_percent)})
               </Badge>
             </span>
           </div>
@@ -349,7 +373,8 @@ export default function TrackerPage() {
                     {formatDateTime(p.checked_at)}
                   </span>
                   <span>
-                    eBay {formatGBP(p.ebay_price)} · Supplier{" "}
+                    eBay {formatGBP(p.ebay_price)}{" "}
+                    {p.outside_band && <OutsideBandBadge />} · Supplier{" "}
                     {formatGBP(p.supplier_price)}
                   </span>
                 </div>
@@ -358,6 +383,22 @@ export default function TrackerPage() {
           )}
         </Card>
       )}
+
+      {/* View price filter */}
+      <RangeFilterBar
+        initial={rangeFilter}
+        loading={loading}
+        onApply={(lo, hi) => {
+          setViewMin(String(lo));
+          setViewMax(String(hi));
+          setReloadKey((k) => k + 1);
+        }}
+        onReset={() => {
+          setViewMin("");
+          setViewMax("");
+          setReloadKey((k) => k + 1);
+        }}
+      />
 
       {/* List */}
       {loading ? (

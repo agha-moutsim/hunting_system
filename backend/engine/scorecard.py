@@ -66,6 +66,8 @@ def format_scorecard(
         sp = getattr(best_supplier, "price", 0)
         lines.append(f"  Supplier price: \u00a3{sp:.2f}")
     lines.append(f"  eBay fee:       {PROFIT_CONFIG['ebay_fee_percent']}%")
+    lines.append(f"  Listing fee:    {PROFIT_CONFIG['listing_fee_percent']}%")
+    lines.append(f"  VAT on fees:    {PROFIT_CONFIG['vat_on_fees_percent']}%")
     lines.append(f"  Returns buffer: {PROFIT_CONFIG['returns_buffer_percent']}%")
     lines.append(f"  ----------------------------------------")
     lines.append(f"  Profit:         \u00a3{verdict.profit:.2f}")

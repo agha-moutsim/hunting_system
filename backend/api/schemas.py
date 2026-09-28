@@ -4,8 +4,6 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
-from config import FILTERS
-
 
 # ── Analyze ─────────────────────────────────────────────────────
 
@@ -29,8 +27,10 @@ class BulkRequest(BaseModel):
 
 class HunterScanRequest(BaseModel):
     category: str = Field(..., min_length=1)
-    price_min: float = FILTERS["price_min"]
-    price_max: float = FILTERS["price_max"]
+    # None = "use the active range" (resolved server-side); a value the
+    # client does send is validated before use (PR-5/PR-7).
+    price_min: Optional[float] = None
+    price_max: Optional[float] = None
     max_results: int = Field(50, ge=1, le=100)
 
 
@@ -68,8 +68,10 @@ class SearchCreate(BaseModel):
     search_name: str = Field(..., min_length=1)
     query: str = Field(..., min_length=1)
     category: str = ""
-    price_min: float = FILTERS["price_min"]
-    price_max: float = FILTERS["price_max"]
+    # None = "use the ACTIVE range" (resolved server-side) — never baked
+    # config defaults; a sent value must form a sane range (PR-5/PR-7).
+    price_min: Optional[float] = None
+    price_max: Optional[float] = None
     min_margin: float = 25.0
     auto_run: bool = True
 

@@ -29,6 +29,7 @@ Price range: £{low_price} – £{high_price}
 Respond with ONLY this JSON structure:
 {{
   "brand_verdict": "generic" | "branded" | "ambiguous",
+  "brand_name": "<specific brand name mentioned in the title or specs, else empty string>",
   "brand_reasoning": "<one sentence>",
   "demand_assessment": "strong" | "moderate" | "weak" | "spike",
   "demand_reasoning": "<one sentence>",

@@ -18,44 +18,129 @@ def _ensure_file():
         FILTERS_FILE.write_text(json.dumps({"active": FILTERS, "presets": {}}, indent=2))
 
 
+_cache: dict = {"mtime": None, "data": None}
+
+
 def _load() -> dict:
     _ensure_file()
     try:
-        return json.loads(FILTERS_FILE.read_text())
-    except (json.JSONDecodeError, FileNotFoundError):
+        mtime = FILTERS_FILE.stat().st_mtime_ns
+        if _cache["mtime"] == mtime and _cache["data"] is not None:
+            return _cache["data"]
+        data = json.loads(FILTERS_FILE.read_text())
+        _cache["mtime"] = mtime
+        _cache["data"] = data
+        return data
+    except (json.JSONDecodeError, FileNotFoundError, OSError):
         return {"active": FILTERS, "presets": {}}
 
 
 def _save(data: dict):
     _ensure_file()
     FILTERS_FILE.write_text(json.dumps(data, indent=2))
+    _cache["mtime"] = None
+    _cache["data"] = None
+
+
+def _valid_range(lo, hi) -> bool:
+    try:
+        lo, hi = float(lo), float(hi)
+    except (TypeError, ValueError):
+        return False
+    return 0 < lo < hi <= 10000
+
+
+def valid_range(lo, hi) -> bool:
+    """Public validity check — same single rule the gate itself uses."""
+    return _valid_range(lo, hi)
 
 
 def load_filters() -> dict:
     """Load the active custom filters.
 
-    The price band is NEVER loaded from here — CONSTRAINTS_PRICING.md PR-5
-    makes config.py the single source, so band keys are stripped on read and
-    re-seeded from FILTERS. (custom_filters.json historically carried
-    price_min: 10.5, a second source that fought the gate.)
+    CONSTRAINTS_PRICING.md PR-5/PR-7: config.py holds the DEFAULT range;
+    custom_filters.json may carry a user-adjusted range, which is the
+    active gate everywhere. An invalid stored range silently falls back
+    to the defaults (a poisoned file can never widen the gate), and keys
+    unknown to FILTERS are dropped so stale rules cannot resurface.
     """
     data = _load()
-    filters = dict(data.get("active", FILTERS))
-    filters.pop("price_min", None)
-    filters.pop("price_max", None)
-    filters["price_min"] = FILTERS["price_min"]
-    filters["price_max"] = FILTERS["price_max"]
+    filters = {k: v for k, v in dict(data.get("active", FILTERS)).items() if k in FILTERS}
+    for k in FILTERS:
+        filters.setdefault(k, FILTERS[k])
+    if not _valid_range(filters.get("price_min"), filters.get("price_max")):
+        filters["price_min"] = FILTERS["price_min"]
+        filters["price_max"] = FILTERS["price_max"]
+    else:
+        filters["price_min"] = float(filters["price_min"])
+        filters["price_max"] = float(filters["price_max"])
     return filters
 
 
+def active_range() -> dict:
+    """Active price range used for range semantics (PR-6)."""
+    loaded = load_filters()
+    return {"min": loaded["price_min"], "max": loaded["price_max"]}
+
+
+def resolve_range(price_min: float | None = None, price_max: float | None = None) -> dict:
+    """View range for one response — explicit params override the active range."""
+    active = active_range()
+    return {
+        "min": active["min"] if price_min is None else price_min,
+        "max": active["max"] if price_max is None else price_max,
+    }
+
+
+def price_in_range(price, rng: dict) -> bool:
+    """True when a price falls inside rng; rows without a usable price are kept."""
+    if not price:
+        return True
+    try:
+        p = float(price)
+    except (TypeError, ValueError):
+        return True
+    return rng["min"] <= p <= rng["max"]
+
+
+def outside_range(price, rng: dict) -> bool:
+    """True when a usable price falls outside rng; missing prices are never flagged."""
+    if not price:
+        return False
+    try:
+        p = float(price)
+    except (TypeError, ValueError):
+        return False
+    return p < rng["min"] or p > rng["max"]
+
+
 def save_filters(filters: dict):
-    """Save current active filters (band keys stripped — not user-settable)."""
+    """Save current active filters; a valid user range is kept, an invalid one stripped."""
     data = _load()
-    active = dict(filters)
-    active.pop("price_min", None)
-    active.pop("price_max", None)
+    active = {k: v for k, v in filters.items() if k in FILTERS}
+    if not _valid_range(active.get("price_min"), active.get("price_max")):
+        active.pop("price_min", None)
+        active.pop("price_max", None)
+    else:
+        active["price_min"] = float(active["price_min"])
+        active["price_max"] = float(active["price_max"])
     data["active"] = active
     _save(data)
+
+
+def set_active_range(price_min, price_max) -> dict:
+    """Persist a validated user range (PR-7); returns the new active range.
+
+    Raises ValueError on an invalid range so the API layer can reject it —
+    validation lives in exactly one place (_valid_range).
+    """
+    if not _valid_range(price_min, price_max):
+        raise ValueError("Invalid range: need 0 < price_min < price_max <= 10000")
+    merged = dict(load_filters())
+    merged["price_min"] = float(price_min)
+    merged["price_max"] = float(price_max)
+    save_filters(merged)
+    return active_range()
 
 
 def reset_filters():
@@ -98,24 +183,6 @@ def get_supplier_delivery_range(supplier_name: str) -> tuple[int, int]:
         if key in name_lower:
             return (min_d, max_d)
     return (7, 21)  # Default
-
-
-def is_delivery_exception合格(supplier_name: str, sold_30d: int, filters: dict) -> bool:
-    """Check if supplier qualifies for delivery exception (long delivery allowed for high demand)."""
-    supplier_type = get_supplier_type(supplier_name)
-    
-    # Retailers always pass delivery check
-    if supplier_type == "retailer":
-        return True
-    
-    # Dropshippers with high demand (>=30 sold/month) can have longer delivery
-    if sold_30d >= 30:
-        return True
-    
-    # Otherwise check against max delivery
-    delivery_min, delivery_max = get_supplier_delivery_range(supplier_name)
-    max_allowed = filters.get("delivery_exception_max", 25)
-    return delivery_max <= max_allowed
 
 
 def save_preset(name: str, filters: dict):

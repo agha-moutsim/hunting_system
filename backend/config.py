@@ -70,25 +70,24 @@ else:
 # ============================================================
 
 FILTERS = {
-    # Price range (GBP) — hard gate, see CONSTRAINTS_PRICING.md
+    # Price range (GBP) — DEFAULT; user-adjustable active range
+    # (CONSTRAINTS_PRICING.md PR-5/PR-7), gate applied at all four layers.
     "price_min": 5.00,
     "price_max": 35.00,
 
-    # Demand requirements
-    "demand_min_30d": 10,       # Minimum sold in last 30 days
-    "demand_min_7d": 1,         # Minimum sold in last 7 days
-    "demand_strong_30d": 30,    # Threshold for slow delivery exception
+    # Demand requirements (CONSTRAINTS.md C4)
+    "demand_min_30d": 30,      # Minimum sold in last 30 days
+    "demand_min_7d": 8,        # Minimum sold in last 7 days
 
-    # Delivery targets (days)
-    "delivery_min": 3,          # Minimum delivery days
-    "delivery_target_max": 8,   # Preferred maximum
-    "delivery_exception_max": 25,  # Max for high-demand products
+    # Delivery targets (days) — ADVISORY only, never gates a verdict (C-new)
+    "delivery_min": 3,
+    "delivery_target_max": 8,
 
     # Profit requirements
-    "margin_min": 25.0,         # Minimum profit margin percentage
+    "margin_min": 25.0,         # Minimum profit margin percentage (on sale price)
 
     # Product filters
-    "brand_filter": "generic_only",  # "generic_only" = reject branded items
+    "brand_filter": "vero",     # VeRO-based brand check (CONSTRAINTS.md C5)
     "condition": "New",
     "buy_it_now": True,
     "uk_only": True,
@@ -99,7 +98,9 @@ FILTERS = {
 # ============================================================
 
 PROFIT_CONFIG = {
-    "ebay_fee_percent": 12.8,       # eBay final value fee
+    "ebay_fee_percent": 13.5,       # eBay final value fee (user's v1 model, C3)
+    "listing_fee_percent": 0.03,    # Listing fee (C3)
+    "vat_on_fees_percent": 20.0,    # UK VAT applied to eBay's fees (C3)
     "returns_buffer_percent": 3.0,  # Conservative returns estimate
     "packaging_cost": 0.0,          # Dropship = no packaging cost
 }

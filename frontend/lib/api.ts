@@ -39,7 +39,10 @@ export async function apiFetch<T>(
 
   try {
     const res = await fetch(url, {
-      headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.headers || {}),
+      },
       signal: options.signal ?? controller.signal,
       ...options,
     });
@@ -82,6 +85,14 @@ export async function apiFetch<T>(
 export function apiPost<T>(path: string, body: unknown): Promise<T> {
   return apiFetch<T>(path, {
     method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+/** PUT JSON helper. */
+export function apiPut<T>(path: string, body: unknown): Promise<T> {
+  return apiFetch<T>(path, {
+    method: "PUT",
     body: JSON.stringify(body),
   });
 }

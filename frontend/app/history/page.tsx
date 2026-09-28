@@ -9,16 +9,20 @@ import Spinner from "@/components/Spinner";
 import DataTable, { Column } from "@/components/DataTable";
 import Scorecard from "@/components/Scorecard";
 import EmptyState from "@/components/EmptyState";
+import RangeFilterBar from "@/components/ui/RangeFilterBar";
+import OutsideBandBadge from "@/components/ui/OutsideBandBadge";
 import { apiFetch } from "@/lib/api";
-import { HistoryItem, ProductDetail, ScrapedProduct } from "@/lib/types";
+import {
+  FilterCheck,
+  HistoryItem,
+  HistoryListResponse,
+  PriceRange,
+  ProductDetail,
+  ScrapedProduct,
+} from "@/lib/types";
 import { formatGBP, formatDate, truncate } from "@/lib/format";
 
-interface HistoryResponse {
-  products: HistoryItem[];
-  count: number;
-}
-
-function parseFilters(raw: unknown) {
+function parseFilters(raw: unknown): FilterCheck[] {
   if (!raw) return [];
   if (Array.isArray(raw)) return raw;
   if (typeof raw === "string") {
@@ -40,22 +44,31 @@ export default function HistoryPage() {
   const [error, setError] = useState<string | null>(null);
   const [detail, setDetail] = useState<ProductDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [viewMin, setViewMin] = useState("");
+  const [viewMax, setViewMax] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
+  const [rangeFilter, setRangeFilter] = useState<PriceRange | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams({ verdict, q, limit: "50" });
-      const data = await apiFetch<HistoryResponse>(
+      if (viewMin && viewMax) {
+        params.set("price_min", viewMin);
+        params.set("price_max", viewMax);
+      }
+      const data = await apiFetch<HistoryListResponse>(
         `/api/history?${params.toString()}`
       );
       setItems(data.products || []);
+      setRangeFilter(data.range_filter || null);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load history");
     } finally {
       setLoading(false);
     }
-  }, [verdict, q]);
+  }, [verdict, q, viewMin, viewMax, reloadKey]);
 
   useEffect(() => {
     const t = setTimeout(load, q ? 300 : 0);
@@ -93,7 +106,12 @@ export default function HistoryPage() {
       key: "price",
       header: "Price",
       align: "right",
-      render: (r) => formatGBP(r.price),
+      render: (r) => (
+        <span className="inline-flex items-center justify-end gap-1.5">
+          {formatGBP(r.price)}
+          {r.outside_band && <OutsideBandBadge />}
+        </span>
+      ),
       sortValue: (r) => r.price ?? -1,
     },
     {
@@ -102,7 +120,9 @@ export default function HistoryPage() {
       align: "right",
       render: (r) =>
         r.profit != null ? (
-          <span className={r.profit > 0 ? "text-accent-green" : "text-accent-red"}>
+          <span
+            className={r.profit > 0 ? "text-accent-green" : "text-accent-red"}
+          >
             {formatGBP(r.profit)}
           </span>
         ) : (
@@ -156,6 +176,7 @@ export default function HistoryPage() {
       image_url: d.product.image_url,
       condition: d.product.condition,
       seller: d.product.seller,
+      outside_band: d.product.outside_band,
     };
     const suppliers: ScrapedProduct[] = (d.suppliers || []).map((s) => ({
       source: s.supplier_name,
@@ -221,6 +242,22 @@ export default function HistoryPage() {
             <option value="pending">PENDING</option>
           </select>
         </div>
+        <div className="mt-3 pt-3 border-t border-border">
+          <RangeFilterBar
+            initial={rangeFilter}
+            loading={loading}
+            onApply={(lo, hi) => {
+              setViewMin(String(lo));
+              setViewMax(String(hi));
+              setReloadKey((k) => k + 1);
+            }}
+            onReset={() => {
+              setViewMin("");
+              setViewMax("");
+              setReloadKey((k) => k + 1);
+            }}
+          />
+        </div>
       </Card>
 
       {detailLoading && (
@@ -267,7 +304,7 @@ export default function HistoryPage() {
           rows={items}
           keyFn={(r) => r.id}
           emptyMessage={
-            q || verdict !== "All"
+            q || verdict !== "All" || viewMin || viewMax
               ? "No analyses match this filter."
               : "No analyses yet — run one from the Analyze page."
           }

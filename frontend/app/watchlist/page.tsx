@@ -9,11 +9,16 @@ import Spinner from "@/components/Spinner";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import DataTable, { Column } from "@/components/DataTable";
 import EmptyState from "@/components/EmptyState";
+import RangeFilterBar from "@/components/ui/RangeFilterBar";
+import OutsideBandBadge from "@/components/ui/OutsideBandBadge";
 import { apiFetch, apiPost, apiDelete } from "@/lib/api";
 import {
   WatchlistItem,
+  WatchlistListResponse,
   SavedSearch,
   SearchResult,
+  FiltersResponse,
+  PriceRange,
 } from "@/lib/types";
 import { formatGBP, formatPercent, formatDate } from "@/lib/format";
 
@@ -25,9 +30,15 @@ export default function WatchlistPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [confirm, setConfirm] = useState<
-    { kind: "watch" | "search"; id: number } | null
-  >(null);
+  const [viewMin, setViewMin] = useState("");
+  const [viewMax, setViewMax] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
+  const [rangeFilter, setRangeFilter] = useState<PriceRange | null>(null);
+  const [activeRange, setActiveRange] = useState<PriceRange | null>(null);
+  const [confirm, setConfirm] = useState<{
+    kind: "watch" | "search";
+    id: number;
+  } | null>(null);
 
   // Add watch form
   const [name, setName] = useState("");
@@ -41,19 +52,36 @@ export default function WatchlistPage() {
   const [sName, setSName] = useState("");
   const [sQuery, setSQuery] = useState("");
   const [sMargin, setSMargin] = useState("25");
+  const [sMin, setSMin] = useState("");
+  const [sMax, setSMax] = useState("");
   const [savingSearch, setSavingSearch] = useState(false);
+
+  useEffect(() => {
+    apiFetch<FiltersResponse>("/api/filters")
+      .then((d) => {
+        setActiveRange(d.range);
+        setSMin(String(d.range.min));
+        setSMax(String(d.range.max));
+      })
+      .catch(() => {});
+  }, []);
 
   async function load() {
     setLoading(true);
     try {
+      const qs =
+        viewMin && viewMax
+          ? `?price_min=${encodeURIComponent(viewMin)}&price_max=${encodeURIComponent(viewMax)}`
+          : "";
       const [w, s, r] = await Promise.all([
-        apiFetch<{ items: WatchlistItem[] }>("/api/watchlist"),
+        apiFetch<WatchlistListResponse>(`/api/watchlist${qs}`),
         apiFetch<{ searches: SavedSearch[] }>("/api/searches"),
         apiFetch<{ results: SearchResult[]; unread_count: number }>(
           "/api/searches/results?unread_only=false&limit=50"
         ),
       ]);
       setItems(w.items || []);
+      setRangeFilter(w.range_filter || null);
       setSearches(s.searches || []);
       setResults(r.results || []);
       setUnread(r.unread_count || 0);
@@ -67,7 +95,8 @@ export default function WatchlistPage() {
 
   useEffect(() => {
     load();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMin, viewMax, reloadKey]);
 
   async function addWatch(e: FormEvent) {
     e.preventDefault();
@@ -106,8 +135,8 @@ export default function WatchlistPage() {
         search_name: sName.trim(),
         query: sQuery.trim(),
         category: "",
-        price_min: 5,
-        price_max: 35,
+        price_min: parseFloat(sMin) || activeRange?.min || 5,
+        price_max: parseFloat(sMax) || activeRange?.max || 35,
         min_margin: parseFloat(sMargin) || 25,
         auto_run: true,
       });
@@ -200,7 +229,12 @@ export default function WatchlistPage() {
       key: "ebay",
       header: "eBay",
       align: "right",
-      render: (r) => formatGBP(r.ebay_price),
+      render: (r) => (
+        <span className="inline-flex items-center justify-end gap-1.5">
+          {formatGBP(r.ebay_price)}
+          {r.outside_band && <OutsideBandBadge />}
+        </span>
+      ),
       sortValue: (r) => r.ebay_price,
     },
     {
@@ -424,23 +458,27 @@ export default function WatchlistPage() {
             </div>
             <div className="grid grid-cols-3 gap-3">
               <div>
-                <Label>Price min</Label>
+                <Label htmlFor="s-price-min">Price min</Label>
                 <Input
+                  id="s-price-min"
                   type="number"
-                  value={5}
-                  disabled
-                  readOnly
-                  title="Price band is fixed at £5–£35 (CONSTRAINTS_PRICING.md)"
+                  step="0.01"
+                  value={sMin}
+                  onChange={(e) => setSMin(e.target.value)}
+                  placeholder={activeRange ? String(activeRange.min) : "5"}
+                  className="font-mono tabular-nums"
                 />
               </div>
               <div>
-                <Label>Price max</Label>
+                <Label htmlFor="s-price-max">Price max</Label>
                 <Input
+                  id="s-price-max"
                   type="number"
-                  value={35}
-                  disabled
-                  readOnly
-                  title="Price band is fixed at £5–£35 (CONSTRAINTS_PRICING.md)"
+                  step="0.01"
+                  value={sMax}
+                  onChange={(e) => setSMax(e.target.value)}
+                  placeholder={activeRange ? String(activeRange.max) : "35"}
+                  className="font-mono tabular-nums"
                 />
               </div>
               <div>
@@ -453,6 +491,13 @@ export default function WatchlistPage() {
                 />
               </div>
             </div>
+            <p className="text-xs text-text-dim">
+              Defaults to your active range
+              {activeRange
+                ? ` (£${activeRange.min}–£${activeRange.max})`
+                : ""}{" "}
+              — edit it per search.
+            </p>
             <Button type="submit" disabled={savingSearch} className="w-full">
               {savingSearch ? "Saving…" : "Save search"}
             </Button>
@@ -537,18 +582,39 @@ export default function WatchlistPage() {
         <h3 className="text-sm font-semibold text-text-primary mb-3">
           Watched Products ({items.length})
         </h3>
+        <RangeFilterBar
+          initial={rangeFilter}
+          loading={loading}
+          onApply={(lo, hi) => {
+            setViewMin(String(lo));
+            setViewMax(String(hi));
+            setReloadKey((k) => k + 1);
+          }}
+          onReset={() => {
+            setViewMin("");
+            setViewMax("");
+            setReloadKey((k) => k + 1);
+          }}
+          className="mb-3"
+        />
         <DataTable
           columns={watchCols}
           rows={items}
           keyFn={(r) => r.id}
-          emptyMessage="Your watchlist is empty — add a product above."
+          emptyMessage={
+            viewMin || viewMax
+              ? "No watched products in this price view."
+              : "Your watchlist is empty — add a product above."
+          }
         />
       </div>
 
       <ConfirmDialog
         open={confirm != null}
         title={
-          confirm?.kind === "search" ? "Delete saved search?" : "Remove watchlist item?"
+          confirm?.kind === "search"
+            ? "Delete saved search?"
+            : "Remove watchlist item?"
         }
         message="This cannot be undone."
         onConfirm={doConfirm}

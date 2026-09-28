@@ -44,15 +44,15 @@ Two properties are enforced throughout:
 
 ## Tech stack
 
-| Layer | Technology |
-|---|---|
+| Layer    | Technology                                                       |
+| -------- | ---------------------------------------------------------------- |
 | Frontend | Next.js 16, React 19, TypeScript 5.7, Tailwind CSS 3.4, Recharts |
-| Backend | FastAPI, Uvicorn, Pydantic 2, httpx |
-| Scraping | Playwright + playwright-stealth, BeautifulSoup 4 |
-| LLM | Ollama (`llama3.1:8b`), local, with rule-based fallback |
-| Database | SQLite via SQLAlchemy 2 (`DATABASE_URL` switches to PostgreSQL) |
-| Export | pandas, openpyxl (CSV / XLSX / JSON) |
-| Hosting | Vercel (frontend), Render (backend) — free tiers |
+| Backend  | FastAPI, Uvicorn, Pydantic 2, httpx                              |
+| Scraping | Playwright + playwright-stealth, BeautifulSoup 4                 |
+| LLM      | Ollama (`llama3.1:8b`), local, with rule-based fallback          |
+| Database | SQLite via SQLAlchemy 2 (`DATABASE_URL` switches to PostgreSQL)  |
+| Export   | pandas, openpyxl (CSV / XLSX / JSON)                             |
+| Hosting  | Vercel (frontend), Render (backend) — free tiers                 |
 
 ## Getting started
 
@@ -81,17 +81,17 @@ API documentation is served at `http://localhost:8000/docs`.
 
 ## Business rules
 
-| Rule | Threshold |
-|---|---|
-| Buy price | £5 – £35 |
-| Minimum margin | ≥ 25% |
-| Demand | ≥ 10 sold / 30 days, ≥ 1 sold / 7 days |
-| Delivery | ≤ 8 days (≤ 25 days when sales ≥ 30/month) |
-| Brand | Generic only — branded items fail |
-| Fees | 12.8% final value + 3% returns buffer |
+| Rule           | Threshold                                                                            |
+| -------------- | ------------------------------------------------------------------------------------ |
+| Buy price      | £5 – £35 default, user-adjustable range (supplier prices never gated)                |
+| Minimum margin | ≥ 25% of sale price                                                                  |
+| Demand         | ≥ 30 sold / 30 days, ≥ 8 sold / 7 days (7d from purchase-history data, else PENDING) |
+| Delivery       | Advisory only — shows eBay estimate vs supplier's stated days, never gates           |
+| Brand          | VeRO check — brand registered on eBay's VeRO list fails, unregistered names OK       |
+| Fees           | 13.5% final value + 0.03% listing + 20% VAT on fees + 3% returns buffer              |
 
 ```
-profit = sale_price − supplier_price − (sale_price × 0.158)
+profit = sale_price − supplier_price − (13.5% + 0.03% + VAT-on-fees + 3%) × sale_price
 margin = profit / sale_price × 100
 ```
 

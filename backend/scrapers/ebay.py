@@ -14,10 +14,8 @@ from config import (
     EBAY_UK_BASE, EBAY_CLIENT_ID, EBAY_CLIENT_SECRET,
     EBAY_MARKETPLACE, EBAY_API_BASE, EBAY_ENVIRONMENT, SCRAPE_CONFIG,
 )
-from engine.price_gate import PRICE_MIN, PRICE_MAX, in_band
+from engine.price_gate import active_bounds, in_band
 
-# Price band pushed into every eBay query — CONSTRAINTS_PRICING.md PR-2 layer 1.
-_BAND_API = f"price:[{PRICE_MIN:.0f}..{PRICE_MAX:.0f}],priceCurrency:GBP"
 _BASE_API_FILTER = "buyingOptions:{FIXED_PRICE},deliveryCountry:GB"
 
 
@@ -79,13 +77,16 @@ class EbayScraper:
             return []
 
     def _search_api(self, query: str, limit: int = 10) -> list[ScrapedProduct]:
-        """Search via Browse API."""
+        """Search via Browse API. The ACTIVE range is pushed into the query
+        (PR-2 layer 1) — read at call time, never an import-time constant."""
+        lo, hi = active_bounds()
+        band_api = f"price:[{lo:.0f}..{hi:.0f}],priceCurrency:GBP"
         resp = requests.get(
             f"{EBAY_API_BASE}/buy/browse/v1/item_summary/search",
             params={
                 "q": query,
                 "limit": min(limit, 50),
-                "filter": f"{_BASE_API_FILTER},{_BAND_API}",
+                "filter": f"{_BASE_API_FILTER},{band_api}",
                 "sort": "-relevance",
             },
             headers=self._api_headers(),
@@ -115,11 +116,12 @@ class EbayScraper:
 
     def _search_scrape(self, query: str) -> list[ScrapedProduct]:
         """Fallback: scrape search page (may be blocked)."""
+        lo, hi = active_bounds()
         search_url = (
             f"{EBAY_UK_BASE}/sch/i.html?"
             f"_nkw={query.replace(' ', '+')}"
             f"&LH_BIN=1&LH_PrefLoc=1"
-            f"&_udlo={PRICE_MIN:.0f}&_udhi={PRICE_MAX:.0f}"
+            f"&_udlo={lo:.0f}&_udhi={hi:.0f}"
         )
         try:
             resp = self.session.get(search_url, timeout=15)
@@ -262,12 +264,14 @@ class EbayScraper:
 
     def _get_sold_api(self, query: str) -> DemandData:
         """Get sold data via Browse API (search completed listings)."""
+        lo, hi = active_bounds()
+        band_api = f"price:[{lo:.0f}..{hi:.0f}],priceCurrency:GBP"
         resp = requests.get(
             f"{EBAY_API_BASE}/buy/browse/v1/item_summary/search",
             params={
                 "q": query,
                 "limit": 50,
-                "filter": f"{_BASE_API_FILTER},{_BAND_API}",
+                "filter": f"{_BASE_API_FILTER},{band_api}",
                 "sort": "-dateSold",
             },
             headers=self._api_headers(),

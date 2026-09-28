@@ -38,8 +38,13 @@ def _serialize(obj):
 @router.post("/analyze")
 def analyze(req: AnalyzeRequest):
     """Run the full pipeline: eBay → demand → 7 suppliers → LLM → verdict → scorecard."""
-    # PR-7: client may send a band, config always wins.
-    filters = clamp_band(req.filters or load_filters())
+    # PR-5/PR-7: thresholds may come per-request, but the price range is the
+    # PERSISTED active value — selection/search gates read the same file, so
+    # the verdict's Price row can never disagree with what was fetched.
+    active = load_filters()
+    filters = clamp_band(req.filters)
+    filters["price_min"] = active["price_min"]
+    filters["price_max"] = active["price_max"]
 
     try:
         raw = run_async(

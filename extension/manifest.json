@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "eBay Sold History Button",
+  "version": "1.0.0",
+  "description": "Captures the login-required purchase-history page for the current eBay item and posts it to the eBay Hunter backend for verified 7-day sales data.",
+  "host_permissions": ["https://www.ebay.co.uk/*"],
+  "permissions": ["storage", "activeTab"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "eBay Sold History Button"
+  }
+}

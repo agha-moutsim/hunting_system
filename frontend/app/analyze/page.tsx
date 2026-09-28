@@ -1,20 +1,28 @@
 ﻿"use client";
 
-import { useState, FormEvent } from "react";
+import { useEffect, useState, FormEvent } from "react";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import Spinner from "@/components/Spinner";
 import Scorecard from "@/components/Scorecard";
 import Badge from "@/components/ui/Badge";
-import { apiPost } from "@/lib/api";
-import { AnalyzeResponse } from "@/lib/types";
+import RangeControl from "@/components/ui/RangeControl";
+import { apiFetch, apiPost } from "@/lib/api";
+import { AnalyzeResponse, FiltersResponse, PriceRange } from "@/lib/types";
 
 export default function AnalyzePage() {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
+  const [activeRange, setActiveRange] = useState<PriceRange | null>(null);
+
+  useEffect(() => {
+    apiFetch<FiltersResponse>("/api/filters")
+      .then((d) => setActiveRange(d.range))
+      .catch(() => setActiveRange(null));
+  }, []);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -47,7 +55,10 @@ export default function AnalyzePage() {
       <div>
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-xl font-bold text-text-primary">Analyze</h1>
-          <Badge tone="info">Price band £5–£35</Badge>
+          <Badge tone="info">
+            Active range{" "}
+            {activeRange ? `£${activeRange.min}–£${activeRange.max}` : "…"}
+          </Badge>
         </div>
         <p className="text-sm text-text-secondary mt-1">
           Full sourcing analysis: eBay → demand → 7 suppliers → AI → scorecard
@@ -78,10 +89,15 @@ export default function AnalyzePage() {
         </p>
       </Card>
 
+      <RangeControl onApplied={(r) => setActiveRange(r)} />
+
       {loading && (
         <Card>
           <div className="flex flex-col items-center gap-4 py-6">
-            <Spinner size="lg" label="Running analysis — usually under 90 seconds…" />
+            <Spinner
+              size="lg"
+              label="Running analysis — usually under 90 seconds…"
+            />
             <div className="w-full max-w-md space-y-2" aria-hidden>
               <div className="skeleton h-20 rounded-xl" />
               <div className="skeleton h-10 rounded-lg" />

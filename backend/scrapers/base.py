@@ -33,6 +33,7 @@ class ScrapedProduct:
     seller_orders: Optional[str] = None
     store_name: Optional[str] = None
     condition: str = "New"
+    brand: Optional[str] = None
     verified: bool = True
     raw_html: Optional[str] = None
     scraped_at: datetime = field(default_factory=datetime.now)
@@ -48,6 +49,12 @@ class DemandData:
     lowest_sold_price: Optional[float] = None
     highest_sold_price: Optional[float] = None
     verified: bool = True
+    # P5: verification of the 7-day figure specifically. None = no browser
+    # purchase-history capture (fall back to `verified`); True = capture-backed.
+    verified_7d: Optional[bool] = None
+    # P5: where these counts came from, e.g. "ebay_sold_listings" or
+    # "ebay_sold_listings+purchase_history" when a capture was applied.
+    data_source: Optional[str] = None
     excluded_over_band: int = 0  # PR-4: sold rows dropped by the band gate
 
 

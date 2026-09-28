@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>eBay Sold History Button</title>
+    <style>
+      body {
+        margin: 0;
+        width: 300px;
+        background: #27233f;
+        color: #ffffff;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        font-size: 13px;
+        padding: 14px;
+        box-sizing: border-box;
+      }
+      h1 {
+        font-size: 14px;
+        margin: 0 0 4px;
+        color: #cbfd03;
+      }
+      p.hint {
+        margin: 0 0 12px;
+        color: #9aa0b0;
+        line-height: 1.4;
+      }
+      button {
+        width: 100%;
+        padding: 10px 12px;
+        border: none;
+        border-radius: 6px;
+        background: #cbfd03;
+        color: #27233f;
+        font-weight: 700;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      button:hover {
+        background: #b8e800;
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+      #status {
+        margin-top: 12px;
+        padding: 10px;
+        border-radius: 6px;
+        background: #1d1a33;
+        line-height: 1.5;
+        display: none;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      #status.ok {
+        border-left: 3px solid #cbfd03;
+      }
+      #status.err {
+        border-left: 3px solid #ff5c5c;
+      }
+      #status.warn {
+        border-left: 3px solid #ffc857;
+      }
+      .num {
+        font-family: "JetBrains Mono", monospace;
+        color: #cbfd03;
+      }
+      label.api {
+        display: block;
+        margin-top: 12px;
+        color: #9aa0b0;
+        font-size: 11px;
+      }
+      input.api {
+        width: 100%;
+        margin-top: 4px;
+        padding: 6px 8px;
+        box-sizing: border-box;
+        border: 1px solid #4b525e;
+        border-radius: 6px;
+        background: #1d1a33;
+        color: #ffffff;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>eBay Sold History</h1>
+    <p class="hint">
+      Open an eBay item listing, then capture its login-required purchase
+      history for verified 7-day sales data.
+    </p>
+    <button id="capture">Capture sold history</button>
+    <div id="status"></div>
+    <label class="api">Backend base URL (apiBase)</label>
+    <input class="api" id="apiBase" value="http://localhost:8000" />
+    <script src="popup.js"></script>
+  </body>
+</html>

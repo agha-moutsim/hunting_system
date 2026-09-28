@@ -16,7 +16,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from engine.price_gate import (
-    PRICE_MAX, band_label, excluded_note, filter_dicts, in_band,
+    band_label, excluded_note, filter_dicts, in_band,
 )
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
@@ -102,7 +102,8 @@ class DeepSearchResult:
     ebay_price_max: float = 0.0
     ebay_price_median: float = 0.0
     ebay_total_sold_30d: int = 0
-    ebay_total_sold_7d: int = 0
+    # None = unknown (no parseable sale dates) — never an estimate (C1/C4).
+    ebay_total_sold_7d: Optional[int] = None
     suppliers: List[dict] = field(default_factory=list)  # [{name, price, url, type, delivery}]
     best_supplier_price: float = 0.0
     profit: float = 0.0
@@ -257,6 +258,7 @@ JSON object with the following fields (all prices in GBP £):
 {
   "product_name": "string",
   "product_category": "string",
+  "brand_name": "<brand/manufacturer named in the product data, else empty string>",
   "ebay_items_sold_month": "estimated items sold per month on eBay UK, e.g. '500-1000'",
   "ebay_top_sellers": [
     {"name": "seller name", "url": "eBay listing URL", "price": "£XX.XX"}
@@ -283,6 +285,7 @@ Rules:
 - All prices MUST be in GBP (£).
 - Find MULTIPLE suppliers (at least 2-3 if possible) with real prices and links.
 - Focus on UK market data only.
+- brand_name must be a real brand explicitly named in the data — empty string when the product is generic/unknown (never guess).
 - If data is uncertain, say so in notes.
 - Return ONLY valid JSON, no markdown fences, no commentary.
 - Use up to 3 top eBay sellers. If fewer found, return fewer.
@@ -428,12 +431,9 @@ def deep_search_product(query: str) -> DeepSearchResult:
             result.ebay_price_range = ""
         result.ebay_avg_price = avg_f
 
-    # Parse multiple suppliers — price band gate (CONSTRAINTS_PRICING.md PR-2 layer 3)
+    # Supplier rows are never range-gated (PR-1) — every match is kept and
+    # shown; margin decides buyability.
     suppliers = parsed.get("suppliers", [])
-    if suppliers:
-        suppliers, excluded_suppliers = filter_dicts(suppliers, "price")
-        if excluded_suppliers:
-            band_notes.append(excluded_note("supplier matches", excluded_suppliers))
     if suppliers:
         result.suppliers = suppliers
         # Find best (cheapest) supplier
@@ -448,7 +448,9 @@ def deep_search_product(query: str) -> DeepSearchResult:
     result.notes = parsed.get("notes", "")
 
     # ── Calculate profit & verdict (same logic as Analyze tab) ──
-    _calculate_profit_and_verdict(result)
+    _calculate_profit_and_verdict(
+        result, brand_name=str(parsed.get("brand_name", "") or "")
+    )
 
     # PR-4 transparency: report what the band removed (never silent)
     if band_notes:
@@ -560,11 +562,10 @@ def deep_search_fast(query: str) -> DeepSearchResult:
         print(f"[WARN] Parallel scrape failed: {e}")
         cj_results, ae_results, amz_results = [], [], []
 
-    # Process results — price band gate (CONSTRAINTS_PRICING.md PR-2 layer 3)
-    excluded_suppliers = 0
+    # Process results — supplier prices are never range-gated (PR-1);
+    # only unusable rows (no positive price) are skipped.
     for source_name, product in cj_results + ae_results + amz_results:
-        if not in_band(product.price):
-            excluded_suppliers += 1
+        if not product.price or product.price <= 0:
             continue
         supplier_type = "retailer" if source_name == "Amazon UK" else "dropshipper"
         store_display = product.store_name or product.seller or source_name
@@ -591,8 +592,6 @@ def deep_search_fast(query: str) -> DeepSearchResult:
 
     result.sources = sources
     result.notes = "Fast analysis (no LLM). For full analysis use Deep Search tab."
-    if excluded_suppliers:
-        band_notes.append(excluded_note("supplier matches", excluded_suppliers))
 
     # Calculate profit & verdict
     _calculate_profit_and_verdict(result)
@@ -604,7 +603,9 @@ def deep_search_fast(query: str) -> DeepSearchResult:
     return result
 
 
-def _calculate_profit_and_verdict(result: DeepSearchResult, filters: dict | None = None):
+def _calculate_profit_and_verdict(
+    result: DeepSearchResult, filters: dict | None = None, brand_name: str = ""
+):
     """Adapt a DeepSearchResult to the ONE engine rule (C1).
 
     Money math (engine.profit) and the verdict ladder (engine.decisions)
@@ -640,11 +641,11 @@ def _calculate_profit_and_verdict(result: DeepSearchResult, filters: dict | None
         return
 
     # --- Evidence (no rules here) ---
-    delivery_days = None
+    supplier_delivery_days = None
     for s in result.suppliers:
         match = re.search(r"(\d+)", str(s.get("delivery_days", "")))
         if match:
-            delivery_days = int(match.group(1))
+            supplier_delivery_days = int(match.group(1))
             break
 
     evidence = ScrapedProduct(
@@ -653,18 +654,21 @@ def _calculate_profit_and_verdict(result: DeepSearchResult, filters: dict | None
         price=ebay_price,
         url="",
         condition="New",
-        delivery_days_max=delivery_days,
+        delivery_days_max=None,  # deep search has no listing delivery — advisory uses supplier
         verified=True,
+        # C5: an LLM-named brand is checked against the VeRO catalog by the
+        # engine; empty/unknown stays "No brand name detected" (never guessed).
+        brand=(brand_name or "").strip(),
     )
     demand = DemandData(
         sold_count_30d=result.ebay_total_sold_30d
         or _first_int(result.ebay_items_sold_month),
-        sold_count_7d=result.ebay_total_sold_7d or None,
+        sold_count_7d=result.ebay_total_sold_7d,
         verified=False,  # eBay sold-search estimates, not verified counts
     )
 
     verdict = DecisionEngine(filters or load_filters()).evaluate(
-        evidence, demand, supplier_cost
+        evidence, demand, supplier_cost, supplier_delivery_days
     )
 
     result.profit = verdict.profit

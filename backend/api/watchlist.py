@@ -5,6 +5,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 
 from api.schemas import SearchCreate, WatchlistCreate
+from utils.filters import active_range, outside_range, price_in_range, resolve_range
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -13,34 +14,25 @@ logger = logging.getLogger(__name__)
 # ── Watchlist items ─────────────────────────────────────────────
 
 @router.get("/watchlist")
-def list_watchlist():
-    """Watchlist items — out-of-band rows filtered + counted (PR-2 layer 4)."""
+def list_watchlist(price_min: float | None = None, price_max: float | None = None):
+    """Watchlist items — view-filtered by range, out-of-range rows flagged (PR-6)."""
     from watchlist import get_watchlist_items
-    from engine.price_gate import excluded_note, in_band
 
-    items = get_watchlist_items()
-    kept = [i for i in items if in_band(i.get("ebay_price")) or not i.get("ebay_price")]
-    excluded = len(items) - len(kept)
-    resp = {"items": kept}
-    if excluded:
-        resp["excluded_note"] = excluded_note("watchlist items", excluded)
-    return resp
+    active = active_range()
+    view = resolve_range(price_min, price_max)
+    rows = []
+    for item in get_watchlist_items():
+        if not price_in_range(item.get("ebay_price"), view):
+            continue
+        row = dict(item)
+        row["outside_band"] = outside_range(row.get("ebay_price"), active)
+        rows.append(row)
+    return {"items": rows, "range_filter": view}
 
 
 @router.post("/watchlist")
 def create_watchlist(req: WatchlistCreate):
     from watchlist import add_to_watchlist
-    from engine.price_gate import band_label, in_band
-
-    # PR-6 write gate: never store an out-of-band entry price
-    if req.ebay_price and not in_band(req.ebay_price):
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"This listing is £{req.ebay_price:.2f} — outside your "
-                f"{band_label()} band."
-            ),
-        )
 
     item = add_to_watchlist(
         product_name=req.product_name,
@@ -54,7 +46,11 @@ def create_watchlist(req: WatchlistCreate):
     )
     if not item:
         raise HTTPException(status_code=500, detail="Failed to add to watchlist")
-    return {"id": item.id, "product_name": item.product_name}
+    return {
+        "id": item.id,
+        "product_name": item.product_name,
+        "outside_band": outside_range(item.ebay_price, active_range()),
+    }
 
 
 @router.delete("/watchlist/{item_id}")
@@ -71,28 +67,36 @@ def delete_watchlist(item_id: int):
 @router.get("/searches")
 def list_searches():
     from watchlist import get_saved_searches
-    from engine.price_gate import PRICE_MAX, PRICE_MIN
+    from utils.filters import active_range, valid_range
 
     searches = get_saved_searches()
-    # PR-7: any band stored before clamping existed is re-clamped on read
+    # PR-5/PR-7: a stored range is served as written when sane (the search
+    # is editable — the runner honours it); only an invalid legacy row
+    # falls back to the ACTIVE range.
     for s in searches:
-        s["price_min"] = max(s.get("price_min") or PRICE_MIN, PRICE_MIN)
-        s["price_max"] = min(s.get("price_max") or PRICE_MAX, PRICE_MAX)
+        if not valid_range(s.get("price_min"), s.get("price_max")):
+            rng = active_range()
+            s["price_min"], s["price_max"] = rng["min"], rng["max"]
     return {"searches": searches}
 
 
 @router.post("/searches")
 def create_search(req: SearchCreate):
     from watchlist import save_search
-    from engine.price_gate import PRICE_MIN, PRICE_MAX
+    from utils.filters import active_range, valid_range
 
+    # Per-search range must form a sane band; invalid input falls back to
+    # the ACTIVE range (never silently clamped to config defaults).
+    lo, hi = req.price_min, req.price_max
+    if not valid_range(lo, hi):
+        rng = active_range()
+        lo, hi = rng["min"], rng["max"]
     s = save_search(
         search_name=req.search_name,
         query=req.query,
         category=req.category,
-        # PR-7: stored searches cannot widen the band
-        price_min=max(req.price_min, PRICE_MIN),
-        price_max=min(req.price_max, PRICE_MAX),
+        price_min=lo,
+        price_max=hi,
         min_margin=req.min_margin,
         auto_run=req.auto_run,
     )
@@ -125,12 +129,19 @@ def run_all_searches():
 
 
 @router.get("/searches/results")
-def new_results(unread_only: bool = True, limit: int = 50):
+def new_results(
+    unread_only: bool = True,
+    limit: int = 50,
+    price_min: float | None = None,
+    price_max: float | None = None,
+):
     from watchlist import get_new_results, get_unread_results_count
 
+    view = resolve_range(price_min, price_max)
     return {
-        "results": get_new_results(unread_only=unread_only, limit=limit),
+        "results": get_new_results(unread_only=unread_only, limit=limit, price_range=view),
         "unread_count": get_unread_results_count(),
+        "range_filter": view,
     }
 
 

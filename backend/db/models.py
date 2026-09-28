@@ -103,6 +103,23 @@ class Verdict(Base):
     product = relationship("Product", back_populates="verdict")
 
 
+class PurchaseCapture(Base):
+    """One verified purchase-history capture posted by the browser extension (P5).
+
+    Upserted by item_id — the latest capture wins.
+    """
+    __tablename__ = "purchase_captures"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    item_id = Column(String(64), nullable=False, index=True)
+    url = Column(Text)
+    sold_7d = Column(Integer)
+    sold_30d = Column(Integer)
+    sales_json = Column(Text, nullable=False, default="[]")
+    captured_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    source = Column(String(32), default="extension")
+
+
 class TrackedProduct(Base):
     __tablename__ = "tracked_products"
 

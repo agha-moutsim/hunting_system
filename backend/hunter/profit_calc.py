@@ -46,16 +46,30 @@ def _calc_single(product: CategoryProduct, filters: dict):
         price=product.price,
         url=product.url,
         condition=product.condition or "New",
-        delivery_days_max=_supplier_delivery_max(product.supplier_name),
+        # eBay-side delivery estimate is unknown here — C-new shows it as
+        # Unknown rather than borrowing the supplier's ceiling (C1).
+        delivery_days_max=None,
         verified=True,
     )
     demand = DemandData(
         sold_count_30d=product.sold_30d,
         sold_count_7d=product.sold_7d,
         verified=True,
+        verified_7d=False,  # sold-search dates are not purchase history (C4)
     )
+    # P5: a fresh purchase-history capture verifies the 7-day figure on its own.
+    try:
+        from analysis_pipeline import apply_purchase_history
+        apply_purchase_history(demand, product.url)
+    except Exception:
+        pass
 
-    verdict = DecisionEngine(filters).evaluate(evidence, demand, product.supplier_price)
+    verdict = DecisionEngine(filters).evaluate(
+        evidence,
+        demand,
+        product.supplier_price,
+        supplier_delivery_days=_supplier_delivery_max(product.supplier_name),
+    )
     product.profit = verdict.profit
     product.margin = verdict.margin
     product.verdict = verdict.verdict.upper()

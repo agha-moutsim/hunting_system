@@ -27,6 +27,7 @@ class SupplierMatch:
 class LLMAnalysis:
     """Structured output from the LLM analyzer."""
     brand_verdict: str = "ambiguous"
+    brand_name: str = ""
     brand_reasoning: str = ""
     demand_assessment: str = "moderate"
     demand_reasoning: str = ""
@@ -111,6 +112,7 @@ def _parse_analysis(raw: str) -> LLMAnalysis:
 
     return LLMAnalysis(
         brand_verdict=brand,
+        brand_name=str(data.get("brand_name", "")).strip(),
         brand_reasoning=str(data.get("brand_reasoning", "")),
         demand_assessment=demand,
         demand_reasoning=str(data.get("demand_reasoning", "")),

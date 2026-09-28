@@ -5,7 +5,7 @@ Common database queries.
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 
-from db.models import Product, DemandData, SupplierMatch, Analysis, Verdict
+from db.models import Product, DemandData, SupplierMatch, Analysis, Verdict, PurchaseCapture
 from scrapers.base import ScrapedProduct, DemandData as DemandDataDTO
 
 
@@ -156,6 +156,12 @@ def save_demand_data(db: Session, product_id: int, demand: DemandDataDTO) -> Dem
         "highest_sold_price": demand.highest_sold_price,
         "verified": demand.verified,
     }
+    # P5: only written when the DTO carries a source string (e.g. the
+    # "...+purchase_history" suffix set by analysis_pipeline) so the column
+    # default keeps applying everywhere else.
+    data_source = getattr(demand, "data_source", None)
+    if data_source:
+        data["data_source"] = data_source
     if existing:
         for k, v in data.items():
             setattr(existing, k, v)
@@ -250,3 +256,62 @@ def is_data_fresh_by_product(db: Session, product_id: int, max_age_hours: int = 
         return False
     age = datetime.utcnow() - product.updated_at
     return age < timedelta(hours=max_age_hours)
+
+
+def get_latest_purchase_capture(db: Session, item_id: str) -> PurchaseCapture | None:
+    """Most recent browser purchase-history capture for an eBay item (P5)."""
+    return (
+        db.query(PurchaseCapture)
+        .filter(PurchaseCapture.item_id == str(item_id))
+        .order_by(PurchaseCapture.captured_at.desc(), PurchaseCapture.id.desc())
+        .first()
+    )
+
+
+def upsert_purchase_capture(
+    db: Session,
+    *,
+    item_id: str,
+    url: str | None,
+    sold_7d: int,
+    sold_30d: int | None,
+    sales_json: str,
+    captured_at: datetime,
+    source: str = "extension",
+) -> PurchaseCapture:
+    """Insert or update the capture for `item_id` — latest capture wins.
+
+    One row per item: the existing row's counts/sales/captured_at are
+    replaced and any duplicate rows for the same item_id are removed.
+    """
+    item_id = str(item_id)
+    existing = (
+        db.query(PurchaseCapture)
+        .filter(PurchaseCapture.item_id == item_id)
+        .order_by(PurchaseCapture.captured_at.desc(), PurchaseCapture.id.desc())
+        .all()
+    )
+    if existing:
+        row = existing[0]
+        for duplicate in existing[1:]:
+            db.delete(duplicate)
+        row.url = url
+        row.sold_7d = sold_7d
+        row.sold_30d = sold_30d
+        row.sales_json = sales_json
+        row.captured_at = captured_at
+        row.source = source
+    else:
+        row = PurchaseCapture(
+            item_id=item_id,
+            url=url,
+            sold_7d=sold_7d,
+            sold_30d=sold_30d,
+            sales_json=sales_json,
+            captured_at=captured_at,
+            source=source,
+        )
+        db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row

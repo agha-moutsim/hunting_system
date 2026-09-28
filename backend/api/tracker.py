@@ -5,42 +5,32 @@ import logging
 from fastapi import APIRouter, HTTPException
 
 from api.schemas import TrackerCreate
-from engine.price_gate import band_label, excluded_note, in_band
+from utils.filters import active_range, outside_range, price_in_range, resolve_range
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
 @router.get("/tracker")
-def list_tracker():
-    """All tracked products — PR-2 layer 4: out-of-band rows filtered + counted."""
+def list_tracker(price_min: float | None = None, price_max: float | None = None):
+    """All tracked products — view-filtered by range, out-of-range rows flagged (PR-6)."""
     from tracker import get_tracked_products
 
-    products = get_tracked_products()
-    kept = [
-        p for p in products
-        if in_band(p.get("ebay_price")) or not p.get("ebay_price")
-    ]
-    excluded = len(products) - len(kept)
-    resp = {"products": kept}
-    if excluded:
-        resp["excluded_note"] = excluded_note("tracked products", excluded)
-    return resp
+    active = active_range()
+    view = resolve_range(price_min, price_max)
+    rows = []
+    for product in get_tracked_products():
+        if not price_in_range(product.get("ebay_price"), view):
+            continue
+        row = dict(product)
+        row["outside_band"] = outside_range(product.get("ebay_price"), active)
+        rows.append(row)
+    return {"products": rows, "range_filter": view}
 
 
 @router.post("/tracker")
 def create_tracker(req: TrackerCreate):
     from tracker import add_to_tracker
-
-    # PR-6 write gate: never store an out-of-band entry price
-    if req.ebay_price and not in_band(req.ebay_price):
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"This listing is £{req.ebay_price:.2f} — outside your "
-                f"{band_label()} band."
-            ),
-        )
 
     item = add_to_tracker(
         product_name=req.product_name,
@@ -53,7 +43,11 @@ def create_tracker(req: TrackerCreate):
     )
     if not item:
         raise HTTPException(status_code=500, detail="Failed to add product")
-    return {"id": item.id, "product_name": item.product_name}
+    return {
+        "id": item.id,
+        "product_name": item.product_name,
+        "outside_band": outside_range(item.ebay_price, active_range()),
+    }
 
 
 @router.delete("/tracker/{tracked_id}")
@@ -75,20 +69,19 @@ def check_price(tracked_id: int):
 
 @router.get("/tracker/{tracked_id}/history")
 def price_history(tracked_id: int, days: int = 30):
-    """Price history — out-of-band points filtered (PR-2 layer 4)."""
+    """Price history — stored regardless of range; points outside the active
+    range are flagged, never hidden (PR-6 stores any price)."""
     from tracker import get_price_history, get_price_trend
 
+    active = active_range()
     rows = get_price_history(tracked_id, days=days)
-    kept = [r for r in rows if in_band(r.get("ebay_price"))]
-    excluded = len(rows) - len(kept)
+    for r in rows:
+        r["outside_band"] = outside_range(r.get("ebay_price"), active)
 
-    resp = {
-        "history": kept,
+    return {
+        "history": rows,
         "trend": get_price_trend(tracked_id, days=min(days, 7)),
     }
-    if excluded:
-        resp["excluded_note"] = excluded_note("price history points", excluded)
-    return resp
 
 
 @router.get("/tracker/alerts")

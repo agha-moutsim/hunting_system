@@ -47,11 +47,14 @@ def export_to_csv(result: Any) -> str:
     top_sellers = result.ebay_top_sellers or []
     suppliers = result.suppliers or []
 
-    # Money from the single engine source (PROFIT_CONFIG) — C1
+    # Money from the single engine source (PROFIT_CONFIG) — C1/C3.
+    # No usable eBay price = nothing to compute from (post-gate None or 0):
+    # money cells stay blank rather than arithmetic on a fabricated 0.
+    avg_ok = bool(result.ebay_avg_price)
     calc = calculate_profit(
         result.ebay_avg_price or 0, result.best_supplier_price or 0
     )
-    ebay_fees = calc["ebay_fee"] + calc["returns_buffer"]
+    ebay_fees = calc["total_fees"]
     total_cost = (result.best_supplier_price or 0) + calc["total_fees"]
     profit = calc["profit"]
     margin = calc["margin"]
@@ -79,10 +82,10 @@ def export_to_csv(result: Any) -> str:
         suppliers[1].get("url", "") if len(suppliers) > 1 else "",
         suppliers[1].get("supplier_type", "") if len(suppliers) > 1 else "",
         suppliers[1].get("delivery_days", "") if len(suppliers) > 1 else "",
-        f"£{ebay_fees:.2f}",
-        f"£{total_cost:.2f}",
-        f"£{profit:.2f}",
-        f"{margin:.1f}%",
+        f"£{ebay_fees:.2f}" if avg_ok else "",
+        f"£{total_cost:.2f}" if avg_ok else "",
+        f"£{profit:.2f}" if avg_ok else "",
+        f"{margin:.1f}%" if avg_ok else "",
         result.verdict or "PENDING",
     ])
 
@@ -116,10 +119,11 @@ def export_bulk_to_csv(results: list) -> str:
 
     # Data rows
     for result in results:
-        # Money from the single engine source (PROFIT_CONFIG) — C1
+        # Money from the single engine source (PROFIT_CONFIG) — C1/C3
+        avg_ok = bool(result.ebay_avg_price)
         supplier_cost = result.best_supplier_price or 0
         calc = calculate_profit(result.ebay_avg_price or 0, supplier_cost)
-        ebay_fees = calc["ebay_fee"] + calc["returns_buffer"]
+        ebay_fees = calc["total_fees"]
         total_cost = supplier_cost + calc["total_fees"]
         profit = calc["profit"]
         margin = calc["margin"]
@@ -139,9 +143,9 @@ def export_bulk_to_csv(results: list) -> str:
             f"£{result.ebay_avg_price:.2f}" if result.ebay_avg_price else "",
             best_supplier,
             f"£{supplier_cost:.2f}" if supplier_cost else "",
-            f"£{ebay_fees:.2f}",
-            f"£{profit:.2f}",
-            f"{margin:.1f}%",
+            f"£{ebay_fees:.2f}" if avg_ok else "",
+            f"£{profit:.2f}" if avg_ok else "",
+            f"{margin:.1f}%" if avg_ok else "",
             result.verdict or "PENDING",
         ])
 

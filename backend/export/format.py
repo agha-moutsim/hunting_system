@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from engine.price_gate import excluded_note, filter_dicts, in_band
+from engine.price_gate import band_label, in_band
 from engine.profit import calculate_profit
 
 
@@ -21,9 +21,10 @@ def format_to_schema(result: Any) -> dict:
       "profit_analysis": {"ebay_fees": float, "total_cost": float, "profit": float, "margin_percent": float, "verdict": str}
     }
 
-    PR-1/PR-6: no exported figure may sit outside the £5–£35 band —
-    supplier rows are filtered, price-range statistics are nulled when
-    out of band, and `band_notes` reports what was removed (PR-4).
+    PR-1/PR-6: no exported eBay-side figure may sit outside the active
+    range — price-range statistics are nulled when out of range and
+    `band_notes` reports what was removed (PR-4). Supplier prices are
+    NEVER gated (PR-1) and export in full.
     """
     # Preserve any exclusion notes an earlier gate layer already recorded.
     prior = getattr(result, "band_notes", None)
@@ -33,20 +34,19 @@ def format_to_schema(result: Any) -> dict:
     ebay_price = result.ebay_avg_price if in_band(result.ebay_avg_price) else 0.0
     if result.ebay_avg_price and not in_band(result.ebay_avg_price):
         band_notes.append(
-            f"eBay avg price £{result.ebay_avg_price:.2f} removed (not in band)"
+            f"eBay avg price £{result.ebay_avg_price:.2f} removed (not in {band_label()} range)"
         )
-    supplier_cost = result.best_supplier_price if in_band(result.best_supplier_price) else 0.0
-    if result.best_supplier_price and not in_band(result.best_supplier_price):
-        band_notes.append(
-            f"best supplier price £{result.best_supplier_price:.2f} removed (not in band)"
-        )
+    supplier_cost = result.best_supplier_price or 0.0
 
-    # Money from the single engine source (PROFIT_CONFIG) — C1
+    # Money from the single engine source (PROFIT_CONFIG) — C1/C3.
+    # With no usable in-band eBay price there is nothing to compute fees
+    # or profit FROM: export nulls, never arithmetic on a gated 0.
+    has_price = bool(ebay_price)
     calc = calculate_profit(ebay_price, supplier_cost)
-    ebay_fees = calc["ebay_fee"] + calc["returns_buffer"]
-    total_cost = supplier_cost + calc["total_fees"]
-    profit = calc["profit"]
-    margin = calc["margin"]
+    ebay_fees = calc["total_fees"] if has_price else None
+    total_cost = (supplier_cost + calc["total_fees"]) if has_price else None
+    profit = calc["profit"] if has_price else None
+    margin = calc["margin"] if has_price else None
 
     # Format top sellers
     top_sellers = []
@@ -56,10 +56,8 @@ def format_to_schema(result: Any) -> dict:
             "url": seller.get("url", ""),
         })
 
-    # Format suppliers — band gate (PR-1 figure type 2)
-    suppliers, excluded_suppliers = filter_dicts(result.suppliers or [], "price")
-    if excluded_suppliers:
-        band_notes.append(excluded_note("supplier matches", excluded_suppliers))
+    # Format suppliers — never range-gated (PR-1)
+    suppliers = result.suppliers or []
 
     export_suppliers = []
     for supplier in suppliers:
@@ -101,10 +99,10 @@ def format_to_schema(result: Any) -> dict:
         },
         "suppliers": export_suppliers,
         "profit_analysis": {
-            "ebay_fees": round(ebay_fees, 2),
-            "total_cost": round(total_cost, 2),
-            "profit": round(profit, 2),
-            "margin_percent": round(margin, 1),
+            "ebay_fees": round(ebay_fees, 2) if ebay_fees is not None else None,
+            "total_cost": round(total_cost, 2) if total_cost is not None else None,
+            "profit": round(profit, 2) if profit is not None else None,
+            "margin_percent": round(margin, 1) if margin is not None else None,
             "verdict": result.verdict or "PENDING",
         },
     }

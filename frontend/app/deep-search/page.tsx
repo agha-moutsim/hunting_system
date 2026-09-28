@@ -1,13 +1,15 @@
 ﻿"use client";
 
-import { useState, FormEvent } from "react";
+import { useEffect, useState, FormEvent } from "react";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import Badge from "@/components/ui/Badge";
 import Spinner from "@/components/Spinner";
-import { apiPost, downloadFile } from "@/lib/api";
-import { DeepSearchResult } from "@/lib/types";
+import FilterChecks from "@/components/FilterChecks";
+import RangeControl from "@/components/ui/RangeControl";
+import { apiFetch, apiPost, downloadFile } from "@/lib/api";
+import { DeepSearchResult, FiltersResponse, PriceRange } from "@/lib/types";
 import { formatGBP, formatPercent } from "@/lib/format";
 
 export default function DeepSearchPage() {
@@ -16,6 +18,13 @@ export default function DeepSearchPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<DeepSearchResult | null>(null);
+  const [activeRange, setActiveRange] = useState<PriceRange | null>(null);
+
+  useEffect(() => {
+    apiFetch<FiltersResponse>("/api/filters")
+      .then((d) => setActiveRange(d.range))
+      .catch(() => setActiveRange(null));
+  }, []);
 
   async function run(e?: FormEvent) {
     e?.preventDefault();
@@ -24,8 +33,11 @@ export default function DeepSearchPage() {
     setError(null);
     setResult(null);
     try {
-      const path = mode === "full" ? "/api/deep-search" : "/api/deep-search/fast";
-      const data = await apiPost<DeepSearchResult>(path, { query: query.trim() });
+      const path =
+        mode === "full" ? "/api/deep-search" : "/api/deep-search/fast";
+      const data = await apiPost<DeepSearchResult>(path, {
+        query: query.trim(),
+      });
       setResult(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Deep search failed");
@@ -51,7 +63,10 @@ export default function DeepSearchPage() {
     <div className="max-w-5xl mx-auto space-y-6">
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-xl font-bold text-text-primary">Deep Search</h1>
-        <Badge tone="info">Price band £5–£35</Badge>
+        <Badge tone="info">
+          Active range{" "}
+          {activeRange ? `£${activeRange.min}–£${activeRange.max}` : "…"}
+        </Badge>
       </div>
       <p className="text-sm text-text-secondary">
         Deep research: eBay sold history + supplier prices + verdict
@@ -86,6 +101,8 @@ export default function DeepSearchPage() {
         </form>
       </Card>
 
+      <RangeControl onApplied={(r) => setActiveRange(r)} />
+
       {loading && (
         <Card>
           <div className="py-6">
@@ -119,24 +136,27 @@ export default function DeepSearchPage() {
                 <div className="flex items-center gap-2 mb-2">
                   <Badge tone={v}>{v}</Badge>
                   <span className="text-xs text-text-dim">
-                    Competition: {result.competition_level || "—"} · Profit potential:{" "}
-                    {result.profit_potential || "—"}
+                    Competition: {result.competition_level || "—"} · Profit
+                    potential: {result.profit_potential || "—"}
                   </span>
                 </div>
                 <h2 className="text-lg font-bold text-text-primary">
                   {result.product_name}
                 </h2>
                 <p className="text-sm text-text-secondary mt-1">
-                  {result.product_category} · {result.ebay_items_sold_month} · Sold 30d:{" "}
-                  {result.ebay_total_sold_30d ?? "⚠️ Unverified"} · Sold 7d:{" "}
-                  {result.ebay_total_sold_7d ?? "⚠️ Unverified"}
+                  {result.product_category} · {result.ebay_items_sold_month} ·
+                  Sold 30d: {result.ebay_total_sold_30d ?? "⚠️ Unverified"} ·
+                  Sold 7d: {result.ebay_total_sold_7d ?? "⚠️ Unverified"}
                 </p>
               </div>
               <div className="flex gap-2">
                 <Button variant="secondary" onClick={() => exportResult("csv")}>
                   Export CSV
                 </Button>
-                <Button variant="secondary" onClick={() => exportResult("json")}>
+                <Button
+                  variant="secondary"
+                  onClick={() => exportResult("json")}
+                >
                   Export JSON
                 </Button>
               </div>
@@ -158,10 +178,13 @@ export default function DeepSearchPage() {
                   value: (
                     <span
                       className={
-                        result.profit > 0 ? "text-accent-green" : "text-accent-red"
+                        result.profit > 0
+                          ? "text-accent-green"
+                          : "text-accent-red"
                       }
                     >
-                      {formatGBP(result.profit)} / {formatPercent(result.margin)}
+                      {formatGBP(result.profit)} /{" "}
+                      {formatPercent(result.margin)}
                     </span>
                   ),
                 },
@@ -170,8 +193,12 @@ export default function DeepSearchPage() {
                   key={m.label}
                   className="bg-bg-surface border border-border rounded-lg p-3"
                 >
-                  <div className="text-xs text-text-secondary mb-1">{m.label}</div>
-                  <div className="text-base font-bold text-text-primary">{m.value}</div>
+                  <div className="text-xs text-text-secondary mb-1">
+                    {m.label}
+                  </div>
+                  <div className="text-base font-bold text-text-primary">
+                    {m.value}
+                  </div>
                 </div>
               ))}
             </div>
@@ -180,23 +207,7 @@ export default function DeepSearchPage() {
           {/* Filters */}
           {result.filters_passed?.length > 0 && (
             <Card title="Filter Checks">
-              <div className="space-y-2">
-                {result.filters_passed.map((f, i) => (
-                  <div
-                    key={i}
-                    className="flex flex-wrap items-center gap-2 text-sm bg-bg-surface border border-border rounded-lg px-3 py-2"
-                  >
-                    <Badge tone={f.passed ? "pass" : "fail"}>
-                      {f.passed ? "PASS" : "FAIL"}
-                    </Badge>
-                    <span className="text-text-primary font-medium">{f.name}</span>
-                    <span className="text-text-secondary">
-                      {f.actual}{" "}
-                      <span className="text-text-dim">(expected {f.expected})</span>
-                    </span>
-                  </div>
-                ))}
-              </div>
+              <FilterChecks filters={result.filters_passed} />
             </Card>
           )}
 
@@ -251,8 +262,8 @@ export default function DeepSearchPage() {
                           {s.product_title || s.full_name || "—"}
                         </div>
                         <div className="text-xs text-text-dim mt-1">
-                          Delivery: {s.delivery_days ?? "⚠️ Unverified"} · Rating:{" "}
-                          {s.seller_rating ?? "⚠️ Unverified"}
+                          Delivery: {s.delivery_days ?? "⚠️ Unverified"} ·
+                          Rating: {s.seller_rating ?? "⚠️ Unverified"}
                         </div>
                       </div>
                       <div className="text-right">
@@ -267,7 +278,8 @@ export default function DeepSearchPage() {
             ) : (
               <Card>
                 <div className="text-sm text-text-dim">
-                  ⚠️ No supplier matches found for this query (may be rate-limited).
+                  ⚠️ No supplier matches found for this query (may be
+                  rate-limited).
                 </div>
               </Card>
             )}
@@ -277,7 +289,9 @@ export default function DeepSearchPage() {
           {(result.notes || result.sources?.length) && (
             <Card title="Notes & Sources">
               {result.notes && (
-                <p className="text-sm text-text-secondary mb-3">{result.notes}</p>
+                <p className="text-sm text-text-secondary mb-3">
+                  {result.notes}
+                </p>
               )}
               {result.sources?.length > 0 && (
                 <ul className="text-xs text-text-dim space-y-1">

@@ -7,6 +7,7 @@ No Streamlit imports in this module.
 
 import asyncio
 import logging
+from datetime import datetime, timedelta
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -60,6 +61,64 @@ _BROWSER_SEMAPHORE = asyncio.Semaphore(2)
 SCRAPER_TIMEOUT_S = 45.0
 # Overall pipeline budget (eBay + suppliers + LLM + verdict).
 PIPELINE_TIMEOUT_S = 150.0
+
+# ★ Freshness window (P5): a purchase-history capture is only trusted for the
+# 7-day figure if it was taken within this many hours — purchase history
+# moves daily, and a stale capture would silently undercount (C1/C4).
+PURCHASE_HISTORY_MAX_AGE_HOURS = 24
+
+
+def apply_purchase_history(
+    demand: Optional[DemandDataDTO],
+    ebay_url: Optional[str],
+    db: Optional[Session] = None,
+) -> Optional[DemandDataDTO]:
+    """P5: override the 7-day demand figure with a fresh extension capture.
+
+    Extracts the eBay item id from the analysed URL, loads the latest
+    PurchaseCapture (if captured within PURCHASE_HISTORY_MAX_AGE_HOURS) and:
+      * sets demand.sold_count_7d from the capture,
+      * sets demand.verified_7d = True — so ONLY the Demand(7d) verdict row
+        becomes verified; Demand(30d) keeps its own source's verified status,
+      * appends "+purchase_history" to demand.data_source so the persisted
+        demand row shows where the 7-day number came from.
+
+    Returns `demand` unchanged when there is no id, no capture, or the
+    capture is stale. `db` is an optional session (tests pass one).
+    """
+    if demand is None:
+        return demand
+
+    from db.queries import get_latest_purchase_capture
+    from utils.purchase_history import extract_item_id
+
+    item_id = extract_item_id(ebay_url)
+    if not item_id:
+        return demand
+
+    own_session = db is None
+    if own_session:
+        db = SessionLocal()
+    try:
+        capture = get_latest_purchase_capture(db, item_id)
+        if capture is None or capture.sold_7d is None or capture.captured_at is None:
+            return demand
+        age = datetime.utcnow() - capture.captured_at
+        if age > timedelta(hours=PURCHASE_HISTORY_MAX_AGE_HOURS):
+            logger.info(
+                "Purchase-history capture for item %s is %.1fh old — ignored",
+                item_id, age.total_seconds() / 3600,
+            )
+            return demand
+        demand.sold_count_7d = capture.sold_7d
+        demand.verified_7d = True
+        base = demand.data_source or "ebay_sold_listings"
+        if not base.endswith("+purchase_history"):
+            demand.data_source = base + "+purchase_history"
+        return demand
+    finally:
+        if own_session:
+            db.close()
 
 
 async def search_all_suppliers(query: str, progress=None) -> list[ScrapedProduct]:
@@ -189,6 +248,9 @@ async def run_analysis_pipeline(
         _report("Step 2/5 — Fetching demand data…")
         search_term = ebay_product.title if not is_url else query
         demand = ebay.get_sold_data(search_term)
+        # P5: verified 7-day figure from the browser purchase-history capture
+        # (single-item analysis only — one item id per analysed URL).
+        demand = apply_purchase_history(demand, ebay_product.url)
         results["demand"] = demand
         if demand and demand.sold_count_30d:
             _report(f"✓ Demand: {demand.sold_count_30d} sold in 30 days")
@@ -212,13 +274,9 @@ async def run_analysis_pipeline(
                 "⚠️ Supplier search timed out (90s) — results may be incomplete (Unverified)."
             )
             supplier_results = []
-        # PR-2 layer 3 / PR-4: drop out-of-band supplier rows, report the count.
-        supplier_results, excluded_suppliers = filter_products(supplier_results)
+        # Supplier prices are never range-gated (PR-1) — keep usable rows as-is.
+        supplier_results = [s for s in supplier_results if s.price and s.price > 0]
         results["supplier_matches"] = supplier_results
-        if excluded_suppliers:
-            note = excluded_note("supplier matches", excluded_suppliers)
-            results["errors"].append(f"⚠️ {note}")
-            _report(f"– {note}")
         _report(f"✓ Supplier search done: {len(supplier_results)} total matches")
 
         # Step 4: LLM analysis
@@ -276,8 +334,15 @@ async def run_analysis_pipeline(
         # Step 5: Decision verdict
         _report("Step 5/5 — Applying business rules and profit calculation…")
         best_supplier_price = supplier_results[0].price if supplier_results else None
+        supplier_delivery_days = (
+            supplier_results[0].delivery_days_max if supplier_results else None
+        )
+        if llm_result and getattr(llm_result, "brand_name", ""):
+            ebay_product.brand = llm_result.brand_name
         engine = DecisionEngine(filters=filters)
-        verdict = engine.evaluate(ebay_product, demand, best_supplier_price)
+        verdict = engine.evaluate(
+            ebay_product, demand, best_supplier_price, supplier_delivery_days
+        )
         results["verdict"] = verdict
         if verdict:
             _report(f"✓ Verdict: {verdict.verdict.upper()}")

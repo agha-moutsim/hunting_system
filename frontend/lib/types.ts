@@ -1,5 +1,41 @@
 /** TypeScript mirrors of FastAPI Phase A responses. */
 
+// ── Filters / price range (GET-PUT /api/filters) ────────────────
+
+export interface PriceRange {
+  min: number;
+  max: number;
+}
+
+export interface ActiveFilterSettings {
+  price_min: number;
+  price_max: number;
+  demand_min_30d?: number;
+  demand_min_7d?: number;
+  delivery_min?: number;
+  delivery_target_max?: number;
+  margin_min?: number;
+  brand_filter?: string;
+  condition?: string;
+  buy_it_now?: boolean;
+  uk_only?: boolean;
+}
+
+export interface FiltersResponse {
+  active: ActiveFilterSettings;
+  range: PriceRange;
+  defaults: { price_min: number; price_max: number };
+}
+
+export interface RangeUpdateBody {
+  price_min: number;
+  price_max: number;
+}
+
+export interface RangeUpdateResponse {
+  range: PriceRange;
+}
+
 // ── Status ──────────────────────────────────────────────────────
 
 export interface SystemStatus {
@@ -26,6 +62,8 @@ export interface ScrapedProduct {
   store_name?: string | null;
   condition?: string;
   verified?: boolean;
+  /** True when this price sits outside the active price range. */
+  outside_band?: boolean;
 }
 
 export interface DemandData {
@@ -55,6 +93,10 @@ export interface FilterCheck {
   passed: boolean;
   actual?: string;
   expected?: string;
+  /** false = the API could not verify this row (renders as Unverified). */
+  verified?: boolean;
+  /** true = advisory row (e.g. "Delivery (advisory)") — never pass/fail. */
+  advisory?: boolean;
 }
 
 export interface VerdictData {
@@ -108,7 +150,7 @@ export interface DeepSearchResult {
   ebay_price_max: number;
   ebay_price_median: number;
   ebay_total_sold_30d: number;
-  ebay_total_sold_7d: number;
+  ebay_total_sold_7d: number | null; // null = unknown (never estimated)
   suppliers: SupplierInfo[];
   best_supplier_price: number;
   profit: number;
@@ -183,6 +225,12 @@ export interface TrackedProduct {
   last_checked?: string | null;
   alert_enabled: boolean;
   created_at?: string | null;
+  outside_band?: boolean;
+}
+
+export interface TrackerListResponse {
+  products: TrackedProduct[];
+  range_filter: PriceRange;
 }
 
 export interface PriceAlert {
@@ -201,6 +249,12 @@ export interface PriceHistoryPoint {
   ebay_price: number;
   supplier_price: number;
   checked_at?: string | null;
+  outside_band?: boolean;
+}
+
+export interface TrackerHistoryResponse {
+  history: PriceHistoryPoint[];
+  trend: PriceTrend;
 }
 
 export interface PriceTrend {
@@ -222,6 +276,12 @@ export interface WatchlistItem {
   supplier_name: string;
   notes: string;
   added_at?: string | null;
+  outside_band?: boolean;
+}
+
+export interface WatchlistListResponse {
+  items: WatchlistItem[];
+  range_filter: PriceRange;
 }
 
 export interface SavedSearch {
@@ -325,6 +385,13 @@ export interface HistoryItem {
   profit?: number | null;
   margin?: number | null;
   created_at: string;
+  outside_band?: boolean;
+}
+
+export interface HistoryListResponse {
+  products: HistoryItem[];
+  count: number;
+  range_filter: PriceRange;
 }
 
 export interface ProductDetail {
@@ -340,6 +407,7 @@ export interface ProductDetail {
     ebay_url: string;
     created_at?: string;
     updated_at?: string;
+    outside_band?: boolean;
   };
   demand: DemandData | null;
   suppliers: {

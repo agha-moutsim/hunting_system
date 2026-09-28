@@ -7,7 +7,6 @@ from typing import Optional
 from db.database import SessionLocal
 from db.models import TrackedProduct, PriceHistory
 from tracker.alerts import generate_alert
-from engine.price_gate import in_band
 
 
 def check_all_prices(progress_callback=None) -> dict:
@@ -15,7 +14,7 @@ def check_all_prices(progress_callback=None) -> dict:
     db = SessionLocal()
     try:
         products = db.query(TrackedProduct).filter(TrackedProduct.alert_enabled == True).all()
-        results = {"checked": 0, "alerts": 0, "errors": 0, "excluded_over_band": 0}
+        results = {"checked": 0, "alerts": 0, "errors": 0}
 
         for i, product in enumerate(products):
             if progress_callback:
@@ -29,18 +28,12 @@ def check_all_prices(progress_callback=None) -> dict:
                 new_ebay_price = _fetch_ebay_price(product.ebay_url)
                 new_supplier_price = product.supplier_price  # Keep existing for now
 
-                # PR-6: out-of-band figures are never stored (write-time gate)
-                if new_ebay_price > 0 and not in_band(new_ebay_price):
-                    results["excluded_over_band"] += 1
-                    new_ebay_price = 0.0
-
                 if new_ebay_price > 0:
                     product.ebay_price = new_ebay_price
 
                 product.supplier_price = new_supplier_price
                 product.last_checked = datetime.utcnow()
 
-                # Record price history (band-filtered figure only — PR-6)
                 if new_ebay_price > 0:
                     history = PriceHistory(
                         tracked_product_id=product.id,
@@ -89,14 +82,6 @@ def check_single_price(tracked_id: int) -> Optional[float]:
 
         old_price = product.ebay_price
         new_price = _fetch_ebay_price(product.ebay_url)
-
-        # PR-6 write gate: out-of-band figures are never stored
-        if new_price > 0 and not in_band(new_price):
-            print(
-                f"[BAND] '{product.product_name}' new price £{new_price:.2f} "
-                "outside band — not stored"
-            )
-            return None
 
         if new_price > 0:
             product.ebay_price = new_price

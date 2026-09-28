@@ -1,8 +1,15 @@
 "use client";
 
-import { ScrapedProduct, DemandData, LLMAnalysis, VerdictData } from "@/lib/types";
+import {
+  ScrapedProduct,
+  DemandData,
+  LLMAnalysis,
+  VerdictData,
+} from "@/lib/types";
 import Badge from "@/components/ui/Badge";
 import Card from "@/components/ui/Card";
+import OutsideBandBadge from "@/components/ui/OutsideBandBadge";
+import FilterChecks from "@/components/FilterChecks";
 import { formatGBP, formatPercent } from "@/lib/format";
 import SupplierCard from "@/components/SupplierCard";
 
@@ -57,7 +64,9 @@ function LlmLine({
         <Badge tone={tone}>{value}</Badge>
       </div>
       {reasoning && (
-        <p className="text-xs text-text-dim mt-1 leading-relaxed">{reasoning}</p>
+        <p className="text-xs text-text-dim mt-1 leading-relaxed">
+          {reasoning}
+        </p>
       )}
     </div>
   );
@@ -80,7 +89,9 @@ export default function Scorecard({
 }) {
   const v = (verdict?.verdict || "pending").toLowerCase();
   const priceRange =
-    demand && demand.lowest_sold_price != null && demand.highest_sold_price != null
+    demand &&
+    demand.lowest_sold_price != null &&
+    demand.highest_sold_price != null
       ? `${formatGBP(demand.lowest_sold_price)} – ${formatGBP(demand.highest_sold_price)}`
       : "⚠️ Unverified";
 
@@ -103,7 +114,15 @@ export default function Scorecard({
               <Badge tone={v}>{v.toUpperCase()}</Badge>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
-              <Metric label="Listed Price" value={formatGBP(ebayProduct.price)} />
+              <Metric
+                label="Listed Price"
+                value={
+                  <span className="inline-flex flex-wrap items-center gap-1.5">
+                    {formatGBP(ebayProduct.price)}
+                    {ebayProduct.outside_band && <OutsideBandBadge />}
+                  </span>
+                }
+              />
               <Metric label="Condition" value={ebayProduct.condition || "—"} />
               <Metric label="Seller" value={ebayProduct.seller || "—"} />
             </div>
@@ -159,7 +178,11 @@ export default function Scorecard({
           <SectionTitle>Supplier Matches ({suppliers.length})</SectionTitle>
           <div className="space-y-3">
             {suppliers.map((s, i) => (
-              <SupplierCard key={i} supplier={s} ebayPrice={ebayProduct.price} />
+              <SupplierCard
+                key={i}
+                supplier={s}
+                ebayPrice={ebayProduct.price}
+              />
             ))}
           </div>
         </div>
@@ -170,7 +193,14 @@ export default function Scorecard({
         {demand && demand.sold_count_30d != null ? (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <Metric label="Sold (30d)" value={demand.sold_count_30d ?? 0} />
-            <Metric label="Sold (7d)" value={demand.sold_count_7d ?? 0} />
+            <Metric
+              label="Sold (7d)"
+              value={
+                demand.sold_count_7d ?? (
+                  <span className="text-accent-amber">⚠️ Unverified</span>
+                )
+              }
+            />
             <Metric
               label="Avg Sold Price"
               value={
@@ -245,24 +275,13 @@ export default function Scorecard({
               }
             />
             <Metric label="Margin" value={formatPercent(verdict.margin)} />
-            <Metric label="Verdict" value={<Badge tone={v}>{v.toUpperCase()}</Badge>} />
+            <Metric
+              label="Verdict"
+              value={<Badge tone={v}>{v.toUpperCase()}</Badge>}
+            />
           </div>
           <div className="space-y-2">
-            {(verdict.filters || []).map((f, i) => (
-              <div
-                key={i}
-                className="flex flex-wrap items-center gap-2 text-sm bg-bg-surface border border-border rounded-control px-3 py-2"
-              >
-                <Badge tone={f.passed ? "pass" : "fail"}>
-                  {f.passed ? "PASS" : "FAIL"}
-                </Badge>
-                <span className="text-white font-medium">{f.name}</span>
-                <span className="text-text-secondary">
-                  {f.actual}{" "}
-                  <span className="text-text-dim">(expected {f.expected})</span>
-                </span>
-              </div>
-            ))}
+            <FilterChecks filters={verdict.filters || []} />
           </div>
         </div>
       )}

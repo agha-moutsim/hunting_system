@@ -7,14 +7,15 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from api.schemas import ExportResultRequest
-from engine.price_gate import excluded_note, filter_dicts, in_band
+from engine.price_gate import band_label, in_band
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# Price-carrying keys that must never leave the API out of band (PR-1 figure 4)
+# eBay-side price keys gated by the active range (PR-1 figure types 1/3).
+# Supplier keys (item_cost, best_supplier_price) are NEVER gated (PR-1).
 _EXPORT_NUMERIC_PRICE_KEYS = (
-    "price", "item_cost", "ebay_avg_price", "best_supplier_price",
+    "price", "ebay_avg_price",
     "ebay_price_min", "ebay_price_max", "ebay_price_median",
 )
 
@@ -22,36 +23,29 @@ _EXPORT_NUMERIC_PRICE_KEYS = (
 def _band_gate_result(payload: dict) -> dict:
     """Display-time gate for client-supplied export payloads (PR-2 layer 4).
 
-    Supplier rows are filtered, scalar price fields are zeroed when out of
-    band, and the exclusion count is attached — exports never carry an
-    out-of-band figure and never silently drop one either (PR-4).
+    eBay-side scalar price fields become null when out of the active range
+    and the exclusion note is attached (PR-4) — null, never a fabricated 0
+    (C1: a zeroed price reads as a real figure). Supplier rows and supplier
+    prices pass through untouched — they are never range-gated (PR-1).
     """
     if not isinstance(payload, dict):
         return payload
     out = dict(payload)
     notes = []
 
-    for key in ("suppliers", "supplier_matches"):
-        rows = out.get(key)
-        if isinstance(rows, list) and rows and isinstance(rows[0], dict):
-            kept, excluded = filter_dicts(rows, "price")
-            out[key] = kept
-            if excluded:
-                notes.append(excluded_note("supplier matches", excluded))
-
     for key in _EXPORT_NUMERIC_PRICE_KEYS:
         val = out.get(key)
         if isinstance(val, (int, float)) and val and not in_band(val):
-            notes.append(f"{key} £{val:.2f} removed (not in band)")
-            out[key] = 0.0
+            notes.append(f"{key} \u00a3{val:.2f} removed (outside {band_label()} range)")
+            out[key] = None
 
-    # Nested price range statistics
+    # Nested price range statistics (eBay-side)
     rng = out.get("ebay_price_range")
     if isinstance(rng, dict):
         for stat in ("min", "max", "avg", "median"):
             v = rng.get(stat)
             if isinstance(v, (int, float)) and v and not in_band(v):
-                notes.append(f"eBay_price_range.{stat} £{v:.2f} removed (not in band)")
+                notes.append(f"eBay_price_range.{stat} £{v:.2f} removed (outside {band_label()} range)")
                 rng[stat] = None
 
     if notes:
