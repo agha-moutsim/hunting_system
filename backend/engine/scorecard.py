@@ -1,5 +1,6 @@
 from typing import Optional
 
+from config import PROFIT_CONFIG
 from scrapers.base import ScrapedProduct, DemandData
 from engine.decisions import Verdict, FilterResult
 
@@ -64,8 +65,8 @@ def format_scorecard(
         best_supplier = supplier_matches[0]
         sp = getattr(best_supplier, "price", 0)
         lines.append(f"  Supplier price: \u00a3{sp:.2f}")
-    lines.append(f"  eBay fee:       12.8%")
-    lines.append(f"  Returns buffer: 3.0%")
+    lines.append(f"  eBay fee:       {PROFIT_CONFIG['ebay_fee_percent']}%")
+    lines.append(f"  Returns buffer: {PROFIT_CONFIG['returns_buffer_percent']}%")
     lines.append(f"  ----------------------------------------")
     lines.append(f"  Profit:         \u00a3{verdict.profit:.2f}")
     lines.append(f"  Margin:         {verdict.margin:.1f}%")

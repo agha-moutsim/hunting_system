@@ -4,6 +4,8 @@ import csv
 import io
 from typing import Any
 
+from engine.profit import calculate_profit
+
 
 def export_to_csv(result: Any) -> str:
     """Export a single result to CSV format."""
@@ -45,13 +47,14 @@ def export_to_csv(result: Any) -> str:
     top_sellers = result.ebay_top_sellers or []
     suppliers = result.suppliers or []
 
-    # Calculate fees
-    ebay_price = result.ebay_avg_price or 0
-    supplier_cost = result.best_supplier_price or 0
-    ebay_fees = ebay_price * 0.158
-    total_cost = supplier_cost + ebay_fees
-    profit = ebay_price - total_cost
-    margin = (profit / ebay_price * 100) if ebay_price > 0 else 0
+    # Money from the single engine source (PROFIT_CONFIG) — C1
+    calc = calculate_profit(
+        result.ebay_avg_price or 0, result.best_supplier_price or 0
+    )
+    ebay_fees = calc["ebay_fee"] + calc["returns_buffer"]
+    total_cost = (result.best_supplier_price or 0) + calc["total_fees"]
+    profit = calc["profit"]
+    margin = calc["margin"]
 
     writer.writerow([
         result.product_name,
@@ -113,12 +116,13 @@ def export_bulk_to_csv(results: list) -> str:
 
     # Data rows
     for result in results:
-        ebay_price = result.ebay_avg_price or 0
+        # Money from the single engine source (PROFIT_CONFIG) — C1
         supplier_cost = result.best_supplier_price or 0
-        ebay_fees = ebay_price * 0.158
-        total_cost = supplier_cost + ebay_fees
-        profit = ebay_price - total_cost
-        margin = (profit / ebay_price * 100) if ebay_price > 0 else 0
+        calc = calculate_profit(result.ebay_avg_price or 0, supplier_cost)
+        ebay_fees = calc["ebay_fee"] + calc["returns_buffer"]
+        total_cost = supplier_cost + calc["total_fees"]
+        profit = calc["profit"]
+        margin = calc["margin"]
 
         # Find best supplier
         best_supplier = ""

@@ -4,6 +4,7 @@ from typing import Optional
 from config import EBAY_MARKETPLACE, FILTERS
 from scrapers.base import ScrapedProduct, DemandData
 from engine.profit import calculate_profit
+from engine.price_gate import band_label, clamp_band, in_band
 
 
 @dataclass
@@ -25,10 +26,24 @@ class Verdict:
 
 
 class DecisionEngine:
-    """Evaluate a product against all sourcing filters and produce a verdict."""
+    """Evaluate a product against all sourcing filters and produce a verdict.
+
+    This is the ONE decision rule (CONSTRAINTS.md + CONSTRAINTS_PRICING.md)
+    every feature adapts its evidence to — deep search and hunter must not
+    re-derive their own rules.
+
+    Verdict ladder:
+      1. any verified rule broken, or profit <= 0  -> "fail"
+         (a known miss can never be masked by unrelated unknowns)
+      2. every rule passed                         -> "pass"
+         (unverified-but-passing rows do not block; e.g. brand unknown)
+      3. anything unverified and profit > 0        -> "pending"
+      4. otherwise                                 -> "fail"
+    """
 
     def __init__(self, filters: dict | None = None):
-        self.filters = filters or FILTERS
+        # PR-5/PR-7: band always comes from config; missing keys backfilled.
+        self.filters = clamp_band(filters)
 
     def evaluate(
         self,
@@ -60,17 +75,27 @@ class DecisionEngine:
             verified=product.verified,
         ))
 
-        # --- Price filter ---
+        # --- Price filter (eBay listing price) ---
         price_in_range = (
             self.filters["price_min"] <= product.price <= self.filters["price_max"]
         )
         filters.append(FilterResult(
             name="Price",
             passed=price_in_range,
-            actual=f"\u00a3{product.price:.2f}",
-            expected=f"\u00a3{self.filters['price_min']:.2f}\u2013\u00a3{self.filters['price_max']:.2f}",
+            actual=f"£{product.price:.2f}",
+            expected=f"£{self.filters['price_min']:.2f}–£{self.filters['price_max']:.2f}",
             verified=product.verified,
         ))
+
+        # --- Supplier Price filter (supplier cost in band, PR-1 figure type 2) ---
+        if supplier_price is not None:
+            filters.append(FilterResult(
+                name="Supplier Price",
+                passed=in_band(supplier_price),
+                actual=f"£{supplier_price:.2f}",
+                expected=band_label(),
+                verified=True,
+            ))
 
         # --- Demand filter (30d) ---
         if demand and demand.sold_count_30d is not None:
@@ -191,10 +216,15 @@ class DecisionEngine:
         all_passed = all(f.passed for f in filters)
         any_unverified = any(not f.verified for f in filters)
         profit_positive = profit_info["profit"] > 0
+        # A rule we KNOW is broken always wins: a verified failure can never
+        # be downgraded to "pending" by some unrelated unverified row.
+        verified_failure = any(not f.passed and f.verified for f in filters)
 
-        if all_passed and profit_positive:
+        if verified_failure or not profit_positive:
+            verdict_str = "fail"
+        elif all_passed:
             verdict_str = "pass"
-        elif any_unverified and profit_positive:
+        elif any_unverified:
             verdict_str = "pending"
         else:
             verdict_str = "fail"

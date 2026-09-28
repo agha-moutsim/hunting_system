@@ -604,9 +604,18 @@ def deep_search_fast(query: str) -> DeepSearchResult:
     return result
 
 
-def _calculate_profit_and_verdict(result: DeepSearchResult):
-    """Calculate profit, margin, and verdict using the same rules as the Analyze tab."""
-    from config import FILTERS
+def _calculate_profit_and_verdict(result: DeepSearchResult, filters: dict | None = None):
+    """Adapt a DeepSearchResult to the ONE engine rule (C1).
+
+    Money math (engine.profit) and the verdict ladder (engine.decisions)
+    are not re-derived here — this function only builds evidence.
+    """
+    import re
+    from dataclasses import asdict
+
+    from engine.decisions import DecisionEngine
+    from scrapers.base import DemandData, ScrapedProduct
+    from utils.filters import load_filters
 
     ebay_price = result.ebay_avg_price
     supplier_cost = result.best_supplier_price
@@ -630,117 +639,48 @@ def _calculate_profit_and_verdict(result: DeepSearchResult):
         result.notes = f"Cannot determine verdict — {', '.join(missing)}. Try Deep Search tab for full analysis with LLM."
         return
 
-    # eBay fees: 12.8% final value + 3% returns buffer
-    ebay_fee_pct = 0.128
-    returns_buffer_pct = 0.03
-    total_fee_pct = ebay_fee_pct + returns_buffer_pct
-
-    ebay_fees = ebay_price * total_fee_pct
-    profit = ebay_price - supplier_cost - ebay_fees
-    margin = (profit / ebay_price * 100) if ebay_price > 0 else 0
-
-    result.profit = round(profit, 2)
-    result.margin = round(margin, 1)
-
-    # Apply filters (same as config.py FILTERS)
-    filters_passed = []
-
-    # Price filter
-    price_ok = FILTERS["price_min"] <= supplier_cost <= FILTERS["price_max"]
-    filters_passed.append({
-        "name": "Supplier Price",
-        "passed": price_ok,
-        "actual": f"£{supplier_cost:.2f}",
-        "expected": f"£{FILTERS['price_min']:.2f} - £{FILTERS['price_max']:.2f}",
-        "verified": True,
-    })
-
-    # Profit filter
-    profit_ok = profit > 0
-    filters_passed.append({
-        "name": "Profitable",
-        "passed": profit_ok,
-        "actual": f"£{profit:.2f}",
-        "expected": "> £0.00",
-        "verified": True,
-    })
-
-    # Margin filter (>= 25%)
-    margin_min = FILTERS.get("margin_min", 25.0)
-    margin_ok = margin >= margin_min
-    filters_passed.append({
-        "name": "Margin",
-        "passed": margin_ok,
-        "actual": f"{margin:.1f}%",
-        "expected": f">= {margin_min}%",
-        "verified": True,
-    })
-
-    # Demand filter (estimated from eBay data)
-    filters_passed.append({
-        "name": "Demand",
-        "passed": True,  # Can't strictly verify from deep search
-        "actual": result.ebay_items_sold_month or "Estimated (unverified)",
-        "expected": f">= {FILTERS['demand_min_30d']} sold/month",
-        "verified": False,
-    })
-
-    # Delivery filter
-    delivery_max = FILTERS.get("delivery_target_max", 8)
-    delivery_exception = FILTERS.get("delivery_exception_max", 25)
-    demand_strong = FILTERS.get("demand_strong_30d", 30)
-
-    # Parse delivery from suppliers
+    # --- Evidence (no rules here) ---
+    delivery_days = None
     for s in result.suppliers:
-        days_str = s.get("delivery_days", "")
-        if days_str:
-            import re
-            match = re.search(r"(\d+)", str(days_str))
-            if match:
-                days = int(match.group(1))
-                # Exception for high-demand products
-                demand_monthly = 0
-                if result.ebay_items_sold_month:
-                    m = re.search(r"(\d+)", result.ebay_items_sold_month)
-                    if m:
-                        demand_monthly = int(m.group(1))
+        match = re.search(r"(\d+)", str(s.get("delivery_days", "")))
+        if match:
+            delivery_days = int(match.group(1))
+            break
 
-                if demand_monthly >= demand_strong and days <= delivery_exception:
-                    delivery_ok = True
-                else:
-                    delivery_ok = days <= delivery_max
+    evidence = ScrapedProduct(
+        source="ebay_uk",
+        title=result.product_name or "item",
+        price=ebay_price,
+        url="",
+        condition="New",
+        delivery_days_max=delivery_days,
+        verified=True,
+    )
+    demand = DemandData(
+        sold_count_30d=result.ebay_total_sold_30d
+        or _first_int(result.ebay_items_sold_month),
+        sold_count_7d=result.ebay_total_sold_7d or None,
+        verified=False,  # eBay sold-search estimates, not verified counts
+    )
 
-                filters_passed.append({
-                    "name": f"Delivery ({s.get('name', '')})",
-                    "passed": delivery_ok,
-                    "actual": f"{days} days",
-                    "expected": f"{delivery_max} days max",
-                    "verified": False,
-                })
-                break
+    verdict = DecisionEngine(filters or load_filters()).evaluate(
+        evidence, demand, supplier_cost
+    )
 
-    # Brand filter (LLM-estimated)
-    filters_passed.append({
-        "name": "Brand",
-        "passed": True,  # LLM should have filtered, but unverified
-        "actual": "Generic (LLM-estimated)",
-        "expected": "Generic only",
-        "verified": False,
-    })
+    result.profit = verdict.profit
+    result.margin = verdict.margin
+    result.verdict = verdict.verdict.upper()
+    result.filters_passed = [asdict(f) for f in verdict.filters]
 
-    result.filters_passed = filters_passed
 
-    # Verdict (same logic as DecisionEngine)
-    all_critical = [f for f in filters_passed if f["name"] in ("Supplier Price", "Profitable", "Margin")]
-    all_critical_passed = all(f["passed"] for f in all_critical)
-    any_unverified = any(not f["verified"] for f in filters_passed)
+def _first_int(text: str) -> int | None:
+    """First integer in a display string like '40+ bought/month'."""
+    import re
 
-    if all_critical_passed and profit > 0:
-        result.verdict = "PASS"
-    elif any_unverified and profit > 0:
-        result.verdict = "PENDING"
-    else:
-        result.verdict = "FAIL"
+    if not text:
+        return None
+    match = re.search(r"(\d+)", str(text))
+    return int(match.group(1)) if match else None
 
 
 # ---------------------------------------------------------------------------

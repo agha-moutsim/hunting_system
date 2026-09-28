@@ -1,8 +1,14 @@
-"""Batch profit calculation — calculate profit for multiple products."""
+"""Batch profit calculation — one decision rule, many products.
+
+Money math and the verdict rule live in engine/ (calculate_profit +
+DecisionEngine). This module only adapts CategoryProduct rows to the
+engine's evidence interface — no rules of its own (C1).
+"""
 
 from typing import Optional
 
 from hunter.category_scan import CategoryProduct
+from scrapers.base import DemandData, ScrapedProduct
 
 
 def batch_profit_calc(
@@ -25,38 +31,39 @@ def batch_profit_calc(
 
 
 def _calc_single(product: CategoryProduct, filters: dict):
-    """Calculate profit and verdict for a single product."""
-    ebay_price = product.price
-    supplier_cost = product.supplier_price
+    """Adapt one CategoryProduct to DecisionEngine evidence."""
+    from engine.decisions import DecisionEngine
 
-    if ebay_price <= 0 or supplier_cost <= 0:
+    if product.price <= 0 or product.supplier_price <= 0:
         product.verdict = "PENDING"
         product.profit = 0
         product.margin = 0
         return
 
-    # eBay fees: 12.8% final value + 3% returns buffer
-    ebay_fee_pct = 0.128
-    returns_buffer_pct = 0.03
-    total_fee_pct = ebay_fee_pct + returns_buffer_pct
+    evidence = ScrapedProduct(
+        source="ebay_uk",
+        title=product.title,
+        price=product.price,
+        url=product.url,
+        condition=product.condition or "New",
+        delivery_days_max=_supplier_delivery_max(product.supplier_name),
+        verified=True,
+    )
+    demand = DemandData(
+        sold_count_30d=product.sold_30d,
+        sold_count_7d=product.sold_7d,
+        verified=True,
+    )
 
-    ebay_fees = ebay_price * total_fee_pct
-    profit = ebay_price - supplier_cost - ebay_fees
-    margin = (profit / ebay_price * 100) if ebay_price > 0 else 0
+    verdict = DecisionEngine(filters).evaluate(evidence, demand, product.supplier_price)
+    product.profit = verdict.profit
+    product.margin = verdict.margin
+    product.verdict = verdict.verdict.upper()
 
-    product.profit = round(profit, 2)
-    product.margin = round(margin, 1)
 
-    # Apply filters — price band fallback mirrors config (CONSTRAINTS_PRICING.md PR-5)
-    from config import FILTERS
-    price_ok = filters.get("price_min", FILTERS["price_min"]) <= supplier_cost <= filters.get("price_max", FILTERS["price_max"])
-    margin_ok = margin >= filters.get("margin_min", 25)
-    profit_ok = profit > 0
-    demand_ok = product.sold_30d >= filters.get("demand_min_30d", 10)
-
-    if price_ok and margin_ok and profit_ok and demand_ok:
-        product.verdict = "PASS"
-    elif not price_ok or not margin_ok or not profit_ok or not demand_ok:
-        product.verdict = "FAIL"
-    else:
-        product.verdict = "PENDING"
+def _supplier_delivery_max(supplier_name: str) -> int | None:
+    """Estimated delivery ceiling for a supplier (CONSTRAINTS.md map)."""
+    if not supplier_name:
+        return None
+    from utils.filters import get_supplier_delivery_range
+    return get_supplier_delivery_range(supplier_name)[1]

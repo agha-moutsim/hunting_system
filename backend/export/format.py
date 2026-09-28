@@ -3,6 +3,7 @@
 from typing import Any
 
 from engine.price_gate import excluded_note, filter_dicts, in_band
+from engine.profit import calculate_profit
 
 
 def format_to_schema(result: Any) -> dict:
@@ -40,13 +41,12 @@ def format_to_schema(result: Any) -> dict:
             f"best supplier price £{result.best_supplier_price:.2f} removed (not in band)"
         )
 
-    ebay_fee_pct = 0.128
-    returns_buffer_pct = 0.03
-    total_fee_pct = ebay_fee_pct + returns_buffer_pct
-    ebay_fees = ebay_price * total_fee_pct
-    total_cost = supplier_cost + ebay_fees
-    profit = ebay_price - total_cost
-    margin = (profit / ebay_price * 100) if ebay_price > 0 else 0
+    # Money from the single engine source (PROFIT_CONFIG) — C1
+    calc = calculate_profit(ebay_price, supplier_cost)
+    ebay_fees = calc["ebay_fee"] + calc["returns_buffer"]
+    total_cost = supplier_cost + calc["total_fees"]
+    profit = calc["profit"]
+    margin = calc["margin"]
 
     # Format top sellers
     top_sellers = []
