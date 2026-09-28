@@ -10,6 +10,7 @@ Expected values are literals from the spec (£5.00–£35.00 inclusive),
 not recomputed from the implementation.
 """
 
+import json
 from types import SimpleNamespace
 
 from engine.decisions import DecisionEngine
@@ -241,3 +242,47 @@ class TestWatchlistWriteGate:
             item_id = resp.json()["id"]
             cleanup = client.delete(f"/api/watchlist/{item_id}")
             assert cleanup.status_code == 200
+
+
+class TestSingleBandSource:
+    """Regression: custom_filters.json must never carry the band (PR-5).
+
+    Root cause of the band-divergence bug: load_filters() returned the
+    file's active band verbatim (price_min 10.5) while config said 5.0,
+    so the verdict band depended on which layer you hit.
+    """
+
+    @staticmethod
+    def _poison(tmp_path, band: dict) -> None:
+        (tmp_path / "custom_filters.json").write_text(json.dumps({
+            "active": {**band, "demand_min_30d": 15, "demand_min_7d": 5},
+            "presets": {},
+        }))
+
+    def test_poisoned_file_cannot_change_the_loaded_band(self, monkeypatch, tmp_path):
+        import utils.filters as uf
+        self._poison(tmp_path, {"price_min": 10.5, "price_max": 99.0})
+        monkeypatch.setattr(uf, "FILTERS_FILE", tmp_path / "custom_filters.json")
+
+        loaded = uf.load_filters()
+        assert loaded["price_min"] == 5.0
+        assert loaded["price_max"] == 35.0
+
+    def test_non_price_user_filters_still_pass_through(self, monkeypatch, tmp_path):
+        import utils.filters as uf
+        self._poison(tmp_path, {"price_min": 10.5, "price_max": 99.0})
+        monkeypatch.setattr(uf, "FILTERS_FILE", tmp_path / "custom_filters.json")
+
+        loaded = uf.load_filters()
+        assert loaded["demand_min_30d"] == 15
+
+    def test_save_filters_never_persists_band_keys(self, monkeypatch, tmp_path):
+        import utils.filters as uf
+        monkeypatch.setattr(uf, "FILTERS_FILE", tmp_path / "custom_filters.json")
+
+        uf.save_filters({"price_min": 1.0, "price_max": 100.0, "demand_min_30d": 20})
+
+        saved = json.loads((tmp_path / "custom_filters.json").read_text())
+        assert "price_min" not in saved["active"]
+        assert "price_max" not in saved["active"]
+        assert saved["active"]["demand_min_30d"] == 20
