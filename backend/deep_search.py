@@ -15,6 +15,10 @@ from urllib.parse import urlparse, quote_plus
 import requests
 from bs4 import BeautifulSoup
 
+from engine.price_gate import (
+    PRICE_MAX, excluded_note, filter_dicts, in_band,
+)
+
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
 
@@ -262,6 +266,7 @@ def deep_search_product(query: str) -> DeepSearchResult:
     result = DeepSearchResult(product_name=query)
     sources: List[str] = []
     collected_data: List[str] = []
+    band_notes: List[str] = []
 
     # ── Get real eBay sold data first ──
     try:
@@ -271,6 +276,10 @@ def deep_search_product(query: str) -> DeepSearchResult:
 
         # Use real data instead of LLM estimates
         if sold_data.items:
+            if getattr(sold_data, "excluded_over_band", 0):
+                band_notes.append(
+                    excluded_note("sold listings", sold_data.excluded_over_band)
+                )
             result.ebay_total_sold_30d = sold_data.total_sold_30d
             result.ebay_total_sold_7d = sold_data.total_sold_7d
             result.ebay_price_min = sold_data.price_min
@@ -351,15 +360,26 @@ def deep_search_product(query: str) -> DeepSearchResult:
         result.ebay_top_sellers = parsed.get("ebay_top_sellers", [])
         result.ebay_price_range = parsed.get("ebay_price_range", "")
 
-        # Parse avg price
+        # Parse avg price — must sit inside the band or it is not usable (PR-1)
         avg = parsed.get("ebay_avg_price", 0)
         try:
-            result.ebay_avg_price = float(avg)
+            avg_f = float(avg)
         except (ValueError, TypeError):
-            result.ebay_avg_price = 0.0
+            avg_f = 0.0
+        if avg_f and not in_band(avg_f):
+            band_notes.append(
+                f"LLM price estimate £{avg_f:.2f} discarded (outside band)"
+            )
+            avg_f = 0.0
+            result.ebay_price_range = ""
+        result.ebay_avg_price = avg_f
 
-    # Parse multiple suppliers
+    # Parse multiple suppliers — price band gate (CONSTRAINTS_PRICING.md PR-2 layer 3)
     suppliers = parsed.get("suppliers", [])
+    if suppliers:
+        suppliers, excluded_suppliers = filter_dicts(suppliers, "price")
+        if excluded_suppliers:
+            band_notes.append(excluded_note("supplier matches", excluded_suppliers))
     if suppliers:
         result.suppliers = suppliers
         # Find best (cheapest) supplier
@@ -376,6 +396,10 @@ def deep_search_product(query: str) -> DeepSearchResult:
     # ── Calculate profit & verdict (same logic as Analyze tab) ──
     _calculate_profit_and_verdict(result)
 
+    # PR-4 transparency: report what the band removed (never silent)
+    if band_notes:
+        result.notes = (result.notes + " " if result.notes else "") + "; ".join(band_notes) + "."
+
     return result
 
 
@@ -387,6 +411,7 @@ def deep_search_fast(query: str) -> DeepSearchResult:
     """
     result = DeepSearchResult(product_name=query)
     sources: List[str] = []
+    band_notes: List[str] = []
 
     # ── Get real eBay sold data ──
     try:
@@ -395,6 +420,10 @@ def deep_search_fast(query: str) -> DeepSearchResult:
         sold_data = sold_scraper.get_sold_data(query)
 
         if sold_data.items:
+            if getattr(sold_data, "excluded_over_band", 0):
+                band_notes.append(
+                    excluded_note("sold listings", sold_data.excluded_over_band)
+                )
             result.ebay_total_sold_30d = sold_data.total_sold_30d
             result.ebay_total_sold_7d = sold_data.total_sold_7d
             result.ebay_price_min = sold_data.price_min
@@ -477,8 +506,12 @@ def deep_search_fast(query: str) -> DeepSearchResult:
         print(f"[WARN] Parallel scrape failed: {e}")
         cj_results, ae_results, amz_results = [], [], []
 
-    # Process results
+    # Process results — price band gate (CONSTRAINTS_PRICING.md PR-2 layer 3)
+    excluded_suppliers = 0
     for source_name, product in cj_results + ae_results + amz_results:
+        if not in_band(product.price):
+            excluded_suppliers += 1
+            continue
         supplier_type = "retailer" if source_name == "Amazon UK" else "dropshipper"
         store_display = product.store_name or product.seller or source_name
 
@@ -504,9 +537,15 @@ def deep_search_fast(query: str) -> DeepSearchResult:
 
     result.sources = sources
     result.notes = "Fast analysis (no LLM). For full analysis use Deep Search tab."
+    if excluded_suppliers:
+        band_notes.append(excluded_note("supplier matches", excluded_suppliers))
 
     # Calculate profit & verdict
     _calculate_profit_and_verdict(result)
+
+    # PR-4 transparency: report what the band removed (never silent)
+    if band_notes:
+        result.notes = (result.notes + " " if result.notes else "") + "; ".join(band_notes) + "."
 
     return result
 

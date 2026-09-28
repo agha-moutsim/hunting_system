@@ -6,6 +6,7 @@ import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import Spinner from "@/components/Spinner";
 import Scorecard from "@/components/Scorecard";
+import Badge from "@/components/ui/Badge";
 import { apiPost } from "@/lib/api";
 import { AnalyzeResponse } from "@/lib/types";
 
@@ -44,7 +45,10 @@ export default function AnalyzePage() {
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       <div>
-        <h1 className="text-xl font-bold text-text-primary">Analyze</h1>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-xl font-bold text-text-primary">Analyze</h1>
+          <Badge tone="pass">Price band £5–£35</Badge>
+        </div>
         <p className="text-sm text-text-secondary mt-1">
           Full sourcing analysis: eBay → demand → 7 suppliers → AI → scorecard
         </p>

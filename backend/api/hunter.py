@@ -15,11 +15,14 @@ def hunter_scan(req: HunterScanRequest):
     """Scan an eBay category within the price range + run demand check."""
     from hunter.category_scan import scan_category
     from hunter.demand_check import batch_demand_check
+    from config import FILTERS
+    from engine.price_gate import PRICE_MAX
 
+    # Hard band: client values are clamped, never allowed above £35 (PR-7)
     products = scan_category(
         req.category,
-        price_min=req.price_min,
-        price_max=req.price_max,
+        price_min=max(req.price_min, FILTERS["price_min"]),
+        price_max=min(req.price_max, PRICE_MAX),
         max_results=req.max_results,
     )
     total_scanned = len(products)
@@ -65,7 +68,7 @@ def hunter_lookup(req: HunterLookupRequest):
         final,
         category=req.products[0].get("category", "") if req.products else "",
         price_min=float(req.products[0].get("_price_min", filters.get("price_min", 5))) if req.products else 5.0,
-        price_max=float(req.products[0].get("_price_max", filters.get("price_max", 25))) if req.products else 25.0,
+        price_max=float(req.products[0].get("_price_max", filters.get("price_max", 35))) if req.products else 35.0,
         total_scanned=total_scanned,
         total_with_demand=total_with_demand,
         total_with_supplier=len(with_supplier),

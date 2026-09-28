@@ -66,12 +66,13 @@ else:
 
 # ============================================================
 # Filter Thresholds (Non-Negotiable)
+# Price band is governed by CONSTRAINTS_PRICING.md (PR-1..PR-7).
 # ============================================================
 
 FILTERS = {
-    # Price range (GBP)
+    # Price range (GBP) — hard gate, see CONSTRAINTS_PRICING.md
     "price_min": 5.00,
-    "price_max": 25.00,
+    "price_max": 35.00,
 
     # Demand requirements
     "demand_min_30d": 10,       # Minimum sold in last 30 days

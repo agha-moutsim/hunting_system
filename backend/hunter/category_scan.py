@@ -7,7 +7,7 @@ from typing import Optional
 import requests
 from bs4 import BeautifulSoup
 
-from config import EBAY_UK_BASE, EBAY_CLIENT_ID, EBAY_CLIENT_SECRET, EBAY_API_BASE, EBAY_MARKETPLACE, SCRAPE_CONFIG
+from config import EBAY_UK_BASE, EBAY_CLIENT_ID, EBAY_CLIENT_SECRET, EBAY_API_BASE, EBAY_MARKETPLACE, SCRAPE_CONFIG, FILTERS
 
 
 # Predefined eBay UK categories
@@ -54,8 +54,8 @@ class CategoryProduct:
 
 def scan_category(
     category_name: str,
-    price_min: float = 5.0,
-    price_max: float = 25.0,
+    price_min: float = FILTERS["price_min"],
+    price_max: float = FILTERS["price_max"],
     max_results: int = 50,
 ) -> list[CategoryProduct]:
     """Scan an eBay category and return filtered products."""

@@ -4,6 +4,8 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
+from config import FILTERS
+
 
 # ── Analyze ─────────────────────────────────────────────────────
 
@@ -27,8 +29,8 @@ class BulkRequest(BaseModel):
 
 class HunterScanRequest(BaseModel):
     category: str = Field(..., min_length=1)
-    price_min: float = 5.0
-    price_max: float = 25.0
+    price_min: float = FILTERS["price_min"]
+    price_max: float = FILTERS["price_max"]
     max_results: int = Field(50, ge=1, le=100)
 
 
@@ -66,8 +68,8 @@ class SearchCreate(BaseModel):
     search_name: str = Field(..., min_length=1)
     query: str = Field(..., min_length=1)
     category: str = ""
-    price_min: float = 5.0
-    price_max: float = 25.0
+    price_min: float = FILTERS["price_min"]
+    price_max: float = FILTERS["price_max"]
     min_margin: float = 25.0
     auto_run: bool = True
 

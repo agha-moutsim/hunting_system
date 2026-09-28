@@ -47,8 +47,9 @@ def _calc_single(product: CategoryProduct, filters: dict):
     product.profit = round(profit, 2)
     product.margin = round(margin, 1)
 
-    # Apply filters
-    price_ok = filters.get("price_min", 5) <= supplier_cost <= filters.get("price_max", 25)
+    # Apply filters — price band fallback mirrors config (CONSTRAINTS_PRICING.md PR-5)
+    from config import FILTERS
+    price_ok = filters.get("price_min", FILTERS["price_min"]) <= supplier_cost <= filters.get("price_max", FILTERS["price_max"])
     margin_ok = margin >= filters.get("margin_min", 25)
     profit_ok = profit > 0
     demand_ok = product.sold_30d >= filters.get("demand_min_30d", 10)

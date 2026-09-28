@@ -41,7 +41,7 @@ export default function WatchlistPage() {
   const [sName, setSName] = useState("");
   const [sQuery, setSQuery] = useState("");
   const [sMin, setSMin] = useState("5");
-  const [sMax, setSMax] = useState("25");
+  const [sMax, setSMax] = useState("35");
   const [sMargin, setSMargin] = useState("25");
   const [savingSearch, setSavingSearch] = useState(false);
 
@@ -109,7 +109,7 @@ export default function WatchlistPage() {
         query: sQuery.trim(),
         category: "",
         price_min: parseFloat(sMin) || 5,
-        price_max: parseFloat(sMax) || 25,
+        price_max: parseFloat(sMax) || 35,
         min_margin: parseFloat(sMargin) || 25,
         auto_run: true,
       });

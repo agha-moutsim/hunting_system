@@ -20,6 +20,10 @@ from db.queries import (
     save_verdict_data,
 )
 from engine.decisions import DecisionEngine, Verdict as VerdictData
+from engine.price_gate import (
+    PRICE_MIN, PRICE_MAX, band_label, excluded_note,
+    filter_products, in_band, over_band_reason,
+)
 from engine.scorecard import format_scorecard
 from llm.analyzer import ProductAnalyzer, LLMAnalysis
 from scrapers.ebay import EbayScraper
@@ -135,10 +139,15 @@ async def run_analysis_pipeline(
     }
 
     try:
-        # Step 1: Get eBay product
+        # Step 1: Get eBay product — price band gate (CONSTRAINTS_PRICING.md PR-2)
         _report("Step 1/5 — Searching eBay…")
         if is_url:
             ebay_product = ebay.get_details(query)
+            # PR-3 Case A: over-band URL refuses before any further work.
+            if not in_band(ebay_product.price):
+                results["errors"].append(over_band_reason(ebay_product.price))
+                _report("✗ " + over_band_reason(ebay_product.price))
+                return results
         else:
             search_results = ebay.search(query, limit=5)
             if not search_results:
@@ -147,7 +156,16 @@ async def run_analysis_pipeline(
                     "Get free keys at https://developer.ebay.com and add them to .env"
                 )
                 return results
-            ebay_product = search_results[0]
+            # PR-3 Case B: first listing INSIDE the band; never result #1 blindly.
+            in_band_results, _excluded = filter_products(search_results)
+            if not in_band_results:
+                # PR-3 Case C: honest empty result, never an out-of-band guess.
+                results["errors"].append(
+                    f'No eBay listing for "{query}" found in the {band_label()} band.'
+                )
+                _report(f"✗ No listing in the {band_label()} band")
+                return results
+            ebay_product = in_band_results[0]
 
         results["ebay_product"] = ebay_product
         _report(f"✓ Found: {ebay_product.title[:60]}")
@@ -175,7 +193,13 @@ async def run_analysis_pipeline(
                 "⚠️ Supplier search timed out (90s) — results may be incomplete (Unverified)."
             )
             supplier_results = []
+        # PR-2 layer 3 / PR-4: drop out-of-band supplier rows, report the count.
+        supplier_results, excluded_suppliers = filter_products(supplier_results)
         results["supplier_matches"] = supplier_results
+        if excluded_suppliers:
+            note = excluded_note("supplier matches", excluded_suppliers)
+            results["errors"].append(f"⚠️ {note}")
+            _report(f"– {note}")
         _report(f"✓ Supplier search done: {len(supplier_results)} total matches")
 
         # Step 4: LLM analysis

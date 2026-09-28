@@ -14,7 +14,7 @@ import { formatGBP, formatPercent } from "@/lib/format";
 export default function HunterPage() {
   const [category, setCategory] = useState("");
   const [priceMin, setPriceMin] = useState("5");
-  const [priceMax, setPriceMax] = useState("25");
+  const [priceMax, setPriceMax] = useState("35");
   const [maxResults, setMaxResults] = useState("30");
   const [scanLoading, setScanLoading] = useState(false);
   const [lookupLoading, setLookupLoading] = useState(false);
@@ -34,7 +34,7 @@ export default function HunterPage() {
       const data = await apiPost<HunterScanResponse>("/api/hunter/scan", {
         category: category.trim(),
         price_min: parseFloat(priceMin) || 5,
-        price_max: parseFloat(priceMax) || 25,
+        price_max: parseFloat(priceMax) || 35,
         max_results: parseInt(maxResults) || 30,
       });
       setScan(data);
@@ -54,7 +54,7 @@ export default function HunterPage() {
         ...p,
         _total_scanned: scan.total_scanned,
         _price_min: parseFloat(priceMin) || 5,
-        _price_max: parseFloat(priceMax) || 25,
+        _price_max: parseFloat(priceMax) || 35,
         category,
       }));
       const data = await apiPost<HunterReport>("/api/hunter/lookup", {

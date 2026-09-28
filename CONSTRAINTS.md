@@ -26,7 +26,7 @@ These are the rules that don't bend. If something in the build conflicts with th
 | C3 | **eBay fee model is fixed:** 12.8% final value fee + 3% returns buffer, subtracted from every profit calculation. | Matches user's real eBay selling costs. |
 | C4 | **Demand thresholds:** ≥10 sold in 30 days AND ≥1 sold in 7 days = "has demand". Exception: ≥30 sold in 30 days allows delivery up to 25 days instead of the usual 3–8. | User's buying rules. |
 | C5 | **Generic products only.** The LLM must flag branded items as FAIL. Condition = New, Buy It Now, UK only. | User only resells unbranded goods. |
-| C6 | **Price range:** default £5–£25 buy price. Configurable per search. | User's sweet spot for margins. |
+| C6 | **Price range:** hard band £5–£35, enforced as a gate (not just a verdict). Full specification in [`CONSTRAINTS_PRICING.md`](CONSTRAINTS_PRICING.md) — that file wins on any price question. | User's buying range; expensive results must never appear. |
 | C7 | **Minimum margin: 25%.** Configurable per search. Anything below is FAIL. | User's floor for a viable product. |
 | C8 | **No user accounts in v1.** The app is shared by link. Auth can come later if needed. | Faster to ship; trusted circle of users. |
 | C9 | **All data persists in one database file** (SQLite for now). Easy to swap to PostgreSQL later via a single env var. | Free hosting, zero ops. |

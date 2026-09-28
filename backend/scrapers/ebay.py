@@ -14,6 +14,11 @@ from config import (
     EBAY_UK_BASE, EBAY_CLIENT_ID, EBAY_CLIENT_SECRET,
     EBAY_MARKETPLACE, EBAY_API_BASE, EBAY_ENVIRONMENT, SCRAPE_CONFIG,
 )
+from engine.price_gate import PRICE_MIN, PRICE_MAX, in_band
+
+# Price band pushed into every eBay query — CONSTRAINTS_PRICING.md PR-2 layer 1.
+_BAND_API = f"price:[{PRICE_MIN:.0f}..{PRICE_MAX:.0f}],priceCurrency:GBP"
+_BASE_API_FILTER = "buyingOptions:{FIXED_PRICE},deliveryCountry:GB"
 
 
 class EbayScraper:
@@ -80,7 +85,7 @@ class EbayScraper:
             params={
                 "q": query,
                 "limit": min(limit, 50),
-                "filter": "buyingOptions:{FIXED_PRICE},deliveryCountry:GB",
+                "filter": f"{_BASE_API_FILTER},{_BAND_API}",
                 "sort": "-relevance",
             },
             headers=self._api_headers(),
@@ -92,10 +97,13 @@ class EbayScraper:
         results = []
         for item in data.get("itemSummaries", []):
             price_info = item.get("price", {})
+            price = float(price_info.get("value", 0))
+            if not in_band(price):
+                continue  # defence in depth — PR-2 layer 3
             results.append(ScrapedProduct(
                 source="ebay_uk",
                 title=item.get("title", ""),
-                price=float(price_info.get("value", 0)),
+                price=price,
                 url=item.get("itemWebUrl", ""),
                 image_url=item.get("thumbnailImages", [{}])[0].get("imageUrl")
                     if item.get("thumbnailImages") else None,
@@ -111,6 +119,7 @@ class EbayScraper:
             f"{EBAY_UK_BASE}/sch/i.html?"
             f"_nkw={query.replace(' ', '+')}"
             f"&LH_BIN=1&LH_PrefLoc=1"
+            f"&_udlo={PRICE_MIN:.0f}&_udhi={PRICE_MAX:.0f}"
         )
         try:
             resp = self.session.get(search_url, timeout=15)
@@ -127,10 +136,13 @@ class EbayScraper:
                 if title.lower() in ("shop on ebay", "results matching fewer words"):
                     continue
                 price_match = re.search(r"[\d,.]+", price_el.get_text(strip=True).replace(",", ""))
+                price = float(price_match.group()) if price_match else 0
+                if not in_band(price):
+                    continue  # PR-2 layer 3
                 results.append(ScrapedProduct(
                     source="ebay_uk",
                     title=title,
-                    price=float(price_match.group()) if price_match else 0,
+                    price=price,
                     url=link_el.get("href", "") if link_el else "",
                     verified=True,
                 ))
@@ -175,13 +187,30 @@ class EbayScraper:
         return match.group(1) if match else None
 
     def _get_details_api(self, item_id: str) -> ScrapedProduct:
-        """Get details via Browse API."""
-        resp = requests.get(
-            f"{EBAY_API_BASE}/buy/browse/v1/item/{item_id}",
-            headers=self._api_headers(),
-            timeout=15,
+        """Get details via Browse API.
+
+        The API identifies items as `v1|<id>|0` (or `|1`), while URLs only
+        carry the bare numeric id — try the token forms first, bare id last.
+        """
+        tokens = (
+            [item_id] if "|" in item_id
+            else [f"v1|{item_id}|0", f"v1|{item_id}|-1", item_id]
         )
-        resp.raise_for_status()
+        resp = None
+        for token in tokens:
+            resp = requests.get(
+                f"{EBAY_API_BASE}/buy/browse/v1/item/{token}",
+                headers=self._api_headers(),
+                timeout=15,
+            )
+            if resp.status_code == 404:
+                continue  # try next token form
+            resp.raise_for_status()
+            break
+        if resp is None or resp.status_code == 404:
+            raise requests.exceptions.HTTPError(
+                "404 Client Error: item not found", response=resp
+            )
         item = resp.json()
         price = item.get("price", {})
         image = item.get("image", {})
@@ -238,7 +267,7 @@ class EbayScraper:
             params={
                 "q": query,
                 "limit": 50,
-                "filter": "buyingOptions:{FIXED_PRICE},deliveryCountry:GB",
+                "filter": f"{_BASE_API_FILTER},{_BAND_API}",
                 "sort": "-dateSold",
             },
             headers=self._api_headers(),
@@ -256,6 +285,8 @@ class EbayScraper:
         for item in items:
             price_info = item.get("price", {})
             price = float(price_info.get("value", 0))
+            if not in_band(price):
+                continue  # demand stats must reflect in-band sales only — PR-1
             condition = item.get("condition", "")
             # Count items as "sold" (API doesn't expose sold dates directly)
             sold_items.append({"price": price, "condition": condition})

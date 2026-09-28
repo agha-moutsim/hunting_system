@@ -12,7 +12,7 @@ def save_search(
     query: str,
     category: str = "",
     price_min: float = 5.0,
-    price_max: float = 25.0,
+    price_max: float = 35.0,
     min_margin: float = 25.0,
     auto_run: bool = True,
 ) -> Optional[SavedSearch]:

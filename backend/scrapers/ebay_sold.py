@@ -12,6 +12,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from config import EBAY_UK_BASE, EBAY_CLIENT_ID, EBAY_CLIENT_SECRET, EBAY_API_BASE, EBAY_MARKETPLACE, SCRAPE_CONFIG
+from engine.price_gate import PRICE_MIN, PRICE_MAX, in_band
 
 
 @dataclass
@@ -43,6 +44,7 @@ class EbaySoldData:
     sold_dates: list[str] = field(default_factory=list)
     category: str = ""
     items: list[EbaySoldItem] = field(default_factory=list)
+    excluded_over_band: int = 0  # PR-4: sold rows dropped by the £5–£35 gate
 
 
 class EbaySoldScraper:
@@ -60,6 +62,7 @@ class EbaySoldScraper:
         })
         self._token = None
         self._token_expiry = 0
+        self._band_excluded = 0
 
     def _get_token(self) -> str:
         """Get OAuth token via Client Credentials flow."""
@@ -93,6 +96,7 @@ class EbaySoldScraper:
             product_name=query,
             query=query,
         )
+        self._band_excluded = 0
 
         try:
             # Try API first for sold data
@@ -106,6 +110,7 @@ class EbaySoldScraper:
 
             # Calculate statistics
             self._calculate_stats(result)
+            result.excluded_over_band = self._band_excluded
 
         except Exception as e:
             print(f"[WARN] eBay sold data failed for '{query}': {e}")
@@ -123,7 +128,10 @@ class EbaySoldScraper:
                 params={
                     "q": query,
                     "limit": 50,
-                    "filter": "buyingOptions:{FIXED_PRICE},deliveryCountry:GB",
+                    "filter": (
+                        "buyingOptions:{FIXED_PRICE},deliveryCountry:GB,"
+                        f"price:[{PRICE_MIN:.0f}..{PRICE_MAX:.0f}],priceCurrency:GBP"
+                    ),
                     "sort": "-relevance",
                 },
                 headers={
@@ -139,10 +147,14 @@ class EbaySoldScraper:
             items = []
             for item in data.get("itemSummaries", []):
                 price_info = item.get("price", {})
+                price = float(price_info.get("value", 0))
+                if not in_band(price):
+                    self._band_excluded += 1  # PR-4
+                    continue
                 seller_info = item.get("seller", {})
                 items.append(EbaySoldItem(
                     title=item.get("title", ""),
-                    price=float(price_info.get("value", 0)),
+                    price=price,
                     url=item.get("itemWebUrl", ""),
                     seller=seller_info.get("username", ""),
                     seller_url=f"https://www.ebay.co.uk/str/{seller_info.get('username', '')}",
@@ -167,6 +179,7 @@ class EbaySoldScraper:
                     f"_nkw={query.replace(' ', '+')}"
                     f"&LH_Complete=1&LH_Sold=1"
                     f"&_sop=13"  # Sort by most recently sold
+                    f"&_udlo={PRICE_MIN:.0f}&_udhi={PRICE_MAX:.0f}"
                     f"&_pgn={page}"
                 )
 
@@ -219,6 +232,9 @@ class EbaySoldScraper:
 
                 price = float(price_match.group())
                 if price <= 0:
+                    continue
+                if not in_band(price):
+                    self._band_excluded += 1  # PR-4
                     continue
 
                 # Link

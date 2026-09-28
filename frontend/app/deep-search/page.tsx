@@ -49,12 +49,13 @@ export default function DeepSearchPage() {
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
-      <div>
+      <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-xl font-bold text-text-primary">Deep Search</h1>
-        <p className="text-sm text-text-secondary mt-1">
-          Deep research: eBay sold history + supplier prices + verdict
-        </p>
+        <Badge tone="pass">Price band £5–£35</Badge>
       </div>
+      <p className="text-sm text-text-secondary -mt-3">
+        Deep research: eBay sold history + supplier prices + verdict
+      </p>
 
       <Card>
         <form onSubmit={run} className="space-y-3">
