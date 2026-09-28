@@ -32,15 +32,29 @@ def _save(data: dict):
 
 
 def load_filters() -> dict:
-    """Load the active custom filters."""
+    """Load the active custom filters.
+
+    The price band is NEVER loaded from here — CONSTRAINTS_PRICING.md PR-5
+    makes config.py the single source, so band keys are stripped on read and
+    re-seeded from FILTERS. (custom_filters.json historically carried
+    price_min: 10.5, a second source that fought the gate.)
+    """
     data = _load()
-    return data.get("active", FILTERS)
+    filters = dict(data.get("active", FILTERS))
+    filters.pop("price_min", None)
+    filters.pop("price_max", None)
+    filters["price_min"] = FILTERS["price_min"]
+    filters["price_max"] = FILTERS["price_max"]
+    return filters
 
 
 def save_filters(filters: dict):
-    """Save current active filters."""
+    """Save current active filters (band keys stripped — not user-settable)."""
     data = _load()
-    data["active"] = filters
+    active = dict(filters)
+    active.pop("price_min", None)
+    active.pop("price_max", None)
+    data["active"] = active
     _save(data)
 
 

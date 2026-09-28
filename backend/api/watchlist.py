@@ -14,14 +14,33 @@ logger = logging.getLogger(__name__)
 
 @router.get("/watchlist")
 def list_watchlist():
+    """Watchlist items — out-of-band rows filtered + counted (PR-2 layer 4)."""
     from watchlist import get_watchlist_items
+    from engine.price_gate import excluded_note, in_band
 
-    return {"items": get_watchlist_items()}
+    items = get_watchlist_items()
+    kept = [i for i in items if in_band(i.get("ebay_price")) or not i.get("ebay_price")]
+    excluded = len(items) - len(kept)
+    resp = {"items": kept}
+    if excluded:
+        resp["excluded_note"] = excluded_note("watchlist items", excluded)
+    return resp
 
 
 @router.post("/watchlist")
 def create_watchlist(req: WatchlistCreate):
     from watchlist import add_to_watchlist
+    from engine.price_gate import band_label, in_band
+
+    # PR-6 write gate: never store an out-of-band entry price
+    if req.ebay_price and not in_band(req.ebay_price):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"This listing is £{req.ebay_price:.2f} — outside your "
+                f"{band_label()} band."
+            ),
+        )
 
     item = add_to_watchlist(
         product_name=req.product_name,
@@ -52,20 +71,28 @@ def delete_watchlist(item_id: int):
 @router.get("/searches")
 def list_searches():
     from watchlist import get_saved_searches
+    from engine.price_gate import PRICE_MAX, PRICE_MIN
 
-    return {"searches": get_saved_searches()}
+    searches = get_saved_searches()
+    # PR-7: any band stored before clamping existed is re-clamped on read
+    for s in searches:
+        s["price_min"] = max(s.get("price_min") or PRICE_MIN, PRICE_MIN)
+        s["price_max"] = min(s.get("price_max") or PRICE_MAX, PRICE_MAX)
+    return {"searches": searches}
 
 
 @router.post("/searches")
 def create_search(req: SearchCreate):
     from watchlist import save_search
+    from engine.price_gate import PRICE_MIN, PRICE_MAX
 
     s = save_search(
         search_name=req.search_name,
         query=req.query,
         category=req.category,
-        price_min=req.price_min,
-        price_max=req.price_max,
+        # PR-7: stored searches cannot widen the band
+        price_min=max(req.price_min, PRICE_MIN),
+        price_max=min(req.price_max, PRICE_MAX),
         min_margin=req.min_margin,
         auto_run=req.auto_run,
     )

@@ -47,7 +47,7 @@ export default function AnalyzePage() {
       <div>
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-xl font-bold text-text-primary">Analyze</h1>
-          <Badge tone="pass">Price band £5–£35</Badge>
+          <Badge tone="info">Price band £5–£35</Badge>
         </div>
         <p className="text-sm text-text-secondary mt-1">
           Full sourcing analysis: eBay → demand → 7 suppliers → AI → scorecard
@@ -101,6 +101,15 @@ export default function AnalyzePage() {
           <div className="text-sm text-accent-red">⚠️ {error}</div>
         </Card>
       )}
+
+      {/* PR-4: band/exclusion notes are shown even on a successful analysis */}
+      {result?.ebay_product &&
+        !!result.errors?.length &&
+        result.errors.map((msg, i) => (
+          <Card key={i} className="border-accent-amber/40">
+            <div className="text-sm text-accent-amber">{msg}</div>
+          </Card>
+        ))}
 
       {result?.ebay_product && (
         <Scorecard

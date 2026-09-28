@@ -142,7 +142,17 @@ async def run_analysis_pipeline(
         # Step 1: Get eBay product — price band gate (CONSTRAINTS_PRICING.md PR-2)
         _report("Step 1/5 — Searching eBay…")
         if is_url:
-            ebay_product = ebay.get_details(query)
+            # Hard budget: item-token fallbacks must not blow the stage (README invariant)
+            try:
+                ebay_product = await asyncio.wait_for(
+                    asyncio.to_thread(ebay.get_details, query), timeout=25.0
+                )
+            except asyncio.TimeoutError:
+                logger.warning("eBay URL lookup exceeded 25s budget")
+                results["errors"].append(
+                    "eBay listing lookup timed out (25s) — retry, or try Deep Search → Fast."
+                )
+                return results
             # PR-3 Case A: over-band URL refuses before any further work.
             if not in_band(ebay_product.price):
                 results["errors"].append(over_band_reason(ebay_product.price))
@@ -157,7 +167,7 @@ async def run_analysis_pipeline(
                 )
                 return results
             # PR-3 Case B: first listing INSIDE the band; never result #1 blindly.
-            in_band_results, _excluded = filter_products(search_results)
+            in_band_results, excluded_results = filter_products(search_results)
             if not in_band_results:
                 # PR-3 Case C: honest empty result, never an out-of-band guess.
                 results["errors"].append(
@@ -166,6 +176,11 @@ async def run_analysis_pipeline(
                 _report(f"✗ No listing in the {band_label()} band")
                 return results
             ebay_product = in_band_results[0]
+            # PR-4: discarded search results are counted, never silent
+            if excluded_results:
+                note = excluded_note("eBay search results", excluded_results)
+                results["errors"].append(f"⚠️ {note}")
+                _report(f"– {note}")
 
         results["ebay_product"] = ebay_product
         _report(f"✓ Found: {ebay_product.title[:60]}")
@@ -179,6 +194,10 @@ async def run_analysis_pipeline(
             _report(f"✓ Demand: {demand.sold_count_30d} sold in 30 days")
         else:
             _report("– No demand counts available (marked Unverified)")
+        if demand and getattr(demand, "excluded_over_band", 0):
+            note = excluded_note("sold listings", demand.excluded_over_band)
+            results["errors"].append(f"⚠️ {note}")
+            _report(f"– {note}")
 
         # Step 3: Search suppliers
         _report("Step 3/5 — Searching 7 suppliers (max ~45s each, 2 at a time)…")

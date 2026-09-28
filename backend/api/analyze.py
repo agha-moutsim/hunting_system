@@ -14,6 +14,7 @@ from analysis_pipeline import (
     save_analysis_to_db,
 )
 from utils.filters import load_filters
+from engine.price_gate import clamp_band
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -37,7 +38,8 @@ def _serialize(obj):
 @router.post("/analyze")
 def analyze(req: AnalyzeRequest):
     """Run the full pipeline: eBay → demand → 7 suppliers → LLM → verdict → scorecard."""
-    filters = req.filters or load_filters()
+    # PR-7: client may send a band, config always wins.
+    filters = clamp_band(req.filters or load_filters())
 
     try:
         raw = run_async(

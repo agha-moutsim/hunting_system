@@ -99,7 +99,7 @@ class EbayScraper:
             price_info = item.get("price", {})
             price = float(price_info.get("value", 0))
             if not in_band(price):
-                continue  # defence in depth — PR-2 layer 3
+                continue  # defence in depth — PR-2 layer 1 (search time)
             results.append(ScrapedProduct(
                 source="ebay_uk",
                 title=item.get("title", ""),
@@ -138,7 +138,7 @@ class EbayScraper:
                 price_match = re.search(r"[\d,.]+", price_el.get_text(strip=True).replace(",", ""))
                 price = float(price_match.group()) if price_match else 0
                 if not in_band(price):
-                    continue  # PR-2 layer 3
+                    continue  # PR-2 layer 1 (search time)
                 results.append(ScrapedProduct(
                     source="ebay_uk",
                     title=title,
@@ -282,11 +282,13 @@ class EbayScraper:
 
         now = datetime.now()
         sold_items = []
+        excluded = 0
         for item in items:
             price_info = item.get("price", {})
             price = float(price_info.get("value", 0))
             if not in_band(price):
-                continue  # demand stats must reflect in-band sales only — PR-1
+                excluded += 1  # demand stats must reflect in-band sales only — PR-1/PR-4
+                continue
             condition = item.get("condition", "")
             # Count items as "sold" (API doesn't expose sold dates directly)
             sold_items.append({"price": price, "condition": condition})
@@ -299,6 +301,7 @@ class EbayScraper:
             lowest_sold_price=min(prices) if prices else None,
             highest_sold_price=max(prices) if prices else None,
             verified=bool(sold_items),
+            excluded_over_band=excluded,
         )
 
     def _parse_price(self, text: str) -> float:

@@ -16,7 +16,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from engine.price_gate import (
-    PRICE_MAX, excluded_note, filter_dicts, in_band,
+    PRICE_MAX, band_label, excluded_note, filter_dicts, in_band,
 )
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
@@ -32,6 +32,41 @@ _HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "en-GB,en;q=0.9",
 }
+
+
+def _parse_llm_money(value) -> float | None:
+    """Extract a numeric GBP figure from LLM output ('£12.99', 12.99, '12.99')."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    if isinstance(value, str):
+        m = re.search(r"\d+(?:\.\d+)?", value.replace(",", ""))
+        if m:
+            return float(m.group())
+    return None
+
+
+def _llm_price_in_band(value) -> bool:
+    """True when an LLM-provided price figure sits inside the band."""
+    p = _parse_llm_money(value)
+    return p is not None and in_band(p)
+
+
+def _llm_price_range_in_band(text: str) -> bool:
+    """True when EVERY figure in an LLM range string sits inside the band.
+
+    The string looks like '£5.99 - £12.99 (avg £8.50)' — one out-of-band
+    figure makes the whole string unusable (PR-1: no figure shown out of band).
+    """
+    figures = [_parse_llm_money(m) for m in re.findall(r"£\s*\d+(?:\.\d+)?", text)]
+    figures = [f for f in figures if f is not None]
+    if not figures:
+        # No £ markers — try every bare number, but only if there are 2+ (a range)
+        bare = [_parse_llm_money(m) for m in re.findall(r"\d+(?:\.\d+)?", text)]
+        bare = [f for f in bare if f is not None]
+        figures = bare if len(bare) >= 2 else []
+    if not figures:
+        return False  # unparseable string — never ship an unverified figure
+    return all(in_band(f) for f in figures)
 
 
 # ---------------------------------------------------------------------------
@@ -357,8 +392,27 @@ def deep_search_product(query: str) -> DeepSearchResult:
     if result.ebay_total_sold_30d == 0:
         # No real data, use LLM estimate
         result.ebay_items_sold_month = parsed.get("ebay_items_sold_month", "")
-        result.ebay_top_sellers = parsed.get("ebay_top_sellers", [])
-        result.ebay_price_range = parsed.get("ebay_price_range", "")
+
+        # LLM top sellers carry price strings — every figure must sit in band (PR-1)
+        top_sellers = parsed.get("ebay_top_sellers", []) or []
+        kept_sellers, excluded_sellers = [], 0
+        for s in top_sellers:
+            if _llm_price_in_band(s.get("price")):
+                kept_sellers.append(s)
+            else:
+                excluded_sellers += 1
+        result.ebay_top_sellers = kept_sellers
+        if excluded_sellers:
+            band_notes.append(excluded_note("LLM top-seller figures", excluded_sellers))
+
+        # LLM price range is gated on ITS OWN numbers, not on avg (PR-2 layer 4)
+        price_range = parsed.get("ebay_price_range", "")
+        if price_range and not _llm_price_range_in_band(price_range):
+            band_notes.append(
+                f"LLM price range '{price_range}' discarded (outside {band_label()})"
+            )
+            price_range = ""
+        result.ebay_price_range = price_range
 
         # Parse avg price — must sit inside the band or it is not usable (PR-1)
         avg = parsed.get("ebay_avg_price", 0)

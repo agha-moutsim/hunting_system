@@ -166,6 +166,7 @@ export interface HunterReport {
   total_pass: number;
   products: CategoryProduct[];
   scanned_at: string;
+  notes?: string; // PR-4 band-exclusion transparency line
 }
 
 // ── Tracker ─────────────────────────────────────────────────────

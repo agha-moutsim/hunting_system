@@ -6,6 +6,7 @@ from typing import Optional
 from db.database import SessionLocal
 from db.models import SavedSearch, SearchResult
 from watchlist.searches import mark_last_run
+from engine.price_gate import PRICE_MAX, PRICE_MIN, in_band
 
 
 def run_search(search_id: int) -> dict:
@@ -26,8 +27,14 @@ def run_search(search_id: int) -> dict:
 
             # Check if it meets filters
             if result.ebay_avg_price > 0 and result.best_supplier_price > 0:
-                # Check price filter
-                price_ok = search.price_min <= result.best_supplier_price <= search.price_max
+                # Price filter — stored band is clamped AND re-checked against
+                # the hard gate (PR-5/PR-7: config always wins)
+                band_min = max(search.price_min, PRICE_MIN)
+                band_max = min(search.price_max, PRICE_MAX)
+                price_ok = (
+                    band_min <= result.best_supplier_price <= band_max
+                    and in_band(result.ebay_avg_price)
+                )
 
                 # Check margin filter
                 margin_ok = result.margin >= search.min_margin
@@ -103,7 +110,7 @@ def run_all_searches(progress_callback=None) -> dict:
 
 
 def get_new_results(unread_only: bool = True, limit: int = 50) -> list[dict]:
-    """Get search results (new finds)."""
+    """Get search results (new finds) — out-of-band rows filtered (PR-2 layer 4)."""
     db = SessionLocal()
     try:
         query = db.query(SearchResult).join(SavedSearch)
@@ -112,6 +119,10 @@ def get_new_results(unread_only: bool = True, limit: int = 50) -> list[dict]:
             query = query.filter(SearchResult.is_read == False)
 
         results = query.order_by(SearchResult.found_at.desc()).limit(limit).all()
+        results = [
+            r for r in results
+            if in_band(r.ebay_price) and in_band(r.supplier_price)
+        ]
 
         return [
             {

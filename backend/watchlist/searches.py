@@ -5,14 +5,15 @@ from typing import Optional
 
 from db.database import SessionLocal
 from db.models import SavedSearch
+from config import FILTERS
 
 
 def save_search(
     search_name: str,
     query: str,
     category: str = "",
-    price_min: float = 5.0,
-    price_max: float = 35.0,
+    price_min: float = FILTERS["price_min"],
+    price_max: float = FILTERS["price_max"],
     min_margin: float = 25.0,
     auto_run: bool = True,
 ) -> Optional[SavedSearch]:

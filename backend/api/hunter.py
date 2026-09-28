@@ -15,13 +15,12 @@ def hunter_scan(req: HunterScanRequest):
     """Scan an eBay category within the price range + run demand check."""
     from hunter.category_scan import scan_category
     from hunter.demand_check import batch_demand_check
-    from config import FILTERS
-    from engine.price_gate import PRICE_MAX
+    from engine.price_gate import PRICE_MIN, PRICE_MAX
 
-    # Hard band: client values are clamped, never allowed above £35 (PR-7)
+    # Hard band: client values are clamped, never allowed outside £5–£35 (PR-7)
     products = scan_category(
         req.category,
-        price_min=max(req.price_min, FILTERS["price_min"]),
+        price_min=max(req.price_min, PRICE_MIN),
         price_max=min(req.price_max, PRICE_MAX),
         max_results=req.max_results,
     )
@@ -48,8 +47,10 @@ def hunter_lookup(req: HunterLookupRequest):
     from hunter.profit_calc import batch_profit_calc
     from hunter.report import generate_report
     from config import FILTERS
+    from engine.price_gate import clamp_band, PRICE_MIN, PRICE_MAX
 
-    filters = req.filters or FILTERS
+    # PR-7: band from config only, client filters can never widen it.
+    filters = clamp_band(req.filters or FILTERS)
 
     # Rebuild CategoryProduct dataclasses from client dicts
     fields = {f for f in CategoryProduct.__dataclass_fields__}
@@ -61,18 +62,22 @@ def hunter_lookup(req: HunterLookupRequest):
     total_scanned = int(req.products[0].get("_total_scanned", len(products))) if req.products else len(products)
     total_with_demand = len(products)
 
-    with_supplier = batch_supplier_lookup(products)
+    with_supplier, excluded_suppliers = batch_supplier_lookup(products)
     final = batch_profit_calc(with_supplier, filters)
 
     report = generate_report(
         final,
         category=req.products[0].get("category", "") if req.products else "",
-        price_min=float(req.products[0].get("_price_min", filters.get("price_min", 5))) if req.products else 5.0,
-        price_max=float(req.products[0].get("_price_max", filters.get("price_max", 35))) if req.products else 35.0,
+        price_min=max(float(req.products[0].get("_price_min", PRICE_MIN)), PRICE_MIN) if req.products else PRICE_MIN,
+        price_max=min(float(req.products[0].get("_price_max", PRICE_MAX)), PRICE_MAX) if req.products else PRICE_MAX,
         total_scanned=total_scanned,
         total_with_demand=total_with_demand,
         total_with_supplier=len(with_supplier),
     )
+    # PR-4: surface what the band removed (frontend renders `excluded_note`)
+    if excluded_suppliers:
+        from engine.price_gate import excluded_note
+        report.notes = excluded_note("products/supplier matches", excluded_suppliers)
 
     return report.to_dict()
 

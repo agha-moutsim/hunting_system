@@ -21,6 +21,7 @@ class HunterResult:
     total_pass: int = 0
     products: List[dict] = field(default_factory=list)
     scanned_at: str = ""
+    notes: str = ""  # PR-4 transparency (excluded-count line)
 
     def to_dict(self) -> dict:
         return asdict(self)

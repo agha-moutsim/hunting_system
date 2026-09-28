@@ -40,8 +40,6 @@ export default function WatchlistPage() {
   // Search form
   const [sName, setSName] = useState("");
   const [sQuery, setSQuery] = useState("");
-  const [sMin, setSMin] = useState("5");
-  const [sMax, setSMax] = useState("35");
   const [sMargin, setSMargin] = useState("25");
   const [savingSearch, setSavingSearch] = useState(false);
 
@@ -108,8 +106,8 @@ export default function WatchlistPage() {
         search_name: sName.trim(),
         query: sQuery.trim(),
         category: "",
-        price_min: parseFloat(sMin) || 5,
-        price_max: parseFloat(sMax) || 35,
+        price_min: 5,
+        price_max: 35,
         min_margin: parseFloat(sMargin) || 25,
         auto_run: true,
       });
@@ -429,18 +427,20 @@ export default function WatchlistPage() {
                 <Label>Price min</Label>
                 <Input
                   type="number"
-                  step="0.5"
-                  value={sMin}
-                  onChange={(e) => setSMin(e.target.value)}
+                  value={5}
+                  disabled
+                  readOnly
+                  title="Price band is fixed at £5–£35 (CONSTRAINTS_PRICING.md)"
                 />
               </div>
               <div>
                 <Label>Price max</Label>
                 <Input
                   type="number"
-                  step="0.5"
-                  value={sMax}
-                  onChange={(e) => setSMax(e.target.value)}
+                  value={35}
+                  disabled
+                  readOnly
+                  title="Price band is fixed at £5–£35 (CONSTRAINTS_PRICING.md)"
                 />
               </div>
               <div>

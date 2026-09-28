@@ -5,6 +5,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 
 from api.schemas import TrackerCreate
+from engine.price_gate import band_label, excluded_note, in_band
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -12,14 +13,34 @@ logger = logging.getLogger(__name__)
 
 @router.get("/tracker")
 def list_tracker():
+    """All tracked products — PR-2 layer 4: out-of-band rows filtered + counted."""
     from tracker import get_tracked_products
 
-    return {"products": get_tracked_products()}
+    products = get_tracked_products()
+    kept = [
+        p for p in products
+        if in_band(p.get("ebay_price")) or not p.get("ebay_price")
+    ]
+    excluded = len(products) - len(kept)
+    resp = {"products": kept}
+    if excluded:
+        resp["excluded_note"] = excluded_note("tracked products", excluded)
+    return resp
 
 
 @router.post("/tracker")
 def create_tracker(req: TrackerCreate):
     from tracker import add_to_tracker
+
+    # PR-6 write gate: never store an out-of-band entry price
+    if req.ebay_price and not in_band(req.ebay_price):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"This listing is £{req.ebay_price:.2f} — outside your "
+                f"{band_label()} band."
+            ),
+        )
 
     item = add_to_tracker(
         product_name=req.product_name,
@@ -54,12 +75,20 @@ def check_price(tracked_id: int):
 
 @router.get("/tracker/{tracked_id}/history")
 def price_history(tracked_id: int, days: int = 30):
+    """Price history — out-of-band points filtered (PR-2 layer 4)."""
     from tracker import get_price_history, get_price_trend
 
-    return {
-        "history": get_price_history(tracked_id, days=days),
+    rows = get_price_history(tracked_id, days=days)
+    kept = [r for r in rows if in_band(r.get("ebay_price"))]
+    excluded = len(rows) - len(kept)
+
+    resp = {
+        "history": kept,
         "trend": get_price_trend(tracked_id, days=min(days, 7)),
     }
+    if excluded:
+        resp["excluded_note"] = excluded_note("price history points", excluded)
+    return resp
 
 
 @router.get("/tracker/alerts")

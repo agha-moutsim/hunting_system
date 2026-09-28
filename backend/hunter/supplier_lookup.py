@@ -5,9 +5,24 @@ import time
 from typing import Optional
 
 from hunter.category_scan import CategoryProduct
+from engine.price_gate import in_band
 
 # Timeout per product (seconds)
 LOOKUP_TIMEOUT = 15
+
+# Excluded (out-of-band) supplier rows this run — reported, never silent (PR-4)
+_excluded_over_band = 0
+
+
+def _first_in_band(products) -> Optional[object]:
+    """First supplier result inside the £5–£35 band (PR-1 layer 3)."""
+    global _excluded_over_band
+    for p in products:
+        if in_band(p.price):
+            return p
+    # Every candidate was out of band — count them all (PR-4)
+    _excluded_over_band += sum(1 for p in products if not in_band(p.price))
+    return None
 
 
 async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
@@ -20,12 +35,13 @@ async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
             from scrapers.cjdropshipping import CJDropshippingScraper
             scraper = CJDropshippingScraper()
             products = await asyncio.wait_for(scraper.search(product.title), timeout=10)
-            if products:
+            hit = _first_in_band(products)
+            if hit:
                 return {
                     "name": "CJ Dropshipping",
-                    "price": products[0].price,
-                    "url": products[0].url,
-                    "delivery_days": f"{products[0].delivery_days_min}-{products[0].delivery_days_max}",
+                    "price": hit.price,
+                    "url": hit.url,
+                    "delivery_days": f"{hit.delivery_days_min}-{hit.delivery_days_max}",
                 }
         except (asyncio.TimeoutError, Exception):
             pass
@@ -43,12 +59,13 @@ async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
             from scrapers.aliexpress import AliExpressScraper
             scraper = AliExpressScraper()
             products = await asyncio.wait_for(scraper.search(product.title), timeout=10)
-            if products:
+            hit = _first_in_band(products)
+            if hit:
                 return {
                     "name": "AliExpress",
-                    "price": products[0].price,
-                    "url": products[0].url,
-                    "delivery_days": f"{products[0].delivery_days_min}-{products[0].delivery_days_max}",
+                    "price": hit.price,
+                    "url": hit.url,
+                    "delivery_days": f"{hit.delivery_days_min}-{hit.delivery_days_max}",
                 }
         except (asyncio.TimeoutError, Exception):
             pass
@@ -66,12 +83,13 @@ async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
             from scrapers.amazon_uk import AmazonUKScraper
             scraper = AmazonUKScraper()
             products = await asyncio.wait_for(scraper.search(product.title), timeout=10)
-            if products:
+            hit = _first_in_band(products)
+            if hit:
                 return {
                     "name": "Amazon UK",
-                    "price": products[0].price,
-                    "url": products[0].url,
-                    "delivery_days": f"{products[0].delivery_days_min}-{products[0].delivery_days_max}",
+                    "price": hit.price,
+                    "url": hit.url,
+                    "delivery_days": f"{hit.delivery_days_min}-{hit.delivery_days_max}",
                 }
         except (asyncio.TimeoutError, Exception):
             pass
@@ -101,9 +119,12 @@ async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
         except Exception:
             results = []
 
-    # Return cheapest
+    # Return cheapest — in-band only (PR-1)
+    global _excluded_over_band
     if results:
-        valid = [r for r in results if r.get("price", 0) > 0]
+        valid = [r for r in results if r.get("price", 0) > 0 and in_band(r.get("price"))]
+        excluded = len([r for r in results if r.get("price", 0) > 0 and not in_band(r.get("price"))])
+        _excluded_over_band += excluded
         if valid:
             return min(valid, key=lambda r: r["price"])
 
@@ -113,11 +134,25 @@ async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
 def batch_supplier_lookup(
     products: list[CategoryProduct],
     progress_callback=None,
-) -> list[CategoryProduct]:
-    """Find supplier prices for multiple products (sequential with timeout)."""
+) -> tuple[list[CategoryProduct], int]:
+    """Find supplier prices for multiple products (sequential with timeout).
+
+    Returns (in_band_products, excluded_count) — PR-4: the caller must
+    report the excluded count, never drop rows silently.
+    """
+    global _excluded_over_band
+    _excluded_over_band = 0
+
+    # Client-supplied products: eBay price must also sit in the band (PR-1)
+    kept_products = []
+    for p in products:
+        if in_band(p.price):
+            kept_products.append(p)
+        else:
+            _excluded_over_band += 1
 
     # Process ONE product at a time to avoid browser overload
-    for i, product in enumerate(products):
+    for i, product in enumerate(kept_products):
         if progress_callback:
             progress_callback(i, len(products), product.title)
 
@@ -146,5 +181,6 @@ def batch_supplier_lookup(
             except:
                 pass
 
-    # Filter: only keep products with supplier price
-    return [p for p in products if p.supplier_price > 0]
+    # Filter: only keep products with an in-band supplier price
+    kept = [p for p in kept_products if p.supplier_price > 0 and in_band(p.supplier_price)]
+    return kept, _excluded_over_band

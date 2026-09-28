@@ -46,8 +46,8 @@ def export_to_csv(result: Any) -> str:
     suppliers = result.suppliers or []
 
     # Calculate fees
-    ebay_price = result.ebay_avg_price
-    supplier_cost = result.best_supplier_price
+    ebay_price = result.ebay_avg_price or 0
+    supplier_cost = result.best_supplier_price or 0
     ebay_fees = ebay_price * 0.158
     total_cost = supplier_cost + ebay_fees
     profit = ebay_price - total_cost
@@ -83,6 +83,12 @@ def export_to_csv(result: Any) -> str:
         result.verdict or "PENDING",
     ])
 
+    # PR-4: exclusions must be reported even in CSV form.
+    prior_notes = getattr(result, "band_notes", None)
+    if prior_notes:
+        writer.writerow([])
+        writer.writerow([f"NOTE: {prior_notes}"])
+
     return output.getvalue()
 
 
@@ -107,8 +113,8 @@ def export_bulk_to_csv(results: list) -> str:
 
     # Data rows
     for result in results:
-        ebay_price = result.ebay_avg_price
-        supplier_cost = result.best_supplier_price
+        ebay_price = result.ebay_avg_price or 0
+        supplier_cost = result.best_supplier_price or 0
         ebay_fees = ebay_price * 0.158
         total_cost = supplier_cost + ebay_fees
         profit = ebay_price - total_cost

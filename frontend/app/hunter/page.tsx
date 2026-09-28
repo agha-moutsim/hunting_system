@@ -13,8 +13,6 @@ import { formatGBP, formatPercent } from "@/lib/format";
 
 export default function HunterPage() {
   const [category, setCategory] = useState("");
-  const [priceMin, setPriceMin] = useState("5");
-  const [priceMax, setPriceMax] = useState("35");
   const [maxResults, setMaxResults] = useState("30");
   const [scanLoading, setScanLoading] = useState(false);
   const [lookupLoading, setLookupLoading] = useState(false);
@@ -33,8 +31,8 @@ export default function HunterPage() {
     try {
       const data = await apiPost<HunterScanResponse>("/api/hunter/scan", {
         category: category.trim(),
-        price_min: parseFloat(priceMin) || 5,
-        price_max: parseFloat(priceMax) || 35,
+        price_min: 5,
+        price_max: 35,
         max_results: parseInt(maxResults) || 30,
       });
       setScan(data);
@@ -53,8 +51,8 @@ export default function HunterPage() {
       const products = scan.products.map((p) => ({
         ...p,
         _total_scanned: scan.total_scanned,
-        _price_min: parseFloat(priceMin) || 5,
-        _price_max: parseFloat(priceMax) || 35,
+        _price_min: 5,
+        _price_max: 35,
         category,
       }));
       const data = await apiPost<HunterReport>("/api/hunter/lookup", {
@@ -174,22 +172,20 @@ export default function HunterPage() {
               <label className="block text-xs text-text-secondary mb-1">Price min</label>
               <Input
                 type="number"
-                value={priceMin}
-                onChange={(e) => setPriceMin(e.target.value)}
-                min={0}
-                step={0.5}
-                disabled={scanLoading || lookupLoading}
+                value={5}
+                disabled
+                readOnly
+                title="Price band is fixed at £5–£35 (CONSTRAINTS_PRICING.md)"
               />
             </div>
             <div>
               <label className="block text-xs text-text-secondary mb-1">Price max</label>
               <Input
                 type="number"
-                value={priceMax}
-                onChange={(e) => setPriceMax(e.target.value)}
-                min={0}
-                step={0.5}
-                disabled={scanLoading || lookupLoading}
+                value={35}
+                disabled
+                readOnly
+                title="Price band is fixed at £5–£35 (CONSTRAINTS_PRICING.md)"
               />
             </div>
           </div>
@@ -263,6 +259,9 @@ export default function HunterPage() {
               </div>
             ))}
           </div>
+          {report.notes && (
+            <p className="text-xs text-accent-amber mt-3">{report.notes}</p>
+          )}
         </Card>
       )}
 

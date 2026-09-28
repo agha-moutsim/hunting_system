@@ -1,11 +1,13 @@
 {
-  "active": {
-    "price_min": 10.5,
-    "price_max": 35.0,
-    "demand_min_30d": 15,
-    "demand_min_7d": 5,
-    "demand_strong_30d": 30,
-    "delivery_target_max": 8
-  },
-  "presets": {}
+    "active":  {
+                   "price_min":  5,
+                   "price_max":  35,
+                   "demand_min_30d":  15,
+                   "demand_min_7d":  5,
+                   "demand_strong_30d":  30,
+                   "delivery_target_max":  8
+               },
+    "presets":  {
+
+                }
 }

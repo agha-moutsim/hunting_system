@@ -4,7 +4,7 @@
 
 eBay Hunter turns a product idea into a sourcing decision. Give it an eBay listing or a search term and it returns the numbers that decide the buy: what the item actually sells for, what the same product costs at seven approved suppliers, profit after eBay's fees, and a pass/fail verdict against your buying rules.
 
-Built for resellers working the £5–£25 generic-product range who need to validate dozens of candidates without spending twenty minutes researching each one. A full analysis takes about 90 seconds.
+Built for resellers working the £5–£35 generic-product range who need to validate dozens of candidates without spending twenty minutes researching each one. A full analysis takes about 90 seconds.
 
 ## Capabilities
 
@@ -83,7 +83,7 @@ API documentation is served at `http://localhost:8000/docs`.
 
 | Rule | Threshold |
 |---|---|
-| Buy price | £5 – £25 |
+| Buy price | £5 – £35 |
 | Minimum margin | ≥ 25% |
 | Demand | ≥ 10 sold / 30 days, ≥ 1 sold / 7 days |
 | Delivery | ≤ 8 days (≤ 25 days when sales ≥ 30/month) |

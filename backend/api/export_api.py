@@ -7,9 +7,74 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from api.schemas import ExportResultRequest
+from engine.price_gate import excluded_note, filter_dicts, in_band
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# Price-carrying keys that must never leave the API out of band (PR-1 figure 4)
+_EXPORT_NUMERIC_PRICE_KEYS = (
+    "price", "item_cost", "ebay_avg_price", "best_supplier_price",
+    "ebay_price_min", "ebay_price_max", "ebay_price_median",
+)
+
+
+def _band_gate_result(payload: dict) -> dict:
+    """Display-time gate for client-supplied export payloads (PR-2 layer 4).
+
+    Supplier rows are filtered, scalar price fields are zeroed when out of
+    band, and the exclusion count is attached — exports never carry an
+    out-of-band figure and never silently drop one either (PR-4).
+    """
+    if not isinstance(payload, dict):
+        return payload
+    out = dict(payload)
+    notes = []
+
+    for key in ("suppliers", "supplier_matches"):
+        rows = out.get(key)
+        if isinstance(rows, list) and rows and isinstance(rows[0], dict):
+            kept, excluded = filter_dicts(rows, "price")
+            out[key] = kept
+            if excluded:
+                notes.append(excluded_note("supplier matches", excluded))
+
+    for key in _EXPORT_NUMERIC_PRICE_KEYS:
+        val = out.get(key)
+        if isinstance(val, (int, float)) and val and not in_band(val):
+            notes.append(f"{key} £{val:.2f} removed (not in band)")
+            out[key] = 0.0
+
+    # Nested price range statistics
+    rng = out.get("ebay_price_range")
+    if isinstance(rng, dict):
+        for stat in ("min", "max", "avg", "median"):
+            v = rng.get(stat)
+            if isinstance(v, (int, float)) and v and not in_band(v):
+                notes.append(f"eBay_price_range.{stat} £{v:.2f} removed (not in band)")
+                rng[stat] = None
+
+    if notes:
+        existing = out.get("band_notes")
+        out["band_notes"] = (f"{existing}; " if existing else "") + "; ".join(notes)
+    return out
+
+
+class _R:
+    """Adapter so exporters can consume a plain (possibly partial) dict.
+
+    Missing attributes resolve to None instead of raising, so a partial
+    payload exports blank cells rather than a 500.
+    """
+
+    def __init__(self, d: dict):
+        for k, v in d.items():
+            setattr(self, k, v)
+
+    def __getattr__(self, name):
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return None
 
 
 def _csv_response(content: str, filename: str):
@@ -86,15 +151,8 @@ def export_analysis_csv(req: ExportResultRequest):
     """Export a deep-search result as CSV. Body: {\"result\": {...}}"""
     from export.csv_export import export_to_csv
 
-    class _R:
-        """Minimal adapter so export_to_csv can consume a plain dict."""
-
-        def __init__(self, d):
-            for k, v in d.items():
-                setattr(self, k, v)
-
     try:
-        csv_text = export_to_csv(_R(req.result))
+        csv_text = export_to_csv(_R(_band_gate_result(req.result)))
     except Exception as e:
         logger.exception("CSV export failed")
         raise HTTPException(status_code=500, detail=str(e))
@@ -107,13 +165,8 @@ def export_analysis_json(req: ExportResultRequest):
     """Export a deep-search result as JSON. Body: {\"result\": {...}}"""
     from export.json_export import export_to_json
 
-    class _R:
-        def __init__(self, d):
-            for k, v in d.items():
-                setattr(self, k, v)
-
     try:
-        json_text = export_to_json(_R(req.result), pretty=True)
+        json_text = export_to_json(_R(_band_gate_result(req.result)), pretty=True)
     except Exception as e:
         logger.exception("JSON export failed")
         raise HTTPException(status_code=500, detail=str(e))

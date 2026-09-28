@@ -48,6 +48,7 @@ class DemandData:
     lowest_sold_price: Optional[float] = None
     highest_sold_price: Optional[float] = None
     verified: bool = True
+    excluded_over_band: int = 0  # PR-4: sold rows dropped by the band gate
 
 
 class BaseScraper(ABC):

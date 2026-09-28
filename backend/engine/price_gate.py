@@ -30,10 +30,32 @@ def band_label() -> str:
 
 def over_band_reason(price: float | None) -> str:
     """Refusal sentence for an out-of-band price (PR-3 Case A)."""
+    try:
+        p = float(price)
+    except (TypeError, ValueError):
+        # Never print a fabricated figure (C1) — no price, no number.
+        return (
+            f"This listing has no verified price \u2014 cannot confirm it is "
+            f"inside {band_label()}."
+        )
     return (
-        f"This listing is \u00a3{float(price):.2f} \u2014 outside your "
+        f"This listing is \u00a3{p:.2f} \u2014 outside your "
         f"{band_label()} band."
     )
+
+
+def clamp_band(filters: dict | None) -> dict:
+    """Force the price band onto a filters dict from config (PR-5/PR-7).
+
+    Client-supplied or persisted filters may carry any band; the gate
+    always wins. A partial dict is merged over the full default filter
+    set first, so callers never lose the non-price keys (demand/margin).
+    """
+    out = dict(FILTERS)
+    out.update(filters or {})
+    out["price_min"] = PRICE_MIN
+    out["price_max"] = PRICE_MAX
+    return out
 
 
 def filter_products(products: list, price_attr: str = "price") -> tuple[list, int]:
@@ -65,7 +87,11 @@ def filter_dicts(rows: list[dict], key: str = "price") -> tuple[list[dict], int]
 
 
 def excluded_note(kind: str, count: int) -> str:
-    """PR-4 transparency line, e.g. '4 supplier matches excluded (over £35)'."""
+    """PR-4 transparency line, e.g. '4 supplier matches excluded (not in £5–£35 band)'.
+
+    Wording covers every exclusion reason (over £35, under £5, missing price)
+    so the note never claims a direction the data didn't have.
+    """
     if count <= 0:
         return ""
-    return f"{count} {kind} excluded (over \u00a3{PRICE_MAX:.0f})"
+    return f"{count} {kind} excluded (not in {band_label()} band)"

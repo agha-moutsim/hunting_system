@@ -8,6 +8,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import relationship
 from db.database import Base
+from config import FILTERS
 
 
 class Product(Base):
@@ -173,8 +174,8 @@ class SavedSearch(Base):
     search_name = Column(Text, nullable=False)
     query = Column(Text, nullable=False)
     category = Column(String(128))
-    price_min = Column(Float, default=5.0)
-    price_max = Column(Float, default=25.0)
+    price_min = Column(Float, default=FILTERS["price_min"])
+    price_max = Column(Float, default=FILTERS["price_max"])
     min_margin = Column(Float, default=25.0)
     auto_run = Column(Boolean, default=True)
     last_run = Column(DateTime)
