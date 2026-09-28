@@ -1,0 +1,14 @@
+{
+  "name": "ebay-hunter",
+  "private": true,
+  "scripts": {
+    "prepare": "husky",
+    "typecheck": "npm --prefix frontend run typecheck",
+    "test": "python -m pytest tests/ -q --ignore=tests/test_phase3.py"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7",
+    "lint-staged": "^17.6.0",
+    "prettier": "^3.9.9"
+  }
+}

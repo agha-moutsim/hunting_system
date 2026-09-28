@@ -32,3 +32,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Node (root tooling: husky + lint-staged + prettier)
+node_modules/
