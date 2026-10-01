@@ -13,6 +13,8 @@ from bs4 import BeautifulSoup
 
 from config import EBAY_UK_BASE, EBAY_CLIENT_ID, EBAY_CLIENT_SECRET, EBAY_API_BASE, EBAY_MARKETPLACE, SCRAPE_CONFIG
 from engine.price_gate import active_bounds, in_band
+from engine.condition_gate import api_condition_filter, html_condition_param, is_new
+from scrapers.availability import ebay_item_availability
 
 
 @dataclass
@@ -24,8 +26,18 @@ class EbaySoldItem:
     seller: str
     seller_url: str
     sold_date: str
-    condition: str = "New"
+    # C10 — '' by default: an unread condition is NOT New. Never assume.
+    condition: str = ""
     image_url: Optional[str] = None
+    # P4 — stock/shipping read off the same Browse-API response (C13);
+    # ''/0.0/0 = the response did not state it, never a default (C1).
+    # Appended last so existing positional constructions cannot shift.
+    in_stock: str = ""
+    stock_raw: str = ""
+    availability_url: str = ""
+    shipping_cost: float = 0.0
+    shipping_days: int = 0
+    shipping_raw: str = ""
 
 
 @dataclass
@@ -46,6 +58,7 @@ class EbaySoldData:
     category: str = ""
     items: list[EbaySoldItem] = field(default_factory=list)
     excluded_over_band: int = 0  # PR-4: sold rows dropped by the £5–£35 gate
+    excluded_non_new: int = 0     # C10: sold rows dropped by the New-only gate
 
 
 class EbaySoldScraper:
@@ -64,6 +77,7 @@ class EbaySoldScraper:
         self._token = None
         self._token_expiry = 0
         self._band_excluded = 0
+        self._condition_excluded = 0  # C10: non-New rows dropped
 
     def _get_token(self) -> str:
         """Get OAuth token via Client Credentials flow."""
@@ -98,6 +112,7 @@ class EbaySoldScraper:
             query=query,
         )
         self._band_excluded = 0
+        self._condition_excluded = 0
 
         try:
             # Try API first for sold data
@@ -112,6 +127,7 @@ class EbaySoldScraper:
             # Calculate statistics
             self._calculate_stats(result)
             result.excluded_over_band = self._band_excluded
+            result.excluded_non_new = self._condition_excluded
 
         except Exception as e:
             print(f"[WARN] eBay sold data failed for '{query}': {e}")
@@ -125,15 +141,20 @@ class EbaySoldScraper:
 
         try:
             lo, hi = active_bounds()
+            band_api = f"price:[{lo:.0f}..{hi:.0f}],priceCurrency:GBP"
+            # C10 — condition joins the filter so Used listings never enter
+            # the demand set or the top-seller aggregation.
+            cond = api_condition_filter()
+            filter_parts = ["buyingOptions:{FIXED_PRICE}", "deliveryCountry:GB"]
+            if cond:
+                filter_parts.append(cond)
+            filter_parts.append(band_api)
             resp = requests.get(
                 f"{EBAY_API_BASE}/buy/browse/v1/item_summary/search",
                 params={
                     "q": query,
                     "limit": 50,
-                    "filter": (
-                        "buyingOptions:{FIXED_PRICE},deliveryCountry:GB,"
-                        f"price:[{lo:.0f}..{hi:.0f}],priceCurrency:GBP"
-                    ),
+                    "filter": ",".join(filter_parts),
                     "sort": "-relevance",
                 },
                 headers={
@@ -153,6 +174,10 @@ class EbaySoldScraper:
                 if not in_band(price):
                     self._band_excluded += 1  # PR-4
                     continue
+                condition = item.get("condition", "")
+                if not is_new(condition):
+                    self._condition_excluded += 1  # C10
+                    continue
                 seller_info = item.get("seller", {})
                 items.append(EbaySoldItem(
                     title=item.get("title", ""),
@@ -161,8 +186,13 @@ class EbaySoldScraper:
                     seller=seller_info.get("username", ""),
                     seller_url=f"https://www.ebay.co.uk/str/{seller_info.get('username', '')}",
                     sold_date="",  # Browse summaries carry no sale date — never fake one
+                    condition=condition,
                     image_url=item.get("thumbnailImages", [{}])[0].get("imageUrl")
                         if item.get("thumbnailImages") else None,
+                    # P4 — availability/shippingOptions only when the
+                    # response carried them (C13/C1); the HTML fallback
+                    # below states none, so it leaves them unknown.
+                    **ebay_item_availability(item),
                 ))
             return items
 
@@ -183,6 +213,7 @@ class EbaySoldScraper:
                     f"&LH_Complete=1&LH_Sold=1"
                     f"&_sop=13"  # Sort by most recently sold
                     f"&_udlo={lo:.0f}&_udhi={hi:.0f}"
+                    f"{html_condition_param()}"  # C10 — New-only at query time
                     f"&_pgn={page}"
                 )
 
@@ -263,6 +294,19 @@ class EbaySoldScraper:
                 img_el = item.select_one("img.s-item__image-img")
                 image_url = img_el.get("src") if img_el else None
 
+                # C10 — read the condition the page shows; '' when absent
+                # so a row we cannot confirm is dropped, never assumed New.
+                condition = ""
+                for sel in ("span.s-item__condition", "span.SECONDARY_INFO",
+                            "span[class*='condition']"):
+                    cond_el = item.select_one(sel)
+                    if cond_el and cond_el.get_text(strip=True):
+                        condition = cond_el.get_text(strip=True)
+                        break
+                if not is_new(condition):
+                    self._condition_excluded += 1  # C10
+                    continue
+
                 items.append(EbaySoldItem(
                     title=title,
                     price=price,
@@ -270,6 +314,7 @@ class EbaySoldScraper:
                     seller=seller,
                     seller_url=seller_url,
                     sold_date=sold_date,
+                    condition=condition,
                     image_url=image_url,
                 ))
 

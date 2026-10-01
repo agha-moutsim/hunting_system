@@ -7,6 +7,7 @@ from fastapi import APIRouter
 from dataclasses import asdict
 
 from api.schemas import AnalyzeRequest
+from api.provenance_block import build_provenance_block, unverified_stamp
 from analysis_pipeline import (
     PIPELINE_TIMEOUT_S,
     run_analysis_pipeline,
@@ -57,18 +58,25 @@ def analyze(req: AnalyzeRequest):
         )
     except (TimeoutError, asyncio.TimeoutError):
         logger.error("Analysis pipeline exceeded %.0fs budget", PIPELINE_TIMEOUT_S)
-        return {
+        resp = {
             "ebay_product": None,
             "demand": None,
             "supplier_matches": [],
             "llm_analysis": None,
             "verdict": None,
             "scorecard": "",
+            # C11 — a timeout discovered no stores; say so rather than
+            # omitting the key (an absent list would read as "not applicable").
+            "ebay_stores": [],
+            "ebay_stores_provenance": unverified_stamp("analysis timed out"),
             "errors": [
                 f"Analysis timed out after {int(PIPELINE_TIMEOUT_S)}s. "
                 "Supplier scrapers or the LLM hung — retry, or try Deep Search → Fast."
             ],
         }
+        # C13 — a run that never completed: every block reads unverified WITH why.
+        resp["provenance"] = build_provenance_block(resp, reason="analysis timed out")
+        return resp
 
     # Persist (same path Streamlit uses)
     if raw.get("ebay_product"):
@@ -77,7 +85,7 @@ def analyze(req: AnalyzeRequest):
         except Exception as e:
             logger.warning("DB save failed (non-fatal): %s", e)
 
-    return {
+    resp = {
         "ebay_product": _serialize(raw.get("ebay_product")),
         "demand": _serialize(raw.get("demand")),
         "supplier_matches": _serialize(raw.get("supplier_matches")),
@@ -85,4 +93,14 @@ def analyze(req: AnalyzeRequest):
         "verdict": _serialize(raw.get("verdict")),
         "scorecard": raw.get("scorecard", ""),
         "errors": raw.get("errors", []),
+        # C11 — competitor stores, same shape for Analyze and URL-hunt.
+        "ebay_stores": _serialize(raw.get("ebay_stores") or []),
+        "ebay_stores_provenance": _serialize(
+            raw.get("ebay_stores_provenance")
+            # C13 — an unstamped block must still say WHY it reads unverified.
+            or unverified_stamp("store discovery recorded no stamp")
+        ),
     }
+    # C13 — the pinned top-level block: every section stamped, nothing assumed.
+    resp["provenance"] = build_provenance_block(resp)
+    return resp

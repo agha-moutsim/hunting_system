@@ -1,22 +1,24 @@
 """
-AliExpress supplier scraper — RapidAPI first, falls back to Playwright scraping.
+AliExpress supplier scraper — Playwright scraping.
+RapidAPI search is disabled (P4): the available key has no search
+endpoint, so nothing here hits that host anymore.
 Prices converted USD -> GBP at 0.79.
 """
 
-import os
 import re
 from datetime import datetime
 from typing import Optional
 from urllib.parse import quote_plus
 
-from scrapers.base import BaseScraper, ScrapedProduct
+from scrapers.availability import parse_shipping_text
+from scrapers.base import BaseScraper, DELIVERY_SELECTORS, STOCK_SELECTORS, ScrapedProduct
 from config import SCRAPE_CONFIG
 
 USD_TO_GBP = 0.79
 
 
 class AliExpressScraper(BaseScraper):
-    """Scraper for AliExpress — API first, Playwright fallback."""
+    """Scraper for AliExpress — Playwright scraping, API disabled (P4)."""
 
     BASE_URL = "https://www.aliexpress.com"
     SEARCH_URL = "https://www.aliexpress.com/wholesale?SearchText={query}"
@@ -24,8 +26,9 @@ class AliExpressScraper(BaseScraper):
     DELIVERY_DAYS_MAX = 25
 
     async def search(self, query: str) -> list[ScrapedProduct]:
-        """Search AliExpress — try RapidAPI first, fallback to scraping."""
-        # Try RapidAPI first
+        """Search AliExpress — RapidAPI disabled, falls back to scraping."""
+        # Disabled API attempt first — returns no rows (P4), keeps the seam
+        # for a key that does expose a search endpoint.
         api_products = self._search_via_rapidapi(query)
         if api_products:
             return api_products
@@ -40,54 +43,18 @@ class AliExpressScraper(BaseScraper):
             return []
 
     def _search_via_rapidapi(self, query: str) -> list[ScrapedProduct]:
-        """Try AliExpress via RapidAPI free tier."""
-        api_key = os.getenv("RAPIDAPI_KEY", "")
-        if not api_key:
-            return []
+        """RapidAPI search is disabled — fail closed (P4).
 
-        try:
-            import requests
-
-            resp = requests.get(
-                "https://aliexpress-api.p.rapidapi.com/products",
-                headers={
-                    "x-rapidapi-key": api_key,
-                    "x-rapidapi-host": "aliexpress-api.p.rapidapi.com",
-                },
-                params={"keywords": query, "limit": 10},
-                timeout=15,
-            )
-            data = resp.json()
-
-            products = []
-            items = data.get("data", data.get("products", []))
-            if isinstance(items, dict):
-                items = items.get("products", [])
-
-            for item in (items or [])[:10]:
-                price_str = item.get("price", item.get("product_price", "0"))
-                try:
-                    price_usd = float(str(price_str).replace("£", "").replace(",", ""))
-                except (ValueError, TypeError):
-                    price_usd = 0.0
-                price_gbp = price_usd * USD_TO_GBP
-
-                products.append(ScrapedProduct(
-                    source="aliexpress",
-                    title=item.get("product_title", item.get("title", "")),
-                    price=price_gbp,
-                    url=item.get("product_url", item.get("url", "")),
-                    image_url=item.get("product_image", item.get("image", "")),
-                    delivery_days_min=self.DELIVERY_DAYS_MIN,
-                    delivery_days_max=self.DELIVERY_DAYS_MAX,
-                    verified=True,
-                ))
-
-            return products
-
-        except Exception as e:
-            print(f"[INFO] AliExpress RapidAPI unavailable: {e}")
-            return []
+        The key available here belongs to `aliexpress-datahub`, which
+        exposes /store_categories and /item_detail and no search
+        endpoint, while the call this method used to make went to
+        `aliexpress-api.p.rapidapi.com/products` — a host it cannot
+        authenticate against. Only ever a 403/404, so we return no rows
+        and let scrapers/serpapi_discovery.py carry AliExpress instead.
+        """
+        print("[WARN] AliExpress RapidAPI search disabled (available key has "
+              "no search endpoint) — returning no rows")
+        return []
 
     def _parse_search_results(self, html: str) -> list[ScrapedProduct]:
         """Parse AliExpress search results page."""
@@ -237,6 +204,11 @@ class AliExpressScraper(BaseScraper):
             if orders_text:
                 seller_orders = orders_text
 
+        # P4 — AliExpress cards print delivery/stock wording only on some
+        # layouts; no element means unknown, never a default (C1/C13).
+        stock_state, stock_raw = self._read_stock(card, STOCK_SELECTORS)
+        ship_cost, ship_days, ship_raw = self._read_shipping(card, DELIVERY_SELECTORS)
+
         return ScrapedProduct(
             source="aliexpress",
             title=title,
@@ -252,6 +224,12 @@ class AliExpressScraper(BaseScraper):
             store_name=store_name,
             condition="New",
             verified=True,
+            in_stock=stock_state,
+            stock_raw=stock_raw,
+            availability_url=url if stock_raw else "",
+            shipping_cost=ship_cost,
+            shipping_days=ship_days,
+            shipping_raw=ship_raw,
         )
 
     async def get_details(self, url: str) -> ScrapedProduct:
@@ -322,6 +300,12 @@ class AliExpressScraper(BaseScraper):
         if seller_el:
             seller = seller_el.get_text(strip=True)
 
+        # P4 — availability read off this page only (C1/C13); AliExpress
+        # prints stock/shipping in layout-specific hooks, so a miss is
+        # unknown rather than a guessed "in stock".
+        stock_state, stock_raw = self._read_stock(soup, STOCK_SELECTORS)
+        ship_cost, ship_days, ship_raw = self._read_shipping(soup, DELIVERY_SELECTORS)
+
         return ScrapedProduct(
             source="aliexpress",
             title=title,
@@ -334,4 +318,10 @@ class AliExpressScraper(BaseScraper):
             condition="New",
             verified=True,
             raw_html=html,
+            in_stock=stock_state,
+            stock_raw=stock_raw,
+            availability_url=url if stock_raw else "",
+            shipping_cost=ship_cost,
+            shipping_days=ship_days,
+            shipping_raw=ship_raw,
         )

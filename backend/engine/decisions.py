@@ -5,6 +5,7 @@ from config import EBAY_MARKETPLACE
 from scrapers.base import ScrapedProduct, DemandData
 from engine.profit import calculate_profit
 from engine.price_gate import clamp_band
+from engine.condition_gate import active_condition, condition_passes
 
 
 @dataclass
@@ -74,14 +75,19 @@ class DecisionEngine:
             verified=product.verified,
         ))
 
-        # --- Condition filter ---
-        condition_pass = product.condition.lower() == "new"
+        # --- Condition filter (C10) ---
+        # Reads the ACTIVE condition rather than a hardcoded "new"; a blank
+        # condition fails because normalize_condition('') never equals it.
+        required_condition = active_condition(self.filters)
+        condition_ok = condition_passes(product.condition, required_condition)
         filters.append(FilterResult(
             name="Condition",
-            passed=condition_pass,
-            actual=product.condition,
-            expected="New",
-            verified=product.verified,
+            passed=condition_ok,
+            actual=product.condition or "(none)",
+            expected=required_condition,
+            # A condition we could not read is UNVERIFIED, not a known miss —
+            # C1: never claim knowledge we don't have.
+            verified=product.verified and bool(product.condition),
         ))
 
         # --- Price filter (eBay listing price vs active range) ---

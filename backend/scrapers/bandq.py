@@ -6,7 +6,8 @@ import os
 import re
 from urllib.parse import quote_plus
 
-from scrapers.base import BaseScraper, ScrapedProduct
+from scrapers.availability import parse_shipping_text, serpapi_item_availability
+from scrapers.base import BaseScraper, DELIVERY_SELECTORS, STOCK_SELECTORS, ScrapedProduct
 
 
 class BandQScraper(BaseScraper):
@@ -76,6 +77,8 @@ class BandQScraper(BaseScraper):
                     delivery_days_min=self.DELIVERY_MIN,
                     delivery_days_max=self.DELIVERY_MAX,
                     verified=True,
+                    # P4 — stock/shipping off the SerpApi entry (C13/C1).
+                    **serpapi_item_availability(item),
                 ))
 
             return products
@@ -132,6 +135,11 @@ class BandQScraper(BaseScraper):
 
         image_url = self._extract_image(card)
 
+        # P4 — read stock/delivery only where the card prints them; a
+        # missing element is unknown, never a default (C1/C13).
+        stock_state, stock_raw = self._read_stock(card, STOCK_SELECTORS)
+        ship_cost, ship_days, ship_raw = self._read_shipping(card, DELIVERY_SELECTORS)
+
         return ScrapedProduct(
             source=self.SOURCE,
             title=title,
@@ -143,6 +151,12 @@ class BandQScraper(BaseScraper):
             seller="B&Q",
             condition="New",
             verified=True,
+            in_stock=stock_state,
+            stock_raw=stock_raw,
+            availability_url=href if stock_raw else "",
+            shipping_cost=ship_cost,
+            shipping_days=ship_days,
+            shipping_raw=ship_raw,
         )
 
     def _extract_price(self, card) -> float:
@@ -254,6 +268,14 @@ class BandQScraper(BaseScraper):
         if seller_el:
             seller = seller_el.get_text(strip=True)
 
+        # P4 — availability read off this page, never assumed (C1/C13).
+        # shipping_* is parsed from the SAME element the delivery days
+        # above came from, so both describe one reading of one line.
+        stock_state, stock_raw = self._read_stock(soup, STOCK_SELECTORS)
+        ship_cost, ship_days, ship_raw = parse_shipping_text(
+            delivery_el.get_text(" ", strip=True) if delivery_el else ""
+        )
+
         return ScrapedProduct(
             source=self.SOURCE,
             title=title,
@@ -266,6 +288,12 @@ class BandQScraper(BaseScraper):
             condition="New",
             verified=True,
             raw_html=html,
+            in_stock=stock_state,
+            stock_raw=stock_raw,
+            availability_url=url if stock_raw else "",
+            shipping_cost=ship_cost,
+            shipping_days=ship_days,
+            shipping_raw=ship_raw,
         )
 
     def _parse_delivery(self, text: str) -> tuple[int | None, int | None]:

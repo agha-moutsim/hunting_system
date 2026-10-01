@@ -5,7 +5,11 @@ Prompt templates for the eBay product sourcing LLM analyzer.
 SYSTEM_PROMPT = (
     "You are an e-commerce product analysis engine. "
     "You evaluate eBay products for dropshipping viability. "
-    "Always respond with valid JSON only — no markdown, no explanation outside the JSON."
+    "Always respond with valid JSON only — no markdown, no explanation outside the JSON. "
+    "You produce ANALYSIS and reasoning only: never invent a supplier name, a "
+    "seller name, a price, a URL or a stock figure. Anything factual must come "
+    "from the supplied data below. When a value is absent from that data, "
+    "report it as unknown rather than estimating it."
 )
 
 ANALYSIS_PROMPT = """\
@@ -34,7 +38,7 @@ Respond with ONLY this JSON structure:
   "demand_assessment": "strong" | "moderate" | "weak" | "spike",
   "demand_reasoning": "<one sentence>",
   "best_supplier_match": {{
-    "name": "<supplier name>",
+    "name": "<the name of ONE supplier copied EXACTLY from the list above, or omit this object entirely if none fits>",
     "confidence": <0.0 to 1.0>,
     "reasoning": "<one sentence>"
   }},
@@ -73,7 +77,10 @@ def build_analysis_prompt(
     return ANALYSIS_PROMPT.format(
         title=product.get("title", "N/A"),
         price=product.get("price", "N/A"),
-        condition=product.get("condition", "New"),
+        # C10/C13 — never default the condition. The scraped value is passed
+        # through verbatim; a missing one reads as "unknown", because a
+        # silent "New" here would tell the model the gate already passed.
+        condition=product.get("condition") or "unknown",
         seller=product.get("seller", "Unknown"),
         sold_30d=demand.get("sold_count_30d", "unknown"),
         sold_7d=demand.get("sold_count_7d", "unknown"),

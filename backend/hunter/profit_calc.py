@@ -45,7 +45,9 @@ def _calc_single(product: CategoryProduct, filters: dict):
         title=product.title,
         price=product.price,
         url=product.url,
-        condition=product.condition or "New",
+        # C10 — pass the condition through verbatim. '' means unread, and the
+        # engine marks that row Unverified rather than inventing "New".
+        condition=product.condition,
         # eBay-side delivery estimate is unknown here — C-new shows it as
         # Unknown rather than borrowing the supplier's ceiling (C1).
         delivery_days_max=None,

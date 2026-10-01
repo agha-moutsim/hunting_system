@@ -5,7 +5,10 @@ import time
 from typing import Optional
 
 from hunter.category_scan import CategoryProduct
+from engine.match import TIER_NO_MATCH, compute_match
 from engine.price_gate import in_band
+from engine.source_type import supplier_type
+from engine.provenance import Provenance
 
 # Timeout per product (seconds)
 LOOKUP_TIMEOUT = 15
@@ -14,13 +17,43 @@ LOOKUP_TIMEOUT = 15
 _excluded_over_band = 0
 
 
-def _first_valid(products) -> Optional[object]:
-    """First supplier result with a usable price — supplier prices are
-    NEVER gated by range (PR-1); margin decides buyability."""
+def _first_valid(products, reference_title: str = "", ebay_price: float = 0.0):
+    """The best supplier row with a usable price that also MATCHED (C14).
+
+    This used to return the first row with a positive price, which meant
+    the Hunter could price a product from a listing that merely *sounded*
+    similar. Now every candidate is scored against the eBay title by the
+    deterministic matcher, rows the matcher rejects are skipped, and the
+    best survivor wins — highest match score first, then cheapest.
+
+    No candidate above the threshold returns None: showing no supplier is
+    correct, showing the wrong one is not (C12).
+    """
+    best = None
+    best_key = None
     for p in products:
-        if p.price and p.price > 0:
-            return p
-    return None
+        if not p.price or p.price <= 0:
+            continue
+        if reference_title:
+            r = compute_match(
+                reference_title,
+                getattr(p, "title", "") or "",
+                ebay_price=ebay_price,
+                candidate_price=p.price,
+            )
+            if r.tier == TIER_NO_MATCH:
+                continue
+            p.match_score = r.score
+            p.match_tier = r.tier
+            p.match_label = r.label
+            p.match_basis = r.reason
+            p.match_method = r.method
+        else:
+            r = None
+        key = (-getattr(p, "match_score", 0.0), p.price)
+        if best_key is None or key < best_key:
+            best, best_key = p, key
+    return best
 
 
 async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
@@ -33,13 +66,24 @@ async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
             from scrapers.cjdropshipping import CJDropshippingScraper
             scraper = CJDropshippingScraper()
             products = await asyncio.wait_for(scraper.search(product.title), timeout=10)
-            hit = _first_valid(products)
+            hit = _first_valid(products, product.title, product.price or 0.0)
             if hit:
                 return {
                     "name": "CJ Dropshipping",
                     "price": hit.price,
                     "url": hit.url,
                     "delivery_days": f"{hit.delivery_days_min}-{hit.delivery_days_max}",
+                    "product_title": getattr(hit, "title", ""),
+                    # C14 — the computed score travels with the row so the
+                    # report and the API say what the matcher decided.
+                    "match_score": getattr(hit, "match_score", 0.0),
+                    "match_tier": getattr(hit, "match_tier", ""),
+                    "match_label": getattr(hit, "match_label", ""),
+                    # C13 — derived from the real source, never assumed.
+                    "supplier_type": supplier_type(name="CJ Dropshipping", url=hit.url),
+                    "provenance": Provenance.VERIFIED.value,
+                    "provenance_label": Provenance.VERIFIED.label,
+                    "source_url": hit.url,
                 }
         except (asyncio.TimeoutError, Exception):
             pass
@@ -57,13 +101,24 @@ async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
             from scrapers.aliexpress import AliExpressScraper
             scraper = AliExpressScraper()
             products = await asyncio.wait_for(scraper.search(product.title), timeout=10)
-            hit = _first_valid(products)
+            hit = _first_valid(products, product.title, product.price or 0.0)
             if hit:
                 return {
                     "name": "AliExpress",
                     "price": hit.price,
                     "url": hit.url,
                     "delivery_days": f"{hit.delivery_days_min}-{hit.delivery_days_max}",
+                    "product_title": getattr(hit, "title", ""),
+                    # C14 — the computed score travels with the row so the
+                    # report and the API say what the matcher decided.
+                    "match_score": getattr(hit, "match_score", 0.0),
+                    "match_tier": getattr(hit, "match_tier", ""),
+                    "match_label": getattr(hit, "match_label", ""),
+                    # C13 — derived from the real source, never assumed.
+                    "supplier_type": supplier_type(name="AliExpress", url=hit.url),
+                    "provenance": Provenance.VERIFIED.value,
+                    "provenance_label": Provenance.VERIFIED.label,
+                    "source_url": hit.url,
                 }
         except (asyncio.TimeoutError, Exception):
             pass
@@ -81,13 +136,24 @@ async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
             from scrapers.amazon_uk import AmazonUKScraper
             scraper = AmazonUKScraper()
             products = await asyncio.wait_for(scraper.search(product.title), timeout=10)
-            hit = _first_valid(products)
+            hit = _first_valid(products, product.title, product.price or 0.0)
             if hit:
                 return {
                     "name": "Amazon UK",
                     "price": hit.price,
                     "url": hit.url,
                     "delivery_days": f"{hit.delivery_days_min}-{hit.delivery_days_max}",
+                    "product_title": getattr(hit, "title", ""),
+                    # C14 — the computed score travels with the row so the
+                    # report and the API say what the matcher decided.
+                    "match_score": getattr(hit, "match_score", 0.0),
+                    "match_tier": getattr(hit, "match_tier", ""),
+                    "match_label": getattr(hit, "match_label", ""),
+                    # C13 — derived from the real source, never assumed.
+                    "supplier_type": supplier_type(name="Amazon UK", url=hit.url),
+                    "provenance": Provenance.VERIFIED.value,
+                    "provenance_label": Provenance.VERIFIED.label,
+                    "source_url": hit.url,
                 }
         except (asyncio.TimeoutError, Exception):
             pass
@@ -166,6 +232,10 @@ def batch_supplier_lookup(
                 product.supplier_price = supplier.get("price", 0)
                 product.supplier_name = supplier.get("name", "")
                 product.supplier_url = supplier.get("url", "")
+                # C14 — mirror the matcher's verdict onto the row.
+                product.supplier_match_score = supplier.get("match_score", 0.0)
+                product.supplier_match_tier = supplier.get("match_tier", "")
+                product.supplier_match_label = supplier.get("match_label", "")
 
         except (asyncio.TimeoutError, Exception) as e:
             print(f"[WARN] Supplier lookup timeout/fail for '{product.title}': {e}")

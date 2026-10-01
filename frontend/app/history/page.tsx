@@ -177,6 +177,8 @@ export default function HistoryPage() {
       condition: d.product.condition,
       seller: d.product.seller,
       outside_band: d.product.outside_band,
+      provenance: d.product.provenance,
+      provenance_label: d.product.provenance_label,
     };
     const suppliers: ScrapedProduct[] = (d.suppliers || []).map((s) => ({
       source: s.supplier_name,
@@ -185,6 +187,8 @@ export default function HistoryPage() {
       url: s.supplier_url || "",
       delivery_days_min: s.delivery_days_min,
       delivery_days_max: s.delivery_days_max,
+      provenance: s.provenance,
+      provenance_label: s.provenance_label,
     }));
     const filters = parseFilters(d.verdict?.filter_results);
     return {

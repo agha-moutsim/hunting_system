@@ -19,6 +19,7 @@ def batch_demand_check(
     (C4: never assume).
     """
     from config import FILTERS
+    from engine.stores import resolve_stores
     from scrapers.ebay_sold import EbaySoldScraper
 
     if min_sold_30d is None:
@@ -37,6 +38,15 @@ def batch_demand_check(
             sold_data = scraper.get_sold_data(product.title)
             product.sold_30d = sold_data.total_sold_30d
             product.sold_7d = sold_data.total_sold_7d  # None = unknown
+
+            # C11 — this query already listed the sellers it saw; keep them
+            # instead of paying for a second store-discovery request.
+            # Empty sold_data ⇒ [] (never padded to 4).
+            try:
+                product.ebay_stores = resolve_stores(sold_data=sold_data)
+            except Exception as e:
+                print(f"[WARN] Store build failed for '{product.title}': {e}")
+                product.ebay_stores = []
 
             seven_day_ok = (
                 product.sold_7d is None or product.sold_7d >= min_sold_7d

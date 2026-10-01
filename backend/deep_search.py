@@ -9,15 +9,23 @@ import os
 import re
 import time
 from dataclasses import dataclass, field, asdict
-from typing import List, Optional
+from typing import Any, List, Optional
 from urllib.parse import urlparse, quote_plus
 
 import requests
 from bs4 import BeautifulSoup
 
+from engine.match import (
+    THRESHOLD_UNVERIFIED,
+    filter_matches,
+    score_candidates,
+)
 from engine.price_gate import (
     band_label, excluded_note, filter_dicts, in_band,
 )
+from engine.provenance import Provenance
+from engine.source_type import supplier_type as classify_source
+from scrapers.availability import parse_stock_text, parse_shipping_text
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
@@ -43,12 +51,6 @@ def _parse_llm_money(value) -> float | None:
         if m:
             return float(m.group())
     return None
-
-
-def _llm_price_in_band(value) -> bool:
-    """True when an LLM-provided price figure sits inside the band."""
-    p = _parse_llm_money(value)
-    return p is not None and in_band(p)
 
 
 def _llm_price_range_in_band(text: str) -> bool:
@@ -104,6 +106,9 @@ class DeepSearchResult:
     ebay_total_sold_30d: int = 0
     # None = unknown (no parseable sale dates) — never an estimate (C1/C4).
     ebay_total_sold_7d: Optional[int] = None
+    # C10 — set ONLY when real New-filtered eBay items backed this result.
+    # '' = unknown, so the Condition row reports Unverified, never "New".
+    ebay_condition: str = ""
     suppliers: List[dict] = field(default_factory=list)  # [{name, price, url, type, delivery}]
     best_supplier_price: float = 0.0
     profit: float = 0.0
@@ -116,6 +121,42 @@ class DeepSearchResult:
     notes: str = ""
     sources: List[str] = field(default_factory=list)
     raw_analysis: str = ""
+    # C13 — per-field origin: {field: {provenance, source_url, method}}.
+    # Consumed by the JSON/CSV exporters so every row says where it came from.
+    field_provenance: dict = field(default_factory=dict)
+    # C11 — up to 4 REAL eBay competitor stores, built by engine.stores from
+    # the same sold query this run already made. Never LLM-supplied.
+    ebay_stores: List[dict] = field(default_factory=list)
+    ebay_stores_provenance: dict = field(default_factory=dict)
+
+    def attach_stores(self, sold_data: Any = None, demand: Any = None,
+                      products: Any = None, query: str = "") -> None:
+        """Populate the C11 store block, preferring data we already fetched."""
+        from engine.stores import resolve_stores, store_provenance_block
+        try:
+            # Network-last: sold_data/demand/products cost nothing extra.
+            stores = resolve_stores(sold_data=sold_data, demand=demand,
+                                    products=products, query=query)
+        except Exception as e:  # noqa: BLE001 — stores never break an analysis
+            print(f"[WARN] store discovery failed: {e}")
+            stores = []
+        self.ebay_stores = stores
+        self.ebay_stores_provenance = store_provenance_block(stores)
+
+    def set_fact_provenance(self, name: str, provenance: Provenance,
+                            source_url: str = "", method: str = "",
+                            reason: str = "", source_name: str = "") -> None:
+        """Record where one factual field's value came from (C13)."""
+        entry = {"provenance": provenance.value, "label": provenance.label}
+        if source_url:
+            entry["source_url"] = source_url
+        if method:
+            entry["method"] = method
+        if reason:
+            entry["reason"] = reason
+        if source_name:
+            entry["source_name"] = source_name
+        self.field_provenance[name] = entry
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -247,32 +288,210 @@ def _fetch_page_text(url: str, max_chars: int = 3000) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Supplier candidate verification (C12 / C13 — verify or drop)
+# ---------------------------------------------------------------------------
+
+_MAX_VERIFIED_SUPPLIERS = 7  # C12: never pad past what we could confirm
+
+
+def _page_availability(html: str, url: str) -> dict:
+    """Stock + shipping read off a fetched supplier page.
+
+    C13: every value here is whatever the page actually said, and the URL
+    is the receipt. When the page says nothing we leave the fields empty —
+    `shipping_cost` stays 0.0 (unknown), never a plausible-looking number.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    text = soup.get_text(" ", strip=True)
+    in_stock, stock_raw = parse_stock_text(text)
+    shipping_cost, shipping_days, shipping_raw = parse_shipping_text(text)
+    if not stock_raw and not shipping_raw:
+        return {}
+    return {
+        "in_stock": in_stock,
+        "stock_raw": stock_raw,
+        "availability_url": url,
+        "shipping_cost": shipping_cost,
+        "shipping_days": shipping_days,
+        "shipping_raw": shipping_raw,
+    }
+
+
+def _gate_suppliers(
+    rows: list,
+    reference_title: str,
+    *,
+    brand: str = "",
+    ebay_price: float = 0.0,
+) -> list:
+    """Score every supplier row against the eBay title and keep what passed.
+
+    C14 makes matching deterministic: `score_candidates` computes
+    `match_score` (never a constant, never the LLM's confidence) and
+    C12 admits a row only when it cleared the threshold — so anything the
+    matcher calls "no confirmed match" is dropped rather than displayed.
+    Rows between the unverified and verified floors survive but carry
+    `match_tier == "unverified"`, and the caller must label them as such.
+    """
+    if not rows or not reference_title:
+        return rows
+    scored = score_candidates(
+        reference_title, rows, brand=brand, ebay_price=ebay_price
+    )
+    kept = filter_matches(scored, THRESHOLD_UNVERIFIED)
+    dropped = len(scored) - len(kept)
+    if dropped:
+        print(f"[INFO] {dropped} supplier row(s) below match threshold — dropped (C14)")
+    return kept
+
+
+def _extract_title(html: str) -> str:
+    """Page title, preferring og:title — the product name, not the site name."""
+    soup = BeautifulSoup(html, "html.parser")
+    og = soup.select_one('meta[property="og:title"]')
+    if og and og.get("content"):
+        return og["content"].strip()
+    if soup.title and soup.title.string:
+        return soup.title.string.strip()
+    h1 = soup.select_one("h1")
+    return h1.get_text(strip=True) if h1 else ""
+
+
+def _extract_price(html: str) -> float:
+    """A price read off the page, or 0.0 when none is present.
+
+    Looks at JSON-LD first (structured, reliable) then falls back to the
+    first £-prefixed amount in visible text. 0.0 means NOT CONFIRMED —
+    the caller drops the row rather than showing a guess (C1).
+    """
+    # JSON-LD product blocks
+    soup = BeautifulSoup(html, "html.parser")
+    for tag in soup.select('script[type="application/ld+json"]'):
+        raw = tag.string or ""
+        if not raw:
+            continue
+        try:
+            data = json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        nodes = data if isinstance(data, list) else [data]
+        for node in nodes:
+            if not isinstance(node, dict):
+                continue
+            offers = node.get("offers")
+            candidates = offers if isinstance(offers, list) else [offers]
+            for offer in candidates:
+                if not isinstance(offer, dict):
+                    continue
+                price = offer.get("price") or offer.get("lowPrice")
+                if price is None:
+                    continue
+                try:
+                    val = float(str(price).replace(",", "").replace("£", ""))
+                except (TypeError, ValueError):
+                    continue
+                if val > 0:
+                    return val
+            if node.get("price") is not None:
+                try:
+                    val = float(str(node["price"]).replace(",", "").replace("£", ""))
+                    if val > 0:
+                        return val
+                except (TypeError, ValueError):
+                    pass
+
+    # Visible-text fallback: first £ amount inside a plausible retail range.
+    for match in re.finditer(r"£\s*([0-9]+(?:\.[0-9]{1,2})?)", soup.get_text(" ")):
+        try:
+            val = float(match.group(1))
+        except ValueError:
+            continue
+        if 0.5 <= val <= 5000:
+            return val
+    return 0.0
+
+
+def _verify_supplier_candidates(query: str, candidates: list) -> list:
+    """Fetch each candidate URL and keep ONLY what it confirms.
+
+    C13: the LLM may name a URL, but the price, title, link and supplier
+    type written into the result all come from the page itself. Anything
+    that cannot be fetched or parsed is dropped — we never show a supplier
+    row we did not read off a live page.
+    """
+    verified_rows: list = []
+    seen_urls: set = set()
+
+    for cand in candidates:
+        if len(verified_rows) >= _MAX_VERIFIED_SUPPLIERS:
+            break
+        if not isinstance(cand, dict):
+            continue
+        url = str(cand.get("url", "")).strip()
+        if not url.startswith("http") or url in seen_urls:
+            continue
+        seen_urls.add(url)
+
+        try:
+            resp = requests.get(url, headers=_HEADERS, timeout=15)
+            resp.raise_for_status()
+            html = resp.text
+        except requests.RequestException:
+            continue  # unverifiable -> dropped, never shown
+
+        price = _extract_price(html)
+        title = _extract_title(html)
+        if price <= 0 or not title:
+            continue  # confirm nothing usable -> drop (C1/C12)
+
+        host = (urlparse(url).hostname or "").replace("www.", "")
+        verified_rows.append({
+            "name": host,
+            "full_name": host,
+            "price": price,
+            "url": url,
+            "supplier_type": classify_source(name=host, url=url),
+            "delivery_days": "",
+            "product_title": title,
+            "notes": "Retrieved and priced from the live product page.",
+            # C13 — provenance travels with the row.
+            "provenance": Provenance.VERIFIED.value,
+            "provenance_label": Provenance.VERIFIED.label,
+            "source_url": url,
+            "source_name": host,
+            "match_basis": cand.get("why", "") or "candidate URL confirmed by fetch",
+            # P4 — stock/shipping as the page stated them. Absent text means
+            # unknown; the keys are still present so consumers never guess.
+            **_page_availability(html, url),
+        })
+
+    return verified_rows
+
+
+# ---------------------------------------------------------------------------
 # Main deep search
 # ---------------------------------------------------------------------------
 
 _SYSTEM_PROMPT = """\
 You are a UK eBay reselling research assistant. You are given raw search
 results and page extracts about a product. Analyse the data and return a
-JSON object with the following fields (all prices in GBP £):
+JSON object (all prices in GBP £).
+
+You produce ANALYSIS, never facts. You will NOT be asked for seller names,
+seller URLs, supplier names, supplier prices or supplier links — the system
+retrieves those from real sources and verifies them. Do not invent any.
 
 {
   "product_name": "string",
   "product_category": "string",
   "brand_name": "<brand/manufacturer named in the product data, else empty string>",
-  "ebay_items_sold_month": "estimated items sold per month on eBay UK, e.g. '500-1000'",
-  "ebay_top_sellers": [
-    {"name": "seller name", "url": "eBay listing URL", "price": "£XX.XX"}
-  ],
+  "ebay_items_sold_month": "your ESTIMATE of items sold per month on eBay UK, e.g. '500-1000'",
   "ebay_price_range": "£low - £high (avg £avg)",
   "ebay_avg_price": 15.99,
-  "suppliers": [
+  "supplier_candidates": [
     {
-      "name": "supplier name",
-      "price": 5.99,
-      "url": "https://supplier-url.com",
-      "supplier_type": "wholesaler | retailer | dropshipper | manufacturer",
-      "delivery_days": "3-5",
-      "notes": "any notes"
+      "url": "https://exact-product-page-url-if-the-supplied-data-contains-one",
+      "why": "one line: why this page is likely the same product"
     }
   ],
   "competition_level": "low | medium | high",
@@ -283,14 +502,19 @@ JSON object with the following fields (all prices in GBP £):
 
 Rules:
 - All prices MUST be in GBP (£).
-- Find MULTIPLE suppliers (at least 2-3 if possible) with real prices and links.
-- Focus on UK market data only.
-- brand_name must be a real brand explicitly named in the data — empty string when the product is generic/unknown (never guess).
+- `supplier_candidates` is a list of CANDIDATE URLs you saw in the supplied
+  data. Only include a URL that literally appeared in the data. If you have
+  none, return an empty list. The system will fetch and verify each one;
+  anything it cannot confirm is DISCARDED, so a guessed URL is wasted work.
+- NEVER return a supplier name, supplier price, seller name or seller URL.
+  Those come from the retrieval layer, not from you.
+- brand_name must be a real brand explicitly named in the data — empty string
+  when the product is generic/unknown (never guess).
+- Label your own numbers as estimates: ebay_items_sold_month, ebay_price_range
+  and ebay_avg_price are ESTIMATES unless the supplied data states them.
 - If data is uncertain, say so in notes.
 - Return ONLY valid JSON, no markdown fences, no commentary.
-- Use up to 3 top eBay sellers. If fewer found, return fewer.
 - ebay_avg_price should be a number (not a string).
-- Each supplier price should be a number (not a string).
 """
 
 
@@ -307,13 +531,18 @@ def deep_search_product(query: str) -> DeepSearchResult:
     band_notes: List[str] = []
 
     # ── Get real eBay sold data first ──
+    sold_for_stores = None
     try:
         from scrapers.ebay_sold import EbaySoldScraper
         sold_scraper = EbaySoldScraper()
         sold_data = sold_scraper.get_sold_data(query)
+        sold_for_stores = sold_data
 
         # Use real data instead of LLM estimates
         if sold_data.items:
+            # C10 — EbaySoldScraper queries with conditions:{NEW}, so every
+            # item that came back is New. No items = no condition to claim.
+            result.ebay_condition = "New"
             if getattr(sold_data, "excluded_over_band", 0):
                 band_notes.append(
                     excluded_note("sold listings", sold_data.excluded_over_band)
@@ -330,6 +559,10 @@ def deep_search_product(query: str) -> DeepSearchResult:
             result.sources.extend([item.url for item in sold_data.items[:5] if item.url])
     except Exception as e:
         print(f"[WARN] eBay sold data unavailable: {e}")
+
+    # C11 — competitor stores from the query we just ran (no extra request
+    # in the normal case). Falls back to a search only if that yielded none.
+    result.attach_stores(sold_data=sold_for_stores, query=query)
 
     search_queries = [
         f"{query} eBay UK sold price",
@@ -396,18 +629,6 @@ def deep_search_product(query: str) -> DeepSearchResult:
         # No real data, use LLM estimate
         result.ebay_items_sold_month = parsed.get("ebay_items_sold_month", "")
 
-        # LLM top sellers carry price strings — every figure must sit in band (PR-1)
-        top_sellers = parsed.get("ebay_top_sellers", []) or []
-        kept_sellers, excluded_sellers = [], 0
-        for s in top_sellers:
-            if _llm_price_in_band(s.get("price")):
-                kept_sellers.append(s)
-            else:
-                excluded_sellers += 1
-        result.ebay_top_sellers = kept_sellers
-        if excluded_sellers:
-            band_notes.append(excluded_note("LLM top-seller figures", excluded_sellers))
-
         # LLM price range is gated on ITS OWN numbers, not on avg (PR-2 layer 4)
         price_range = parsed.get("ebay_price_range", "")
         if price_range and not _llm_price_range_in_band(price_range):
@@ -431,21 +652,95 @@ def deep_search_product(query: str) -> DeepSearchResult:
             result.ebay_price_range = ""
         result.ebay_avg_price = avg_f
 
-    # Supplier rows are never range-gated (PR-1) — every match is kept and
-    # shown; margin decides buyability.
-    suppliers = parsed.get("suppliers", [])
-    if suppliers:
-        result.suppliers = suppliers
-        # Find best (cheapest) supplier
-        valid = [s for s in suppliers if isinstance(s.get("price"), (int, float)) and s["price"] > 0]
+    # C13 — the LLM is NOT a source of sellers. `ebay_top_sellers` used to
+    # be read straight from `parsed`, so an invented name AND an invented
+    # URL could be rendered as a real eBay store with a real-looking link.
+    # Popped unconditionally: the field is written only by the retrieval
+    # layer (real New-filtered eBay items), never by the model.
+    parsed.pop("ebay_top_sellers", None)
+
+    # C12/C13 — supplier rows are NEVER taken from the LLM.
+    # `parsed["suppliers"]` used to be assigned verbatim and then feed
+    # best_supplier_price -> profit -> verdict, so a hallucinated price could
+    # produce a PASS. Candidates the LLM names are only ever URLs to FETCH;
+    # a row exists here only if it was retrieved and confirmed (verify-or-drop).
+    parsed.pop("suppliers", None)
+    verified_suppliers = _verify_supplier_candidates(
+        query, parsed.get("supplier_candidates", []) or []
+    )
+    # C14 — retrieved is not the same as matching. Every confirmed page is
+    # now scored against the eBay title, and anything the matcher cannot
+    # place above the threshold is dropped rather than shown (C12).
+    verified_suppliers = _gate_suppliers(
+        verified_suppliers,
+        result.product_name or query,
+        brand=parsed.get("brand_name", ""),
+        ebay_price=result.ebay_avg_price or 0.0,
+    )
+    if verified_suppliers:
+        result.suppliers = verified_suppliers
+        valid = [s for s in verified_suppliers
+                 if isinstance(s.get("price"), (int, float)) and s["price"] > 0]
         if valid:
             best = min(valid, key=lambda s: s["price"])
             result.best_supplier_price = best["price"]
+            # C14 — a merely plausible match may still set the profit input;
+            # say so, because an unconfirmed identity underpins the verdict.
+            if best.get("match_tier") != "verified":
+                band_notes.append(
+                    f"Cheapest supplier matched only at {best.get('match_score', 0.0):.2f} "
+                    f"({best.get('match_label', 'not confirmed')}) — profit is "
+                    "based on an unconfirmed product match (C14)."
+                )
+    elif parsed.get("supplier_candidates"):
+        band_notes.append(
+            "Supplier candidates could not be confirmed against their live "
+            "pages — dropped rather than shown unverified (C12)."
+        )
 
     result.delivery_info = parsed.get("delivery_info", "")
     result.competition_level = parsed.get("competition_level", "")
     result.profit_potential = parsed.get("profit_potential", "")
     result.notes = parsed.get("notes", "")
+
+    # ── C13 provenance stamp ──
+    # Every factual field says where its value came from. Anything still
+    # holding a bare LLM number is tagged unverified, and the analysis-only
+    # fields are tagged ai_insight so they can never be mistaken for data.
+    if result.ebay_total_sold_30d or result.ebay_top_sellers:
+        result.set_fact_provenance(
+            "ebay_total_sold_30d", Provenance.VERIFIED,
+            source_name="eBay Browse API (conditions:{NEW})"
+        )
+        result.set_fact_provenance(
+            "ebay_top_sellers", Provenance.VERIFIED,
+            source_name="eBay Browse API (conditions:{NEW})"
+        )
+        result.set_fact_provenance("ebay_avg_price", Provenance.VERIFIED)
+        result.set_fact_provenance("ebay_condition", Provenance.VERIFIED)
+    else:
+        for name in ("ebay_total_sold_30d", "ebay_top_sellers", "ebay_avg_price",
+                     "ebay_price_range", "ebay_items_sold_month"):
+            result.set_fact_provenance(name, Provenance.UNVERIFIED,
+                                       reason="no eBay sold data retrieved")
+    for sup in result.suppliers:
+        sup.setdefault("provenance", Provenance.VERIFIED.value)
+    if result.suppliers:
+        result.set_fact_provenance("suppliers", Provenance.VERIFIED,
+                                   source_name="live product pages (fetched)")
+    else:
+        result.set_fact_provenance("suppliers", Provenance.UNVERIFIED,
+                                   reason="no supplier page could be confirmed")
+    for name in ("competition_level", "profit_potential", "delivery_info",
+                 "notes", "product_category"):
+        result.set_fact_provenance(name, Provenance.AI_INSIGHT,
+                                   method="LLM analysis of retrieved pages")
+
+    # C11/C13 — the store block's own stamp rides into the fields map too,
+    # so an export consumer reading `provenance.fields` sees stores without
+    # needing a second top-level key.
+    if result.ebay_stores_provenance:
+        result.field_provenance.setdefault("ebay_stores", dict(result.ebay_stores_provenance))
 
     # ── Calculate profit & verdict (same logic as Analyze tab) ──
     _calculate_profit_and_verdict(
@@ -470,12 +765,16 @@ def deep_search_fast(query: str) -> DeepSearchResult:
     band_notes: List[str] = []
 
     # ── Get real eBay sold data ──
+    sold_for_stores = None
     try:
         from scrapers.ebay_sold import EbaySoldScraper
         sold_scraper = EbaySoldScraper()
         sold_data = sold_scraper.get_sold_data(query)
+        sold_for_stores = sold_data
 
         if sold_data.items:
+            # C10 — same basis as the full path: New-filtered query results.
+            result.ebay_condition = "New"
             if getattr(sold_data, "excluded_over_band", 0):
                 band_notes.append(
                     excluded_note("sold listings", sold_data.excluded_over_band)
@@ -495,6 +794,13 @@ def deep_search_fast(query: str) -> DeepSearchResult:
             print(f"[WARN] eBay sold: no items found for '{query}'")
     except Exception as e:
         print(f"[WARN] eBay sold data failed: {e}")
+
+    # C11 — stores for Bulk, from the query we just ran. Deliberately NO
+    # `query=` fallback here: this is the fast path (seconds, no LLM), and
+    # Bulk runs it once per line, so a network retry per query would cost
+    # more than the feature is worth. Sold data → stores for free; no sold
+    # data → [] with an UNVERIFIED stamp that says so.
+    result.attach_stores(sold_data=sold_for_stores)
 
     # ── Run supplier scrapes in PARALLEL ──
     import asyncio
@@ -567,7 +873,6 @@ def deep_search_fast(query: str) -> DeepSearchResult:
     for source_name, product in cj_results + ae_results + amz_results:
         if not product.price or product.price <= 0:
             continue
-        supplier_type = "retailer" if source_name == "Amazon UK" else "dropshipper"
         store_display = product.store_name or product.seller or source_name
 
         result.suppliers.append({
@@ -575,13 +880,41 @@ def deep_search_fast(query: str) -> DeepSearchResult:
             "full_name": store_display,
             "price": product.price,
             "url": product.url,
-            "supplier_type": supplier_type,
+            # C13 — derived from the real source, never assumed. Amazon is
+            # not the only retailer and everything else is not a dropshipper.
+            "supplier_type": classify_source(
+                name=store_display or source_name, url=product.url
+            ),
             "delivery_days": f"{product.delivery_days_min}-{product.delivery_days_max}",
             "seller_rating": product.seller_rating,
             "seller_orders": product.seller_orders,
             "product_title": product.title,
             "image_url": product.image_url,
+            # C13 — a row only exists because a scraper read it, so it is
+            # verified, and it carries its own link as the receipt.
+            "provenance": Provenance.VERIFIED.value,
+            "provenance_label": Provenance.VERIFIED.label,
+            "source_url": product.url,
+            "source_name": source_name,
+            # P4 — availability exactly as the scraper read it. Blank/0 means
+            # the source never said, which is the only honest answer (C13).
+            "in_stock": getattr(product, "in_stock", ""),
+            "stock_raw": getattr(product, "stock_raw", ""),
+            "availability_url": getattr(product, "availability_url", "") or product.url,
+            "shipping_cost": getattr(product, "shipping_cost", 0.0),
+            "shipping_days": getattr(product, "shipping_days", 0),
+            "shipping_raw": getattr(product, "shipping_raw", ""),
         })
+
+    # C14 — same gate as the full path: score against the eBay title and
+    # drop anything the matcher cannot place above the threshold (C12).
+    # Applied to the whole list at once so the cheapest-row pick below only
+    # ever considers rows that cleared it.
+    result.suppliers = _gate_suppliers(
+        result.suppliers,
+        result.product_name or query,
+        ebay_price=result.ebay_avg_price or 0.0,
+    )
 
     # Find best supplier
     if result.suppliers:
@@ -592,6 +925,28 @@ def deep_search_fast(query: str) -> DeepSearchResult:
 
     result.sources = sources
     result.notes = "Fast analysis (no LLM). For full analysis use Deep Search tab."
+
+    # ── C13 provenance stamp (fast path: no LLM, so nothing is ai_insight) ──
+    if result.ebay_total_sold_30d or result.ebay_top_sellers:
+        for name in ("ebay_total_sold_30d", "ebay_top_sellers", "ebay_avg_price",
+                     "ebay_condition"):
+            result.set_fact_provenance(name, Provenance.VERIFIED,
+                                       source_name="eBay Browse API (conditions:{NEW})")
+    else:
+        for name in ("ebay_total_sold_30d", "ebay_top_sellers", "ebay_avg_price",
+                     "ebay_price_range", "ebay_items_sold_month", "ebay_condition"):
+            result.set_fact_provenance(name, Provenance.UNVERIFIED,
+                                       reason="no eBay sold data retrieved")
+    result.set_fact_provenance(
+        "suppliers",
+        Provenance.VERIFIED if result.suppliers else Provenance.UNVERIFIED,
+        source_name="supplier scrapers (CJ / AliExpress / Amazon UK)",
+        method="" if result.suppliers else "no supplier scrape returned a price",
+    )
+    # C11/C13 — store block stamp (same shape as the full path).
+    if result.ebay_stores_provenance:
+        result.field_provenance.setdefault("ebay_stores",
+                                           dict(result.ebay_stores_provenance))
 
     # Calculate profit & verdict
     _calculate_profit_and_verdict(result)
@@ -653,7 +1008,10 @@ def _calculate_profit_and_verdict(
         title=result.product_name or "item",
         price=ebay_price,
         url="",
-        condition="New",
+        # C10 — '' unless real New-filtered eBay items backed this result.
+        # decisions.py marks the Condition row Unverified from the blank
+        # value alone (C1); the other rows' verification is unaffected.
+        condition=result.ebay_condition,
         delivery_days_max=None,  # deep search has no listing delivery — advisory uses supplier
         verified=True,
         # C5: an LLM-named brand is checked against the VeRO catalog by the

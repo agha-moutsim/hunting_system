@@ -8,8 +8,17 @@ from datetime import datetime
 from typing import Optional
 from urllib.parse import quote_plus
 
-from scrapers.base import BaseScraper, ScrapedProduct
+from scrapers.availability import parse_shipping_text
+from scrapers.base import BaseScraper, DELIVERY_SELECTORS, STOCK_SELECTORS, ScrapedProduct
 from config import SCRAPE_CONFIG
+
+# P4 — Amazon's own hooks first (its availability line is `#availability`,
+# an id, not a class), then the generic ones (C1: absent = unknown).
+_AMAZON_STOCK_SELECTORS = ("#availability", "[itemprop='availability']") + STOCK_SELECTORS
+_AMAZON_DELIVERY_SELECTORS = (
+    "#mir-layout-DELIVERY_BLOCK",
+    "#deliveryBlockMessage",
+) + DELIVERY_SELECTORS
 
 
 class AmazonUKScraper(BaseScraper):
@@ -41,6 +50,10 @@ class AmazonUKScraper(BaseScraper):
         partner_tag = os.getenv("AMAZON_PA_PARTNER_TAG", "")
 
         if not access_key or not secret_key:
+            # P4 — no Associates credentials exist here, so the signed
+            # request would only ever be rejected. Fail closed; SerpApi
+            # discovery carries Amazon UK now.
+            print("[WARN] Amazon PA API credentials missing — PA search skipped")
             return []
 
         try:
@@ -211,6 +224,14 @@ class AmazonUKScraper(BaseScraper):
         if card.select_one("span.a-text-price"):
             condition = "Renewed"
 
+        # P4 — read stock/shipping only where the card prints them (C1/C13).
+        # Amazon search cards rarely carry an availability line, so this
+        # usually stays unknown — which is the correct answer.
+        stock_state, stock_raw = self._read_stock(card, _AMAZON_STOCK_SELECTORS)
+        ship_el = card.select_one("span.a-color-base.a-text-bold")
+        ship_text = ship_el.get_text(" ", strip=True) if ship_el else ""
+        ship_cost, ship_days, ship_raw = parse_shipping_text(ship_text)
+
         return ScrapedProduct(
             source="amazon_uk",
             title=title,
@@ -222,6 +243,12 @@ class AmazonUKScraper(BaseScraper):
             seller=seller,
             condition=condition,
             verified=True,
+            in_stock=stock_state,
+            stock_raw=stock_raw,
+            availability_url=url if stock_raw else "",
+            shipping_cost=ship_cost,
+            shipping_days=ship_days,
+            shipping_raw=ship_raw,
         )
 
     def _extract_delivery_info(self, card) -> tuple[Optional[int], Optional[int]]:
@@ -291,9 +318,11 @@ class AmazonUKScraper(BaseScraper):
             image_url = img_el.get("data-old-hires") or img_el.get("src")
 
         delivery_min, delivery_max = 1, 5
+        delivery_text = ""
         delivery_el = soup.select_one("#mir-layout-DELIVERY_BLOCK")
         if delivery_el:
-            text = delivery_el.get_text(strip=True).lower()
+            delivery_text = delivery_el.get_text(" ", strip=True)
+            text = delivery_text.lower()
             if "prime" in text:
                 delivery_min, delivery_max = 1, 2
             else:
@@ -315,6 +344,12 @@ class AmazonUKScraper(BaseScraper):
         if condition_el:
             condition = condition_el.get_text(strip=True)
 
+        # P4 — availability read off this page (the #availability line
+        # and schema.org JSON-LD), never assumed (C1/C13). shipping_*
+        # parses the same delivery block the days above came from.
+        stock_state, stock_raw = self._read_stock(soup, _AMAZON_STOCK_SELECTORS)
+        ship_cost, ship_days, ship_raw = parse_shipping_text(delivery_text)
+
         return ScrapedProduct(
             source="amazon_uk",
             title=title,
@@ -327,4 +362,10 @@ class AmazonUKScraper(BaseScraper):
             condition=condition,
             verified=True,
             raw_html=html,
+            in_stock=stock_state,
+            stock_raw=stock_raw,
+            availability_url=url if stock_raw else "",
+            shipping_cost=ship_cost,
+            shipping_days=ship_days,
+            shipping_raw=ship_raw,
         )

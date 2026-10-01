@@ -72,6 +72,52 @@ class TestPutFilters:
             assert client.get("/api/filters").json()["range"] == {"min": 5.0, "max": 35.0}
 
 
+class TestConditionInFiltersApi:
+    """C10 — condition is part of the contract, validated, never poisonable."""
+
+    def test_condition_is_exposed_as_new_by_default(self):
+        with _client() as client:
+            body = client.get("/api/filters").json()
+            assert body["active"]["condition"] == "New"
+
+    def test_setting_condition_new_persists(self):
+        with _client() as client:
+            resp = client.put("/api/filters",
+                              json={"price_min": 5, "price_max": 35, "condition": "New"})
+            assert resp.status_code == 200
+            assert resp.json()["condition"] == "New"
+            assert client.get("/api/filters").json()["active"]["condition"] == "New"
+
+    @pytest.mark.parametrize("bad", ["Used", "Refurbished", "Pre-owned", "", "new",
+                                     "ANY", "New; Used"])
+    def test_non_new_condition_is_422_and_gate_unchanged(self, bad):
+        with _client() as client:
+            resp = client.put("/api/filters",
+                              json={"price_min": 5, "price_max": 35, "condition": bad})
+            assert resp.status_code == 422
+            assert client.get("/api/filters").json()["active"]["condition"] == "New"
+
+    def test_condition_omitted_leaves_existing_value_alone(self):
+        # Range-only clients (the PR-7 shape) must keep working.
+        with _client() as client:
+            resp = client.put("/api/filters", json={"price_min": 7, "price_max": 30})
+            assert resp.status_code == 200
+            assert client.get("/api/filters").json()["active"]["condition"] == "New"
+
+    def test_poisoned_storage_file_cannot_relax_new_only(self, monkeypatch, tmp_path):
+        import utils.filters as uf
+        target = tmp_path / "poisoned.json"
+        target.write_text(json.dumps({"active": {"condition": "Used"}, "presets": {}}))
+        monkeypatch.setattr(uf, "FILTERS_FILE", target)
+        uf._cache["mtime"] = None
+        uf._cache["data"] = None
+        try:
+            assert uf.load_filters()["condition"] == "New"
+        finally:
+            uf._cache["mtime"] = None
+            uf._cache["data"] = None
+
+
 class _CapturedScan:
     """Fake category_scan + demand_check so /hunter/scan never scrapes."""
 

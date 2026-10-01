@@ -7,7 +7,8 @@ import re
 
 from bs4 import BeautifulSoup
 
-from scrapers.base import BaseScraper, ScrapedProduct
+from scrapers.availability import parse_shipping_text, serpapi_item_availability
+from scrapers.base import BaseScraper, DELIVERY_SELECTORS, STOCK_SELECTORS, ScrapedProduct
 from config import SCRAPE_CONFIG
 
 
@@ -75,6 +76,8 @@ class ToolstationScraper(BaseScraper):
                     delivery_days_min=1,
                     delivery_days_max=3,
                     verified=True,
+                    # P4 — stock/shipping off the SerpApi entry (C13/C1).
+                    **serpapi_item_availability(item),
                 ))
 
             return products
@@ -113,6 +116,11 @@ class ToolstationScraper(BaseScraper):
             if image_el:
                 image_url = image_el.get("src") or image_el.get("data-src")
 
+            # P4 — read stock/delivery only where the card prints them;
+            # a missing element is unknown, never a default (C1/C13).
+            stock_state, stock_raw = self._read_stock(card, STOCK_SELECTORS)
+            ship_cost, ship_days, ship_raw = self._read_shipping(card, DELIVERY_SELECTORS)
+
             results.append(ScrapedProduct(
                 source="toolstation",
                 title=title,
@@ -124,6 +132,12 @@ class ToolstationScraper(BaseScraper):
                 seller="Toolstation",
                 condition="New",
                 verified=True,
+                in_stock=stock_state,
+                stock_raw=stock_raw,
+                availability_url=href if stock_raw else "",
+                shipping_cost=ship_cost,
+                shipping_days=ship_days,
+                shipping_raw=ship_raw,
             ))
 
         return results
@@ -169,6 +183,12 @@ class ToolstationScraper(BaseScraper):
 
         seller = seller_el.get_text(strip=True) if seller_el else "Toolstation"
 
+        # P4 — availability read off this page, never assumed (C1/C13).
+        # shipping_* comes from the same line the delivery days did, so
+        # both describe one reading.
+        stock_state, stock_raw = self._read_stock(soup, STOCK_SELECTORS)
+        ship_cost, ship_days, ship_raw = parse_shipping_text(delivery_text)
+
         return ScrapedProduct(
             source="toolstation",
             title=title,
@@ -180,6 +200,12 @@ class ToolstationScraper(BaseScraper):
             seller=seller,
             condition="New",
             verified=True,
+            in_stock=stock_state,
+            stock_raw=stock_raw,
+            availability_url=url if stock_raw else "",
+            shipping_cost=ship_cost,
+            shipping_days=ship_days,
+            shipping_raw=ship_raw,
         )
 
     def _parse_delivery(self, text: str) -> tuple[int | None, int | None]:

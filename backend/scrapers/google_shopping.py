@@ -11,6 +11,8 @@ from typing import Optional
 
 import requests
 
+from scrapers.availability import serpapi_item_availability
+
 logger = logging.getLogger(__name__)
 
 SERPAPI_BASE = "https://serpapi.com/search.json"
@@ -48,7 +50,7 @@ class GoogleShoppingAPI:
             retailer = item.get("source", item.get("seller", "Unknown"))
 
             # Filter to our target suppliers if needed
-            products.append({
+            row = {
                 "source": retailer,
                 "title": item.get("title", ""),
                 "price": _parse_price(item.get("extracted_price", item.get("price", "0"))),
@@ -58,7 +60,11 @@ class GoogleShoppingAPI:
                 "rating": item.get("rating"),
                 "reviews": item.get("reviews"),
                 "delivery": item.get("delivery", ""),
-            })
+            }
+            # P4 — stock/shipping read off the same SerpApi entry (C13);
+            # keys the entry does not carry stay unknown, never defaulted.
+            row.update(serpapi_item_availability(item))
+            products.append(row)
 
         return products
 

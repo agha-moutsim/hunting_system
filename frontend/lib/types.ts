@@ -1,5 +1,82 @@
 /** TypeScript mirrors of FastAPI Phase A responses. */
 
+// ── Provenance (C13) ────────────────────────────────────────────
+
+/** Four-tier provenance stamp on every factual value. */
+export type Provenance = "verified" | "estimated" | "unverified" | "ai_insight";
+
+/** Per-value / per-section provenance metadata. */
+export interface ProvenanceInfo {
+  provenance?: string;
+  label?: string;
+  source_url?: string;
+  source_name?: string;
+  method?: string;
+  reason?: string;
+}
+
+/** Top-level provenance block attached to analysis responses. */
+export interface ProvenanceBlock {
+  demand?: ProvenanceInfo;
+  top_eBay_sellers?: ProvenanceInfo;
+  suppliers?: ProvenanceInfo;
+  profit_analysis?: ProvenanceInfo;
+  fields?: Record<string, ProvenanceInfo>;
+}
+
+/**
+ * Product-match tier (C14) — `""` / absent = never scored.
+ * An unscored row must never render as a confident match (C13/C14).
+ */
+export type MatchTier = "verified" | "unverified" | "no_match" | "";
+
+/** Stock state as the source stated it — `""` = unknown, never assumed. */
+export type StockState = "in_stock" | "low_stock" | "out_of_stock" | "";
+
+/**
+ * Optional product-match + availability fields a supplier row may carry.
+ * Every field is nullable: the backend may send rows without any of them
+ * (older path, or the source never said). Missing renders as missing.
+ */
+export interface MatchAvailabilityFields {
+  /** Computed 0.0–1.0 by the matcher — never a constant (C14). */
+  match_score?: number | null;
+  /** `""` / absent = never scored — must not read as a confident match. */
+  match_tier?: MatchTier | null;
+  /** Backend's own wording: "verified match" | "not confirmed" | "no confirmed match". */
+  match_label?: string | null;
+  /** Human-readable reason the score is what it is — tooltip only, never card body. */
+  match_basis?: string | null;
+  /** Names the scoring algorithm (audit trail). */
+  match_method?: string | null;
+  /** `""` = unknown — never assume in stock. */
+  in_stock?: StockState | null;
+  /** Exact source text, e.g. "Only 3 left" — shown verbatim when `in_stock` is `""`. */
+  stock_raw?: string | null;
+  availability_url?: string | null;
+  /** 0.0 = UNKNOWN, not "free" — `shipping_raw` disambiguates. */
+  shipping_cost?: number | null;
+  /** 0 = unknown. */
+  shipping_days?: number | null;
+  /** Exact source text — authoritative when present. */
+  shipping_raw?: string | null;
+}
+
+/** Competitor eBay store (C11 — up to 4, real seller usernames only). */
+export interface EbayStore {
+  name: string;
+  url: string;
+  /** true = the /str/ URL was derived from the username, not observed. */
+  url_derived?: boolean;
+  /** Listings observed in the search window (cap 50) — NOT eBay sold count. */
+  sold_count: number;
+  sold_count_label?: string;
+  avg_price: number;
+  provenance?: string;
+  provenance_label?: string;
+  source_name?: string;
+}
+
 // ── Filters / price range (GET-PUT /api/filters) ────────────────
 
 export interface PriceRange {
@@ -47,7 +124,7 @@ export interface SystemStatus {
 
 // ── Analyze ─────────────────────────────────────────────────────
 
-export interface ScrapedProduct {
+export interface ScrapedProduct extends MatchAvailabilityFields {
   source: string;
   title: string;
   price: number;
@@ -62,6 +139,8 @@ export interface ScrapedProduct {
   store_name?: string | null;
   condition?: string;
   verified?: boolean;
+  provenance?: string;
+  provenance_label?: string;
   /** True when this price sits outside the active price range. */
   outside_band?: boolean;
 }
@@ -74,6 +153,8 @@ export interface DemandData {
   lowest_sold_price?: number | null;
   highest_sold_price?: number | null;
   verified?: boolean;
+  provenance?: string;
+  provenance_label?: string;
 }
 
 export interface LLMAnalysis {
@@ -97,6 +178,8 @@ export interface FilterCheck {
   verified?: boolean;
   /** true = advisory row (e.g. "Delivery (advisory)") — never pass/fail. */
   advisory?: boolean;
+  provenance?: string;
+  provenance_label?: string;
 }
 
 export interface VerdictData {
@@ -114,11 +197,18 @@ export interface AnalyzeResponse {
   verdict: VerdictData | null;
   scorecard: string;
   errors: string[];
+  /** Top-level provenance block — NOT a per-row tier string. */
+  provenance?: ProvenanceBlock;
+  /** Competitor eBay stores (C11) — also returned by the URL-hunt path. */
+  ebay_stores?: EbayStore[];
 }
 
 // ── Deep Search ─────────────────────────────────────────────────
 
-export interface SupplierInfo {
+export interface SupplierInfo extends Omit<
+  MatchAvailabilityFields,
+  "match_basis"
+> {
   name: string;
   full_name?: string;
   price: number;
@@ -130,6 +220,11 @@ export interface SupplierInfo {
   product_title?: string;
   image_url?: string;
   notes?: string;
+  provenance?: string;
+  provenance_label?: string;
+  source_url?: string;
+  source_name?: string;
+  match_basis?: string;
 }
 
 export interface TopSeller {
@@ -137,6 +232,8 @@ export interface TopSeller {
   url: string;
   sold_count?: number;
   avg_price?: number;
+  provenance?: string;
+  provenance_label?: string;
 }
 
 export interface DeepSearchResult {
@@ -163,6 +260,10 @@ export interface DeepSearchResult {
   notes: string;
   sources: string[];
   raw_analysis: string;
+  /** Top-level provenance block — NOT a per-row tier string. */
+  provenance?: ProvenanceBlock;
+  /** Competitor eBay stores (C11) — supersedes ebay_top_sellers. */
+  ebay_stores?: EbayStore[];
 }
 
 export interface BulkResponse {
@@ -174,7 +275,7 @@ export interface BulkResponse {
 
 // ── Hunter ──────────────────────────────────────────────────────
 
-export interface CategoryProduct {
+export interface CategoryProduct extends MatchAvailabilityFields {
   title: string;
   price: number;
   url: string;
@@ -408,8 +509,12 @@ export interface ProductDetail {
     created_at?: string;
     updated_at?: string;
     outside_band?: boolean;
+    provenance?: string;
+    provenance_label?: string;
   };
   demand: DemandData | null;
+  provenance?: string;
+  provenance_label?: string;
   suppliers: {
     supplier_name: string;
     supplier_url?: string;
@@ -417,6 +522,11 @@ export interface ProductDetail {
     supplier_price?: number;
     delivery_days_min?: number;
     delivery_days_max?: number;
+    provenance?: string;
+    provenance_label?: string;
+    source_url?: string;
+    source_name?: string;
+    match_basis?: string;
   }[];
   analysis: LLMAnalysis | null;
   verdict: {

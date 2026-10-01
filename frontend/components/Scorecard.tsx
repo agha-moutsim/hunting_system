@@ -4,20 +4,41 @@ import {
   ScrapedProduct,
   DemandData,
   LLMAnalysis,
+  ProvenanceBlock,
+  ProvenanceInfo,
   VerdictData,
 } from "@/lib/types";
 import Badge from "@/components/ui/Badge";
 import Card from "@/components/ui/Card";
 import OutsideBandBadge from "@/components/ui/OutsideBandBadge";
+import ProvenanceBadge from "@/components/ui/ProvenanceBadge";
 import FilterChecks from "@/components/FilterChecks";
+import { fieldProvenance, infoTitle } from "@/lib/provenance";
 import { formatGBP, formatPercent } from "@/lib/format";
 import SupplierCard from "@/components/SupplierCard";
 
-function Metric({ label, value }: { label: string; value: React.ReactNode }) {
+function Metric({
+  label,
+  value,
+  prov,
+}: {
+  label: string;
+  value: React.ReactNode;
+  prov?: ProvenanceInfo;
+}) {
   return (
     <div className="bg-bg-surface border border-border rounded-control p-3">
-      <div className="text-[11px] font-semibold uppercase tracking-[0.05em] text-text-dim mb-1">
-        {label}
+      <div className="flex flex-wrap items-center justify-between gap-1 mb-1">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.05em] text-text-dim">
+          {label}
+        </div>
+        {prov && (
+          <ProvenanceBadge
+            provenance={prov.provenance}
+            label={prov.label}
+            title={infoTitle(prov)}
+          />
+        )}
       </div>
       <div className="text-lg font-bold text-white font-mono tabular-nums">
         {value}
@@ -79,6 +100,7 @@ export default function Scorecard({
   llmAnalysis,
   verdict,
   scorecard,
+  provenance,
 }: {
   ebayProduct: ScrapedProduct;
   demand?: DemandData | null;
@@ -86,6 +108,7 @@ export default function Scorecard({
   llmAnalysis?: LLMAnalysis | null;
   verdict?: VerdictData | null;
   scorecard?: string;
+  provenance?: ProvenanceBlock;
 }) {
   const v = (verdict?.verdict || "pending").toLowerCase();
   const priceRange =
@@ -94,6 +117,16 @@ export default function Scorecard({
     demand.highest_sold_price != null
       ? `${formatGBP(demand.lowest_sold_price)} – ${formatGBP(demand.highest_sold_price)}`
       : "⚠️ Unverified";
+
+  // Section-level stamp: the provenance block wins, else the demand object's
+  // own tier. Undefined = no badge at all (never a fabricated one).
+  const demandProv: ProvenanceInfo | undefined =
+    provenance?.demand ??
+    (demand?.provenance
+      ? { provenance: demand.provenance, label: demand.provenance_label }
+      : undefined);
+  const demandField = (name: string, ...aliases: string[]) =>
+    fieldProvenance(provenance?.fields, name, ...aliases);
 
   return (
     <div className="space-y-6">
@@ -189,12 +222,26 @@ export default function Scorecard({
       )}
 
       <div>
-        <SectionTitle>Demand Metrics</SectionTitle>
+        <SectionTitle>
+          Demand Metrics
+          {demandProv && (
+            <ProvenanceBadge
+              provenance={demandProv.provenance}
+              label={demandProv.label}
+              title={infoTitle(demandProv)}
+            />
+          )}
+        </SectionTitle>
         {demand && demand.sold_count_30d != null ? (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <Metric label="Sold (30d)" value={demand.sold_count_30d ?? 0} />
+            <Metric
+              label="Sold (30d)"
+              value={demand.sold_count_30d ?? 0}
+              prov={demandField("sold_count_30d")}
+            />
             <Metric
               label="Sold (7d)"
+              prov={demandField("sold_count_7d")}
               value={
                 demand.sold_count_7d ?? (
                   <span className="text-accent-amber">⚠️ Unverified</span>
@@ -203,13 +250,18 @@ export default function Scorecard({
             />
             <Metric
               label="Avg Sold Price"
+              prov={demandField("avg_sold_price")}
               value={
                 demand.avg_sold_price != null
                   ? formatGBP(demand.avg_sold_price)
                   : "⚠️ Unverified"
               }
             />
-            <Metric label="Price Range" value={priceRange} />
+            <Metric
+              label="Price Range"
+              prov={demandField("price_range", "lowest_sold_price")}
+              value={priceRange}
+            />
           </div>
         ) : (
           <div className="bg-bg-surface border border-border rounded-control p-4 text-sm text-text-secondary">
@@ -262,6 +314,7 @@ export default function Scorecard({
           <div className="grid grid-cols-3 gap-3 mb-4">
             <Metric
               label="Profit"
+              prov={provenance?.profit_analysis}
               value={
                 <span
                   className={
@@ -274,7 +327,11 @@ export default function Scorecard({
                 </span>
               }
             />
-            <Metric label="Margin" value={formatPercent(verdict.margin)} />
+            <Metric
+              label="Margin"
+              prov={provenance?.profit_analysis}
+              value={formatPercent(verdict.margin)}
+            />
             <Metric
               label="Verdict"
               value={<Badge tone={v}>{v.toUpperCase()}</Badge>}

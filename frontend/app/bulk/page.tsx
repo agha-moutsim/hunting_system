@@ -105,7 +105,9 @@ export default function BulkPage() {
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder={"wireless earbuds\nphone case\nkitchen organizer\n…one query per line"}
+            placeholder={
+              "wireless earbuds\nphone case\nkitchen organizer\n…one query per line"
+            }
             className="w-full bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder-text-dim focus:outline-none focus:border-accent-blue min-h-[120px]"
             disabled={loading}
           />
@@ -152,7 +154,10 @@ export default function BulkPage() {
                 <Button variant="secondary" onClick={() => exportClient("csv")}>
                   Export CSV
                 </Button>
-                <Button variant="secondary" onClick={() => exportClient("json")}>
+                <Button
+                  variant="secondary"
+                  onClick={() => exportClient("json")}
+                >
                   Export JSON
                 </Button>
               </div>
@@ -169,6 +174,9 @@ export default function BulkPage() {
           </Card>
 
           <div className="space-y-3">
+            {/* TODO(P5 / C11): each DeepSearchResult may carry `ebay_stores`,
+                but bulk rows have no expansion/detail panel — add one here
+                rather than cramming store rows into every card. */}
             {result.results.map((r: DeepSearchResult, i) => (
               <Card key={i}>
                 <div className="flex flex-wrap items-start justify-between gap-3">

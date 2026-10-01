@@ -5,6 +5,7 @@ import logging
 from fastapi import APIRouter
 
 from api.schemas import BulkRequest
+from api.provenance_block import build_provenance_block
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -24,7 +25,11 @@ def bulk_analyze(req: BulkRequest):
             continue
         try:
             result = deep_search_fast(query)
-            results.append(result.to_dict())
+            payload = result.to_dict()
+            # C13 — each DeepSearchResult carries its own provenance block,
+            # same shape as the single-query endpoints and the export.
+            payload["provenance"] = build_provenance_block(payload)
+            results.append(payload)
         except Exception as e:
             logger.warning("Bulk item failed: %s — %s", query, e)
             errors.append({"query": query, "error": str(e)})

@@ -8,6 +8,8 @@ import Spinner from "@/components/Spinner";
 import Scorecard from "@/components/Scorecard";
 import Badge from "@/components/ui/Badge";
 import RangeControl from "@/components/ui/RangeControl";
+import ProvenanceSelect from "@/components/ui/ProvenanceSelect";
+import EbayStoresCard from "@/components/EbayStoresCard";
 import { apiFetch, apiPost } from "@/lib/api";
 import { AnalyzeResponse, FiltersResponse, PriceRange } from "@/lib/types";
 
@@ -128,14 +130,21 @@ export default function AnalyzePage() {
         ))}
 
       {result?.ebay_product && (
-        <Scorecard
-          ebayProduct={result.ebay_product}
-          demand={result.demand}
-          suppliers={result.supplier_matches || []}
-          llmAnalysis={result.llm_analysis}
-          verdict={result.verdict}
-          scorecard={result.scorecard}
-        />
+        <>
+          <ProvenanceSelect />
+          <Scorecard
+            ebayProduct={result.ebay_product}
+            demand={result.demand}
+            suppliers={result.supplier_matches || []}
+            llmAnalysis={result.llm_analysis}
+            verdict={result.verdict}
+            scorecard={result.scorecard}
+            provenance={result.provenance}
+          />
+          {Array.isArray(result.ebay_stores) && (
+            <EbayStoresCard stores={result.ebay_stores} />
+          )}
+        </>
       )}
 
       {!loading && !result && !error && (

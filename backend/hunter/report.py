@@ -64,6 +64,7 @@ def generate_report(
             "profit": product.profit,
             "margin": product.margin,
             "verdict": product.verdict,
+            "ebay_stores": product.ebay_stores,
         })
 
     return result

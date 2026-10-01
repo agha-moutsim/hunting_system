@@ -12,6 +12,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
+from config import MAX_SUPPLIERS
 from db.database import SessionLocal
 from db.queries import (
     save_product,
@@ -21,11 +22,15 @@ from db.queries import (
     save_verdict_data,
 )
 from engine.decisions import DecisionEngine, Verdict as VerdictData
+from engine.condition_gate import condition_passes, filter_products_by_condition
 from engine.price_gate import (
     PRICE_MIN, PRICE_MAX, band_label, excluded_note,
     filter_products, in_band, over_band_reason,
 )
+from engine.match import TIER_NO_MATCH, compute_match
 from engine.scorecard import format_scorecard
+from engine.source_type import supplier_type
+from engine.stores import resolve_stores, store_provenance_block
 from llm.analyzer import ProductAnalyzer, LLMAnalysis
 from scrapers.ebay import EbayScraper
 from scrapers.base import ScrapedProduct, DemandData as DemandDataDTO
@@ -121,6 +126,43 @@ def apply_purchase_history(
             db.close()
 
 
+def _score_supplier(
+    product: ScrapedProduct, reference_title: str, ebay_price: float
+) -> bool:
+    """C14 — score one scraped row against the eBay title; keep only a match.
+
+    The score is computed here by code (never a constant, never the LLM's
+    confidence) and written onto the row, so the DB, the API response and
+    the exports all report the same number. Returns False when the matcher
+    calls it "no confirmed match" — the caller drops the row (C12: fewer
+    suppliers is correct; padding one in is not).
+
+    `brand` is deliberately empty at this point: supplier search runs
+    BEFORE the LLM, so no brand is known yet, and an unknown brand scores
+    neutrally rather than as a mismatch.
+    """
+    if not reference_title:
+        return True  # nothing to match against — cannot fail it either
+    result = compute_match(
+        reference_title,
+        product.title or "",
+        ebay_price=ebay_price,
+        candidate_price=product.price or 0.0,
+    )
+    product.match_score = result.score
+    product.match_tier = result.tier
+    product.match_label = result.label
+    product.match_basis = result.reason
+    product.match_method = result.method
+    if result.tier == TIER_NO_MATCH:
+        logger.info(
+            "Dropping supplier row '%s' (%s) — %s",
+            (product.title or "")[:60], product.source, result.reason,
+        )
+        return False
+    return True
+
+
 async def search_all_suppliers(query: str, progress=None) -> list[ScrapedProduct]:
     """Search all 7 supplier scrapers in parallel and return combined results."""
     from scrapers.aliexpress import AliExpressScraper
@@ -195,6 +237,11 @@ async def run_analysis_pipeline(
         "verdict": None,
         "scorecard": "",
         "errors": [],
+        # C11 — every analysis returns a competitor-store list, even when
+        # discovery found nothing. Present-but-empty + an UNVERIFIED stamp
+        # is the honest answer; an absent key would read as "not applicable".
+        "ebay_stores": [],
+        "ebay_stores_provenance": store_provenance_block([]),
     }
 
     try:
@@ -212,6 +259,12 @@ async def run_analysis_pipeline(
                     "eBay listing lookup timed out (25s) — retry, or try Deep Search → Fast."
                 )
                 return results
+            except ValueError as e:
+                # C10 — a Used/unknown-condition URL is refused here, before
+                # demand, suppliers or the LLM are touched.
+                results["errors"].append(str(e))
+                _report("✗ " + str(e))
+                return results
             # PR-3 Case A: over-band URL refuses before any further work.
             if not in_band(ebay_product.price):
                 results["errors"].append(over_band_reason(ebay_product.price))
@@ -225,8 +278,18 @@ async def run_analysis_pipeline(
                     "Get free keys at https://developer.ebay.com and add them to .env"
                 )
                 return results
+            # C10 — drop non-New BEFORE price selection so we pick the first
+            # listing that is both in-band and New, instead of analysing a
+            # Used row and refusing it at Step 5.
+            new_results, excluded_non_new = filter_products_by_condition(search_results)
+            if not new_results:
+                results["errors"].append(
+                    f'No NEW eBay listing for "{query}" — only new listings qualify.'
+                )
+                _report("✗ No NEW listing found")
+                return results
             # PR-3 Case B: first listing INSIDE the band; never result #1 blindly.
-            in_band_results, excluded_results = filter_products(search_results)
+            in_band_results, excluded_results = filter_products(new_results)
             if not in_band_results:
                 # PR-3 Case C: honest empty result, never an out-of-band guess.
                 results["errors"].append(
@@ -240,6 +303,22 @@ async def run_analysis_pipeline(
                 note = excluded_note("eBay search results", excluded_results)
                 results["errors"].append(f"⚠️ {note}")
                 _report(f"– {note}")
+            if excluded_non_new:
+                results["errors"].append(
+                    f"⚠️ {excluded_non_new} non-New eBay result(s) excluded (C10)."
+                )
+                _report(f"– {excluded_non_new} non-New result(s) excluded")
+
+        # C10 — condition gate runs BEFORE demand, suppliers and LLM spend.
+        # A non-New listing is refused here; it is never carried to Step 5.
+        if not condition_passes(ebay_product.condition):
+            reason = (
+                f"This listing is '{getattr(ebay_product, 'condition', '') or 'unknown condition'}' "
+                f"— only NEW listings qualify."
+            )
+            results["errors"].append(reason)
+            _report("✗ " + reason)
+            return results
 
         results["ebay_product"] = ebay_product
         _report(f"✓ Found: {ebay_product.title[:60]}")
@@ -252,6 +331,21 @@ async def run_analysis_pipeline(
         # (single-item analysis only — one item id per analysed URL).
         demand = apply_purchase_history(demand, ebay_product.url)
         results["demand"] = demand
+
+        # C11 — competitor stores for Analyze AND URL-hunt.
+        # `resolve_stores` prefers data this run ALREADY holds (the sold
+        # query above populates demand.top_sellers), and only spends a
+        # request when that yielded no sellers — so the common case costs
+        # nothing extra. Network failure degrades to [] + UNVERIFIED, never
+        # an exception that kills the analysis.
+        try:
+            stores = resolve_stores(demand=demand, query=search_term)
+        except Exception as e:  # noqa: BLE001 — stores are additive, not load-bearing
+            logger.warning("Store discovery failed (non-fatal): %s", e)
+            stores = []
+        results["ebay_stores"] = stores
+        results["ebay_stores_provenance"] = store_provenance_block(stores)
+
         if demand and demand.sold_count_30d:
             _report(f"✓ Demand: {demand.sold_count_30d} sold in 30 days")
         else:
@@ -276,6 +370,24 @@ async def run_analysis_pipeline(
             supplier_results = []
         # Supplier prices are never range-gated (PR-1) — keep usable rows as-is.
         supplier_results = [s for s in supplier_results if s.price and s.price > 0]
+        # C14/C12 — retrieved is not the same as matching. Each surviving row
+        # is scored against the eBay title by the deterministic matcher; a
+        # row the matcher cannot place above the threshold is dropped, never
+        # shown. Match fields land on the row so every later consumer (LLM,
+        # DB, API response) sees the same computed number.
+        supplier_results = [
+            s for s in supplier_results
+            if _score_supplier(s, ebay_product.title, ebay_product.price or 0.0)
+        ]
+        # C12 — a ceiling, never a target. Rank by how confidently the matcher
+        # identified the product, then by price, and keep at most 7. Sorting
+        # also makes `supplier_results[0]` (used for best_supplier_price
+        # below) the strongest confirmed match instead of whichever scraper
+        # happened to answer first.
+        supplier_results.sort(
+            key=lambda s: (-s.match_score, s.price or 0.0)
+        )
+        supplier_results = supplier_results[:MAX_SUPPLIERS]
         results["supplier_matches"] = supplier_results
         _report(f"✓ Supplier search done: {len(supplier_results)} total matches")
 
@@ -288,7 +400,7 @@ async def run_analysis_pipeline(
                 "delivery_days": s.delivery_days_max or "?",
                 "source": s.source,
             }
-            for s in supplier_results[:5]
+            for s in supplier_results[:MAX_SUPPLIERS]
         ]
         demand_dict = {
             "sold_count_30d": demand.sold_count_30d,
@@ -378,7 +490,7 @@ def save_analysis_to_db(results: dict):
         if demand:
             save_demand_data(db, product_id, demand)
 
-        for s in suppliers[:5]:
+        for s in suppliers[:MAX_SUPPLIERS]:
             save_supplier_match_data(db, product_id, {
                 "supplier_name": s.source,
                 "supplier_url": s.url,
@@ -386,9 +498,19 @@ def save_analysis_to_db(results: dict):
                 "supplier_price": s.price,
                 "delivery_days_min": s.delivery_days_min,
                 "delivery_days_max": s.delivery_days_max,
-                "supplier_type": "dropship",
-                "confidence": "medium",
-                "match_score": 0.5,
+                # C13 — these three used to be hard-coded constants
+                # ("dropship", "medium", 0.5) written as if they were
+                # measurements. Type is now derived from the real source
+                # URL; confidence and score are left NULL because no
+                # matcher has run at this point (P4 supplies one) and an
+                # unknown value must not be shown as a known one (C1).
+                "supplier_type": supplier_type(name=s.source, url=s.url),
+                "confidence": None,
+                "match_score": None,
+                # We read this row off a live scraper response — that IS
+                # the verification, so set it explicitly rather than
+                # inheriting the column default.
+                "verified": True,
             })
 
         if llm:

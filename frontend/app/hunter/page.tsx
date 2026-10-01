@@ -313,6 +313,9 @@ export default function HunterPage() {
               </span>
             )}
           </div>
+          {/* TODO(P5 / C11): surface competitor eBay stores here — no per-row
+              expansion exists yet, so add one (or a stores block above the
+              table) once the Hunter endpoints return `ebay_stores`. */}
           <DataTable
             columns={columns}
             rows={products}

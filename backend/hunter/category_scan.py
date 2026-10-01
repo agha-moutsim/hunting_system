@@ -8,6 +8,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from config import EBAY_UK_BASE, EBAY_CLIENT_ID, EBAY_CLIENT_SECRET, EBAY_API_BASE, EBAY_MARKETPLACE, SCRAPE_CONFIG, FILTERS
+from engine.condition_gate import html_condition_param, is_new
 
 
 # Predefined eBay UK categories
@@ -38,7 +39,7 @@ class CategoryProduct:
     url: str
     image_url: Optional[str] = None
     seller: Optional[str] = None
-    condition: str = "New"
+    condition: str = ""   # C10 — '' = unread; never assume New
     buying_format: str = "Buy It Now"
     category: str = ""
     # Filled later
@@ -50,6 +51,13 @@ class CategoryProduct:
     profit: float = 0.0
     margin: float = 0.0
     verdict: str = ""
+    # C11 — stores from the sellers this scan observed ([] when none).
+    ebay_stores: list = field(default_factory=list)
+    # C14 — computed by engine/match.py, never a constant. "" = unscored,
+    # which consumers must treat as failed (C12: unscored is not a pass).
+    supplier_match_score: float = 0.0
+    supplier_match_tier: str = ""
+    supplier_match_label: str = ""
 
 
 def scan_category(
@@ -106,7 +114,7 @@ def _scan_via_api(
                 "limit": min(max_results, 50),
                 "filter": (
                     f"buyingOptions:{{FIXED_PRICE}},"
-                    f"conditions:{{NEW}},"
+                    f"conditions:{{NEW}},"       # C10 — asserted by test_condition_gate
                     f"deliveryCountry:GB,"
                     f"price:[{price_min}..{price_max}],"
                     f"priceCurrency:GBP"
@@ -131,6 +139,9 @@ def _scan_via_api(
                 continue
 
             seller_info = item.get("seller", {})
+            condition = item.get("condition", "")
+            if not is_new(condition):
+                continue  # C10 — defence in depth behind conditions:{NEW}
             products.append(CategoryProduct(
                 title=item.get("title", ""),
                 price=price,
@@ -138,12 +149,24 @@ def _scan_via_api(
                 image_url=item.get("thumbnailImages", [{}])[0].get("imageUrl")
                     if item.get("thumbnailImages") else None,
                 seller=seller_info.get("username"),
-                condition=item.get("condition", "New"),
+                condition=condition,
                 category=category_name,
             ))
 
             if len(products) >= max_results:
                 break
+
+        # C11 — the sellers arrived on the response we already paid for;
+        # only listings that cleared the New gate reached `products`, so
+        # aggregating them keeps the condition gate intact.
+        try:
+            from engine.stores import stores_from_products
+            stores = stores_from_products(products)
+        except Exception as e:
+            print(f"[WARN] Store build failed for category scan: {e}")
+            stores = []
+        for p in products:
+            p.ebay_stores = list(stores)
 
         return products
 
@@ -170,7 +193,7 @@ def _scan_via_scrape(
             f"&_udlo={price_min:.0f}"
             f"&_udhi={price_max:.0f}"
             f"&LH_BIN=1"
-            f"&LH_ItemCondition=1000"
+            f"{html_condition_param()}"   # C10 — active condition, not a literal
         )
 
         session = requests.Session()
@@ -205,10 +228,24 @@ def _scan_via_scrape(
                 if price < price_min or price > price_max:
                     continue
 
+                # C10 — the URL carries LH_ItemCondition=1000, but we still
+                # read the label the page shows; unread = dropped, never
+                # defaulted to New.
+                condition = ""
+                for sel in ("span.s-item__condition", "span.SECONDARY_INFO",
+                            "span[class*='condition']"):
+                    cond_el = item.select_one(sel)
+                    if cond_el and cond_el.get_text(strip=True):
+                        condition = cond_el.get_text(strip=True)
+                        break
+                if not is_new(condition):
+                    continue
+
                 products.append(CategoryProduct(
                     title=title,
                     price=price,
                     url=link_el.get("href", ""),
+                    condition=condition,
                     category=category_name,
                 ))
 

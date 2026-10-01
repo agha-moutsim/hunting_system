@@ -93,6 +93,20 @@ FILTERS = {
     "uk_only": True,
 }
 
+# C10 — condition allow-list. Lives here (the leaf module) so BOTH the gate
+# and the persistence layer can validate without importing each other.
+ALLOWED_CONDITIONS = ("New",)
+
+# C11 — every analysis surfaces up to 4 REAL eBay competitor stores.
+# Sits here (not in the engine) so the cap is tunable without touching the
+# discovery code, and so no renderer can hardcode its own number.
+STORE_COUNT = 4
+
+# C12 — up to 7 approved suppliers, and fewer is correct. This is a ceiling,
+# never a target: a row exists only because its product was retrieved AND
+# cleared the C14 match threshold. Nothing anywhere pads toward this number.
+MAX_SUPPLIERS = 7
+
 # ============================================================
 # Profit Calculation
 # ============================================================

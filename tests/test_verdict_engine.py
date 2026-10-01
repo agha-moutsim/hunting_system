@@ -207,7 +207,7 @@ class TestBrandVero:
 
 
 class TestHunterAdapter:
-    def _category_product(self, d30=40, d7=10, supplier="B&Q"):
+    def _category_product(self, d30=40, d7=10, supplier="B&Q", condition="New"):
         from hunter.category_scan import CategoryProduct
         return CategoryProduct(
             title="Generic widget",
@@ -217,6 +217,9 @@ class TestHunterAdapter:
             sold_7d=d7,
             supplier_price=6.0,
             supplier_name=supplier,
+            # C10: the category scanner only emits rows that passed its
+            # New-only query, so a scanned row always carries a condition.
+            condition=condition,
         )
 
     @staticmethod
@@ -306,4 +309,68 @@ class TestDeepSearchAdapter:
         _calculate_profit_and_verdict(r, filters={"margin_min": 90.0})
         margin = next(f for f in r.filters_passed if f["name"] == "Margin")
         assert margin["passed"] is False
-        assert r.verdict == "FAIL"
+
+
+class TestConditionGate:
+    """C10 — New-only is a hard gate, not an advisory row."""
+
+    def _condition_row(self, product, filters=None):
+        v = DecisionEngine(filters).evaluate(product, DemandData(verified=False))
+        return next(f for f in v.filters if f.name == "Condition")
+
+    @pytest.mark.parametrize("bad", ["Used", "Pre-owned", "Refurbished",
+                                     "Seller Refurbished", "For parts or not working",
+                                     "Open box", "Damaged"])
+    def test_non_new_is_a_verified_failure(self, bad):
+        # A KNOWN non-New condition must fail hard (step 1 of the ladder),
+        # never be softened to PENDING.
+        row = self._condition_row(_product(condition=bad))
+        assert row.passed is False
+        assert row.expected == "New"
+
+    @pytest.mark.parametrize("good", ["New", "New with tags", "Brand New", "New (Other)"])
+    def test_new_variants_pass(self, good):
+        assert self._condition_row(_product(condition=good)).passed is True
+
+    def test_blank_condition_is_reported_unverified(self):
+        # C1: we never claim to know a condition we couldn't read, so the
+        # row is flagged Unverified even though it does not pass.
+        row = self._condition_row(_product(condition=""))
+        assert row.passed is False
+        assert row.verified is False
+
+    def test_used_listing_cannot_pass_even_with_every_other_rule_met(self):
+        demand = DemandData(sold_count_30d=40, sold_count_7d=10,
+                            verified=True, verified_7d=True)
+        v = DecisionEngine(None).evaluate(
+            _product(price=12.0, condition="Used"), demand, supplier_price=6.0
+        )
+        assert v.verdict == "fail"
+
+    def test_hunter_row_with_used_condition_fails(self, monkeypatch):
+        import analysis_pipeline as ap
+
+        def _apply(demand, url, db=None):
+            demand.verified_7d = True
+            return demand
+
+        monkeypatch.setattr(ap, "apply_purchase_history", _apply)
+        from hunter.profit_calc import _calc_single
+        p = TestHunterAdapter()._category_product(condition="Used")
+        _calc_single(p, None)
+        assert p.verdict == "FAIL"
+
+    def test_query_time_filters_carry_new_only(self):
+        # The very string eBay receives — if this drifts, Used listings
+        # return and the post-filter is the only thing left holding.
+        from engine.condition_gate import api_condition_filter, html_condition_param
+        assert api_condition_filter() == "conditions:{NEW}"
+        assert html_condition_param() == "&LH_ItemCondition=1000"
+
+    def test_silent_default_of_missing_condition_is_gone(self):
+        # Regression: a missing condition used to be written as "New",
+        # which let Used listings pass the Condition row by omission.
+        from scrapers.base import ScrapedProduct
+        p = ScrapedProduct(source="ebay_uk", title="x", price=10.0, url="u")
+        assert p.condition != "New"
+        assert self._condition_row(p).passed is False

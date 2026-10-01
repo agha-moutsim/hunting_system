@@ -104,13 +104,36 @@ def hunter_lookup(req: HunterLookupRequest):
         from engine.price_gate import excluded_note
         report.notes = excluded_note("eBay listings", excluded_suppliers)
 
-    return report.to_dict()
+    payload = report.to_dict()
+    # C11/C13 — every report row carries the store stamp the scan path
+    # carries, so a lookup response never shows unstamped store lists.
+    _stamp_report_stores(payload)
+    return payload
+
+
+def _stamp_report_stores(payload: dict) -> None:
+    """C11/C13 — attach ebay_stores_provenance to each report product row."""
+    from engine.stores import store_provenance_block
+
+    for row in payload.get("products") or []:
+        if (isinstance(row, dict) and "ebay_stores" in row
+                and not row.get("ebay_stores_provenance")):
+            row["ebay_stores_provenance"] = store_provenance_block(
+                row.get("ebay_stores") or [])
 
 
 def _product_dict(p) -> dict:
     from dataclasses import asdict, fields as dc_fields
 
+    from engine.stores import store_provenance_block
+
     d = asdict(p)
     # Only include fields HunterResult.products expects + useful extras
     keep = {f.name for f in dc_fields(p)}
-    return {k: d[k] for k in keep if k in d}
+    out = {k: d[k] for k in keep if k in d}
+    # C11/C13 — the store block's stamp travels with the stores it
+    # describes (present-but-empty must never read as "not applicable").
+    if "ebay_stores" in out:
+        out["ebay_stores_provenance"] = store_provenance_block(
+            out.get("ebay_stores") or [])
+    return out

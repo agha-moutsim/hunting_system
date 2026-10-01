@@ -7,7 +7,7 @@ Usage:
 
 import json
 from pathlib import Path
-from config import FILTERS
+from config import FILTERS, ALLOWED_CONDITIONS
 
 FILTERS_FILE = Path(__file__).parent.parent / "data" / "custom_filters.json"
 
@@ -68,6 +68,14 @@ def load_filters() -> dict:
     filters = {k: v for k, v in dict(data.get("active", FILTERS)).items() if k in FILTERS}
     for k in FILTERS:
         filters.setdefault(k, FILTERS[k])
+    # C10 — an out-of-allow-list condition falls back to the default, the
+    # same way an invalid range does: a poisoned file can never relax
+    # New-only into "Used".
+    if not (isinstance(filters.get("condition"), str)
+            and filters["condition"].strip() in ALLOWED_CONDITIONS):
+        filters["condition"] = FILTERS["condition"]
+    else:
+        filters["condition"] = filters["condition"].strip()
     if not _valid_range(filters.get("price_min"), filters.get("price_max")):
         filters["price_min"] = FILTERS["price_min"]
         filters["price_max"] = FILTERS["price_max"]
@@ -141,6 +149,24 @@ def set_active_range(price_min, price_max) -> dict:
     merged["price_max"] = float(price_max)
     save_filters(merged)
     return active_range()
+
+
+def set_active_condition(condition) -> str:
+    """Persist the active product condition (C10).
+
+    Raises ValueError when the value is outside ALLOWED_CONDITIONS so the
+    API layer can reject it with 422 — validation lives in one place,
+    exactly like _valid_range.
+    """
+    if not (isinstance(condition, str) and condition.strip() in ALLOWED_CONDITIONS):
+        raise ValueError(
+            "Invalid condition: v1 accepts only "
+            + ", ".join(ALLOWED_CONDITIONS)
+        )
+    merged = dict(load_filters())
+    merged["condition"] = condition.strip()
+    save_filters(merged)
+    return merged["condition"]
 
 
 def reset_filters():

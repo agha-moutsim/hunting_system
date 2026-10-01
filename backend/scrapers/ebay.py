@@ -9,14 +9,33 @@ from datetime import datetime
 import requests
 from bs4 import BeautifulSoup
 
-from scrapers.base import ScrapedProduct, DemandData
+from scrapers.base import ScrapedProduct, DemandData, read_shipping, read_stock
+from scrapers.availability import ebay_item_availability
 from config import (
     EBAY_UK_BASE, EBAY_CLIENT_ID, EBAY_CLIENT_SECRET,
     EBAY_MARKETPLACE, EBAY_API_BASE, EBAY_ENVIRONMENT, SCRAPE_CONFIG,
 )
 from engine.price_gate import active_bounds, in_band
+from engine.condition_gate import api_condition_filter, html_condition_param, is_new
 
+# Query-time New-only (C10). Composed at CALL TIME so a changed active
+# condition reaches the very next request — never an import-time literal.
 _BASE_API_FILTER = "buyingOptions:{FIXED_PRICE},deliveryCountry:GB"
+
+
+def _api_filter(band_api: str) -> str:
+    """Compose the Browse API filter: base + active condition (C10) + band.
+
+    Condition is appended at CALL TIME so a changed active condition
+    reaches the very next request — never an import-time literal.
+    """
+    cond = api_condition_filter()
+    parts = [_BASE_API_FILTER]
+    if cond:
+        parts.append(cond)
+    if band_api:
+        parts.append(band_api)
+    return ",".join(parts)
 
 
 class EbayScraper:
@@ -86,7 +105,7 @@ class EbayScraper:
             params={
                 "q": query,
                 "limit": min(limit, 50),
-                "filter": f"{_BASE_API_FILTER},{band_api}",
+                "filter": _api_filter(band_api),
                 "sort": "-relevance",
             },
             headers=self._api_headers(),
@@ -101,6 +120,9 @@ class EbayScraper:
             price = float(price_info.get("value", 0))
             if not in_band(price):
                 continue  # defence in depth — PR-2 layer 1 (search time)
+            condition = item.get("condition", "")
+            if not is_new(condition):
+                continue  # defence in depth — C10 condition gate
             results.append(ScrapedProduct(
                 source="ebay_uk",
                 title=item.get("title", ""),
@@ -109,8 +131,11 @@ class EbayScraper:
                 image_url=item.get("thumbnailImages", [{}])[0].get("imageUrl")
                     if item.get("thumbnailImages") else None,
                 seller=item.get("seller", {}).get("username"),
-                condition=item.get("condition", ""),
+                condition=condition,
                 verified=True,
+                # P4 — stock/shipping only from what the Browse API
+                # actually carried; absent keys stay unknown (C13/C1).
+                **ebay_item_availability(item),
             ))
         return results
 
@@ -122,6 +147,7 @@ class EbayScraper:
             f"_nkw={query.replace(' ', '+')}"
             f"&LH_BIN=1&LH_PrefLoc=1"
             f"&_udlo={lo:.0f}&_udhi={hi:.0f}"
+            f"{html_condition_param()}"   # C10 — query-time New-only
         )
         try:
             resp = self.session.get(search_url, timeout=15)
@@ -141,17 +167,52 @@ class EbayScraper:
                 price = float(price_match.group()) if price_match else 0
                 if not in_band(price):
                     continue  # PR-2 layer 1 (search time)
+                # C10 — read the condition the page actually shows. A row we
+                # cannot read is NOT New: fail closed, never default it.
+                condition = self._read_condition(item)
+                if not is_new(condition):
+                    continue
+                # P4 — stock/delivery wording off this result only; a miss
+                # stays unknown, never a default (C1/C13).
+                item_url = link_el.get("href", "") if link_el else ""
+                stock_state, stock_raw = read_stock(item)
+                ship_cost, ship_days, ship_raw = read_shipping(item)
                 results.append(ScrapedProduct(
                     source="ebay_uk",
                     title=title,
                     price=price,
-                    url=link_el.get("href", "") if link_el else "",
+                    url=item_url,
+                    condition=condition,
                     verified=True,
+                    in_stock=stock_state,
+                    stock_raw=stock_raw,
+                    availability_url=item_url if stock_raw else "",
+                    shipping_cost=ship_cost,
+                    shipping_days=ship_days,
+                    shipping_raw=ship_raw,
                 ))
             return results
         except Exception as e:
             print(f"[WARN] Scrape fallback also failed: {e}")
             return []
+
+    @staticmethod
+    def _read_condition(item) -> str:
+        """Pull the condition label off a search-result <li>.
+
+        eBay renders it in one of a few places depending on layout;
+        we return '' when none is found so C10 fails closed.
+        """
+        for selector in (
+            "span.s-item__condition",
+            "span.SECONDARY_INFO",
+            "span[class*='condition']",
+            "span.s-item__details span",
+        ):
+            el = item.select_one(selector)
+            if el and el.get_text(strip=True):
+                return el.get_text(strip=True)
+        return ""
 
     def get_details(self, url: str) -> ScrapedProduct:
         """Get listing details — API first, scrape only as a last resort."""
@@ -217,6 +278,15 @@ class EbayScraper:
         price = item.get("price", {})
         image = item.get("image", {})
         seller = item.get("seller", {})
+        condition = item.get("condition", "")
+
+        if not is_new(condition):
+            # C10 — URL hunting is the highest-risk path: a user pasting a
+            # Used listing must be told so, not silently analysed as New.
+            raise ValueError(
+                f"This listing is '{condition or 'unknown condition'}' — "
+                "only NEW listings qualify (C10)."
+            )
 
         return ScrapedProduct(
             source="ebay_uk",
@@ -225,8 +295,10 @@ class EbayScraper:
             url=item.get("itemWebUrl", ""),
             image_url=image.get("imageUrl"),
             seller=seller.get("username"),
-            condition=item.get("condition", ""),
+            condition=condition,
             verified=True,
+            # P4 — availability/shippingOptions off the item payload (C13).
+            **ebay_item_availability(item),
         )
 
     def _get_details_scrape(self, url: str) -> ScrapedProduct:
@@ -241,6 +313,20 @@ class EbayScraper:
         seller = soup.select_one("a.ux-seller-section__item--seller")
         image = soup.select_one("div.x-carousel__media img")
 
+        # C10 — '' when the label is absent, so this fails closed rather
+        # than defaulting an unknown listing to New.
+        condition_text = condition.get_text(strip=True) if condition else ""
+        if not is_new(condition_text):
+            raise ValueError(
+                f"This listing is '{condition_text or 'unknown condition'}' — "
+                "only NEW listings qualify (C10)."
+            )
+
+        # P4 — read availability/delivery off this listing page; no hook
+        # means unknown, never a default (C1/C13).
+        stock_state, stock_raw = read_stock(soup)
+        ship_cost, ship_days, ship_raw = read_shipping(soup)
+
         return ScrapedProduct(
             source="ebay_uk",
             title=title.get_text(strip=True) if title else "",
@@ -248,8 +334,14 @@ class EbayScraper:
             url=url,
             image_url=image.get("src") if image else None,
             seller=seller.get_text(strip=True) if seller else None,
-            condition=condition.get_text(strip=True) if condition else "New",
+            condition=condition_text,
             verified=True,
+            in_stock=stock_state,
+            stock_raw=stock_raw,
+            availability_url=url if stock_raw else "",
+            shipping_cost=ship_cost,
+            shipping_days=ship_days,
+            shipping_raw=ship_raw,
         )
 
     def get_sold_data(self, query: str) -> DemandData:
@@ -271,7 +363,9 @@ class EbayScraper:
             params={
                 "q": query,
                 "limit": 50,
-                "filter": f"{_BASE_API_FILTER},{band_api}",
+                # C10 — condition goes into the DEMAND query too, so Used
+                # sales can never inflate sold_count / avg price.
+                "filter": _api_filter(band_api),
                 "sort": "-dateSold",
             },
             headers=self._api_headers(),
@@ -287,18 +381,34 @@ class EbayScraper:
         now = datetime.now()
         sold_items = []
         excluded = 0
+        # C11 — the seller rides along on this response we already paid for;
+        # discarding it is what forced Analyze/URL-hunt to have no stores.
+        # Condition gate applies (C10 is absolute — a Used seller is not a
+        # New-condition competitor), but the price band deliberately does
+        # not: a store pricing outside YOUR band is still a real competitor.
+        seller_tally: dict[str, list] = {}
         for item in items:
             price_info = item.get("price", {})
             price = float(price_info.get("value", 0))
+            condition = item.get("condition", "")
+            username = (item.get("seller") or {}).get("username") or ""
+
+            if username and is_new(condition):
+                slot = seller_tally.setdefault(username, [0, 0.0])
+                slot[0] += 1
+                slot[1] += price
+
             if not in_band(price):
                 excluded += 1  # demand stats must reflect in-band sales only — PR-1/PR-4
                 continue
-            condition = item.get("condition", "")
+            if not is_new(condition):
+                excluded += 1  # C10 — non-New must not reach demand stats
+                continue
             # Count items as "sold" (API doesn't expose sold dates directly)
             sold_items.append({"price": price, "condition": condition})
 
         prices = [i["price"] for i in sold_items if i["price"] > 0]
-        return DemandData(
+        demand = DemandData(
             sold_count_30d=len(sold_items),  # approximate from search results
             sold_count_7d=None,
             avg_sold_price=sum(prices) / len(prices) if prices else None,
@@ -307,6 +417,16 @@ class EbayScraper:
             verified=bool(sold_items),
             excluded_over_band=excluded,
         )
+        # C11 — build the shared 4-store list from what this call observed.
+        if seller_tally:
+            from engine.stores import stores_from_top_sellers
+            demand.top_sellers = stores_from_top_sellers(
+                [
+                    {"name": n, "sold_count": c, "avg_price": t / c if c else 0.0}
+                    for n, (c, t) in seller_tally.items()
+                ]
+            )
+        return demand
 
     def _parse_price(self, text: str) -> float:
         """Extract numeric price."""

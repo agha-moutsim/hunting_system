@@ -13,8 +13,78 @@ from playwright.async_api import async_playwright, Browser, Page
 from playwright_stealth import Stealth
 
 from config import SCRAPE_CONFIG
+from scrapers.availability import (
+    parse_shipping_text,
+    parse_stock_text,
+    parse_structured_availability,
+)
 
 logger = logging.getLogger(__name__)
+
+# P4 — stock/delivery hooks the HTML scrapers read. Narrow on purpose:
+# they name the element a retailer prints availability or delivery in,
+# never a whole card (a card also contains the product price, and a £
+# read from the wrong element would be a fabricated shipping cost, C1).
+STOCK_SELECTORS = (
+    "[itemprop='availability']",
+    "span[class*='availability']",
+    "div[class*='availability']",
+    "span[class*='stock']",
+    "div[class*='stock']",
+)
+DELIVERY_SELECTORS = (
+    "span[class*='delivery']",
+    "div[class*='delivery']",
+    "span[class*='shipping']",
+    "div[class*='shipping']",
+    "span[class*='postage']",
+    "div[class*='postage']",
+)
+
+
+def first_text(root, selectors) -> str:
+    """Text of the first element matching any selector, '' when none.
+
+    C1 — absence is unknown: no element means '' so the caller sees
+    "we read nothing", never an assumed figure. schema.org availability
+    markup carries the state in `href`/`content`, so those attribute
+    values win over visible text.
+    """
+    for selector in selectors:
+        el = root.select_one(selector)
+        if el is None:
+            continue
+        for attr in ("content", "href"):
+            val = el.get(attr)
+            if isinstance(val, str) and "schema.org/" in val:
+                return val
+        text = el.get_text(" ", strip=True)
+        if text:
+            return text
+    return ""
+
+
+def read_stock(root, selectors=STOCK_SELECTORS) -> tuple[str, str]:
+    """(state, raw) for a page/card — visible stock text first, then
+    schema.org markup inside JSON-LD. ("", "") when the page states
+    nothing: unknown is the answer, never a default (C1/C13).
+    """
+    text = first_text(root, selectors)
+    if text:
+        return parse_stock_text(text)
+    for script in root.select("script[type='application/ld+json']"):
+        state, raw = parse_structured_availability(script.get_text() or "")
+        if state or raw:
+            return state, raw
+    return "", ""
+
+
+def read_shipping(root, selectors=DELIVERY_SELECTORS) -> tuple[float, int, str]:
+    """(cost, days, raw) for a delivery line, all unknown when no
+    matching element exists (C1). See parse_shipping_text: trust `raw`
+    when cost is 0.0 — it carries the exact text the figure came from.
+    """
+    return parse_shipping_text(first_text(root, selectors))
 
 
 @dataclass
@@ -32,11 +102,38 @@ class ScrapedProduct:
     seller_rating: Optional[str] = None
     seller_orders: Optional[str] = None
     store_name: Optional[str] = None
-    condition: str = "New"
+    # C10 — '' means "we did not read a condition", NOT "New". Every prior
+    # silent default of "New" let Used listings pass by omission.
+    condition: str = ""
     brand: Optional[str] = None
     verified: bool = True
     raw_html: Optional[str] = None
     scraped_at: datetime = field(default_factory=datetime.now)
+    # P4 — engine.source_type's verdict for this row, classified from the
+    # row's own URL/name. '' = not classified; never assumed "dropship".
+    # Appended last so existing positional constructions cannot shift.
+    supplier_type: str = ""
+    # P4 — stock & shipping, read off a real page/API only (C13: raw text
+    # travels with the parsed value). '' / 0.0 / 0 mean "we did not read
+    # this" (C1) — in_stock is never assumed "in_stock" and shipping_cost
+    # is never a plausible figure. shipping_cost 0.0 cannot separate
+    # "free" from "unknown" by number alone, so callers trust
+    # shipping_raw when cost is 0 (it is '' only when unread).
+    # C14 — engine/match.py consumes these names; append-only, exact.
+    in_stock: str = ""            # "in_stock" | "low_stock" | "out_of_stock" | "" (unknown)
+    stock_raw: str = ""           # the exact source text, e.g. "Only 3 left", "23 available"
+    availability_url: str = ""    # where the stock figure was read from (usually the product URL)
+    shipping_cost: float = 0.0    # 0.0 = unknown, NEVER a guessed figure
+    shipping_days: int = 0        # 0 = unknown
+    shipping_raw: str = ""        # exact source text, e.g. "Free delivery Thursday"
+    # C14 — written ONLY by engine.match (computed, never a constant).
+    # `match_tier == ""` means "not scored yet", which consumers must treat
+    # as failed — C12 admits a supplier row only after it cleared threshold.
+    match_score: float = 0.0
+    match_tier: str = ""          # "verified" | "unverified" | "no_match" | "" (unscored)
+    match_label: str = ""         # "verified match" | "not confirmed" | "no confirmed match"
+    match_basis: str = ""         # human-readable reason the score is what it is
+    match_method: str = ""        # names the algorithm, for the audit trail
 
 
 @dataclass
@@ -56,6 +153,10 @@ class DemandData:
     # "ebay_sold_listings+purchase_history" when a capture was applied.
     data_source: Optional[str] = None
     excluded_over_band: int = 0  # PR-4: sold rows dropped by the band gate
+    # C11 — competitor stores aggregated from the SAME sold query this
+    # object already ran, so Analyze/URL-hunt get stores for free instead
+    # of paying for a second request. Normalised by engine.stores.
+    top_sellers: list = field(default_factory=list)
 
 
 class BaseScraper(ABC):
@@ -135,6 +236,18 @@ class BaseScraper(ABC):
         import re
         match = re.search(r"[\d,.]+", text.replace(",", ""))
         return float(match.group()) if match else 0.0
+
+    def _first_text(self, root, selectors) -> str:
+        """``root.select_one`` text, '' when nothing matches (C1)."""
+        return first_text(root, selectors)
+
+    def _read_stock(self, root, selectors=STOCK_SELECTORS) -> tuple[str, str]:
+        """(state, raw) for a page/card — see ``read_stock``."""
+        return read_stock(root, selectors)
+
+    def _read_shipping(self, root, selectors=DELIVERY_SELECTORS) -> tuple[float, int, str]:
+        """(cost, days, raw) for a delivery line — see ``read_shipping``."""
+        return read_shipping(root, selectors)
 
     @abstractmethod
     async def search(self, query: str) -> list[ScrapedProduct]:

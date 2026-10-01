@@ -8,8 +8,17 @@ import Badge from "@/components/ui/Badge";
 import Spinner from "@/components/Spinner";
 import FilterChecks from "@/components/FilterChecks";
 import RangeControl from "@/components/ui/RangeControl";
+import ProvenanceBadge from "@/components/ui/ProvenanceBadge";
+import ProvenanceSelect from "@/components/ui/ProvenanceSelect";
+import EbayStoresCard from "@/components/EbayStoresCard";
 import { apiFetch, apiPost, downloadFile } from "@/lib/api";
-import { DeepSearchResult, FiltersResponse, PriceRange } from "@/lib/types";
+import { infoTitle } from "@/lib/provenance";
+import {
+  DeepSearchResult,
+  FiltersResponse,
+  PriceRange,
+  ProvenanceInfo,
+} from "@/lib/types";
 import { formatGBP, formatPercent } from "@/lib/format";
 
 export default function DeepSearchPage() {
@@ -130,6 +139,7 @@ export default function DeepSearchPage() {
 
       {result && (
         <>
+          <ProvenanceSelect />
           <Card>
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="min-w-0">
@@ -163,38 +173,55 @@ export default function DeepSearchPage() {
             </div>
 
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
-              {[
-                { label: "eBay avg", value: formatGBP(result.ebay_avg_price) },
-                {
-                  label: "Range",
-                  value: `${formatGBP(result.ebay_price_min)} – ${formatGBP(result.ebay_price_max)}`,
-                },
-                {
-                  label: "Best supplier",
-                  value: formatGBP(result.best_supplier_price),
-                },
-                {
-                  label: "Profit / Margin",
-                  value: (
-                    <span
-                      className={
-                        result.profit > 0
-                          ? "text-accent-green"
-                          : "text-accent-red"
-                      }
-                    >
-                      {formatGBP(result.profit)} /{" "}
-                      {formatPercent(result.margin)}
-                    </span>
-                  ),
-                },
-              ].map((m) => (
+              {(
+                [
+                  {
+                    label: "eBay avg",
+                    value: formatGBP(result.ebay_avg_price),
+                  },
+                  {
+                    label: "Range",
+                    value: `${formatGBP(result.ebay_price_min)} – ${formatGBP(result.ebay_price_max)}`,
+                  },
+                  {
+                    label: "Best supplier",
+                    value: formatGBP(result.best_supplier_price),
+                  },
+                  {
+                    label: "Profit / Margin",
+                    value: (
+                      <span
+                        className={
+                          result.profit > 0
+                            ? "text-accent-green"
+                            : "text-accent-red"
+                        }
+                      >
+                        {formatGBP(result.profit)} /{" "}
+                        {formatPercent(result.margin)}
+                      </span>
+                    ),
+                    prov: result.provenance?.profit_analysis,
+                  },
+                ] as {
+                  label: string;
+                  value: React.ReactNode;
+                  prov?: ProvenanceInfo;
+                }[]
+              ).map((m) => (
                 <div
                   key={m.label}
                   className="bg-bg-surface border border-border rounded-lg p-3"
                 >
-                  <div className="text-xs text-text-secondary mb-1">
-                    {m.label}
+                  <div className="flex flex-wrap items-center justify-between gap-1 mb-1">
+                    <div className="text-xs text-text-secondary">{m.label}</div>
+                    {m.prov && (
+                      <ProvenanceBadge
+                        provenance={m.prov.provenance}
+                        label={m.prov.label}
+                        title={infoTitle(m.prov)}
+                      />
+                    )}
                   </div>
                   <div className="text-base font-bold text-text-primary">
                     {m.value}
@@ -211,32 +238,52 @@ export default function DeepSearchPage() {
             </Card>
           )}
 
-          {/* Top sellers */}
-          {result.ebay_top_sellers?.length > 0 && (
-            <Card title="eBay Top Sellers">
-              <div className="space-y-2">
-                {result.ebay_top_sellers.map((s, i) => (
-                  <a
-                    key={i}
-                    href={s.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center justify-between gap-3 bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm hover:border-accent-blue/50"
-                  >
-                    <span className="text-text-primary truncate">{s.name}</span>
-                    <span className="text-text-secondary whitespace-nowrap">
-                      {s.sold_count ?? "—"} sold · {formatGBP(s.avg_price)}
-                    </span>
-                  </a>
-                ))}
-              </div>
-            </Card>
+          {/* Competitor stores (C11) — legacy top-seller rows as fallback */}
+          {Array.isArray(result.ebay_stores) ? (
+            <EbayStoresCard stores={result.ebay_stores} />
+          ) : (
+            result.ebay_top_sellers?.length > 0 && (
+              <Card title="eBay Top Sellers">
+                <div className="space-y-2">
+                  {result.ebay_top_sellers.map((s, i) => (
+                    <a
+                      key={i}
+                      href={s.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-between gap-3 bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm hover:border-accent-blue/50"
+                    >
+                      <span className="flex items-center gap-2 min-w-0">
+                        <span className="text-text-primary truncate">
+                          {s.name}
+                        </span>
+                        <ProvenanceBadge
+                          provenance={s.provenance}
+                          label={s.provenance_label}
+                        />
+                      </span>
+                      <span className="text-text-secondary whitespace-nowrap">
+                        {s.sold_count ?? "—"} observed listings ·{" "}
+                        {formatGBP(s.avg_price)}
+                      </span>
+                    </a>
+                  ))}
+                </div>
+              </Card>
+            )
           )}
 
           {/* Suppliers */}
           <div>
-            <h3 className="text-sm font-semibold text-text-primary mb-3">
+            <h3 className="text-sm font-semibold text-text-primary mb-3 flex flex-wrap items-center gap-2">
               Suppliers ({result.suppliers?.length || 0})
+              {result.provenance?.suppliers && (
+                <ProvenanceBadge
+                  provenance={result.provenance.suppliers.provenance}
+                  label={result.provenance.suppliers.label}
+                  title={infoTitle(result.provenance.suppliers)}
+                />
+              )}
             </h3>
             {result.suppliers?.length ? (
               <div className="space-y-3">
@@ -257,14 +304,44 @@ export default function DeepSearchPage() {
                               {s.supplier_type}
                             </span>
                           )}
+                          <ProvenanceBadge
+                            provenance={s.provenance}
+                            label={s.provenance_label}
+                            title={s.source_name}
+                          />
                         </div>
                         <div className="text-sm text-text-primary truncate">
                           {s.product_title || s.full_name || "—"}
                         </div>
                         <div className="text-xs text-text-dim mt-1">
-                          Delivery: {s.delivery_days ?? "⚠️ Unverified"} ·
-                          Rating: {s.seller_rating ?? "⚠️ Unverified"}
+                          Delivery:{" "}
+                          {s.delivery_days ?? (
+                            <ProvenanceBadge
+                              provenance="unverified"
+                              title="Delivery not confirmed for this row"
+                            />
+                          )}{" "}
+                          · Rating:{" "}
+                          {s.seller_rating ?? (
+                            <ProvenanceBadge
+                              provenance="unverified"
+                              title="Seller rating not confirmed for this row"
+                            />
+                          )}
                         </div>
+                        {(s.source_name || s.match_basis) && (
+                          <div className="text-xs text-text-dim mt-1">
+                            {/* Not a link: this row is already an <a>, and
+                                nested anchors break HTML parsing. */}
+                            {s.source_name && (
+                              <span title={s.source_url || undefined}>
+                                Source: {s.source_name}
+                              </span>
+                            )}
+                            {s.source_name && s.match_basis && " · "}
+                            {s.match_basis && <>Match: {s.match_basis}</>}
+                          </div>
+                        )}
                       </div>
                       <div className="text-right">
                         <div className="text-lg font-bold text-text-primary">

@@ -20,7 +20,8 @@ from dataclasses import asdict, field
 from datetime import datetime
 from typing import Any, Optional
 
-from config import FILTERS
+from config import FILTERS, MAX_SUPPLIERS
+from engine.match import TIER_NO_MATCH, compute_match
 from db.database import SessionLocal
 from db.queries import (
     save_analysis_data,
@@ -68,6 +69,76 @@ def _build_query_from_title(title: str) -> str:
     stop = {"new", "uk", "bnib", "bnip", "rrp", "free", "fast", "post", "boxed", "sealed"}
     words = [w for w in title.split() if w.lower().strip(",.()[]!") not in stop]
     return " ".join(words[:8])
+
+
+def _resolve_supplier_choice(name: Any, suppliers: list[dict]) -> dict | None:
+    """Map an LLM-returned supplier name back onto a real scraped row (C12/C13).
+
+    The model is shown a ranked list and asked to name the best match. It
+    sometimes returns a plausible name that was never on that list. We only
+    ever surface a choice we can bind to a row we actually retrieved —
+    otherwise we return None and the caller drops it.
+    """
+    if not name or not suppliers:
+        return None
+    target = str(name).strip().lower()
+    if not target:
+        return None
+
+    keys = ("name", "full_name", "source")
+
+    # Exact (case-insensitive) first — the clean case.
+    for s in suppliers:
+        for key in keys:
+            val = str(s.get(key, "")).strip().lower()
+            if val and val == target:
+                return s
+
+    # Then containment, so "Amazon UK - Some Store" binds to "Amazon UK".
+    # Length floor keeps a 1-2 char answer from matching everything.
+    if len(target) >= 4:
+        for s in suppliers:
+            for key in keys:
+                val = str(s.get(key, "")).strip().lower()
+                if len(val) >= 4 and (val in target or target in val):
+                    return s
+    return None
+
+
+def _match_gate(
+    products: list, reference_title: str, ebay_price: float
+) -> list:
+    """Score each scraped row against the eBay title; keep the matches (C14).
+
+    The computed score is written onto the row, so the dict serialised by
+    `asdict()` downstream already carries what the matcher decided — no
+    consumer has to recompute, and none can substitute its own number.
+    With nothing to match against the rows are kept as-is: we do not fail
+    evidence we were never able to test.
+    """
+    if not products:
+        return []
+    if not reference_title:
+        return list(products)
+
+    kept = []
+    for p in products:
+        if not p.price or p.price <= 0:
+            continue
+        r = compute_match(
+            reference_title,
+            p.title or "",
+            ebay_price=ebay_price,
+            candidate_price=p.price,
+        )
+        p.match_score = r.score
+        p.match_tier = r.tier
+        p.match_label = r.label
+        p.match_basis = r.reason
+        p.match_method = r.method
+        if r.tier != TIER_NO_MATCH:
+            kept.append(p)
+    return kept
 
 
 class PipelineResult:
@@ -124,7 +195,11 @@ class Pipeline:
         result.demand = asdict(demand) if demand else {}
 
         # ── Step 2: Search all suppliers in parallel ───────────────
-        supplier_products = await self._search_suppliers(query, result)
+        supplier_products = await self._search_suppliers(
+            query, result,
+            reference_title=product.title,
+            ebay_price=product.price or 0.0,
+        )
         result.suppliers = {
             k: [asdict(p) for p in v] for k, v in supplier_products.items()
         }
@@ -173,7 +248,11 @@ class Pipeline:
         result.demand = asdict(demand)
 
         # Search suppliers
-        supplier_products = await self._search_suppliers(query, result)
+        supplier_products = await self._search_suppliers(
+            query, result,
+            reference_title=product.title,
+            ebay_price=product.price or 0.0,
+        )
         result.suppliers = {
             k: [asdict(p) for p in v] for k, v in supplier_products.items()
         }
@@ -244,25 +323,45 @@ class Pipeline:
     # ================================================================
 
     async def _search_suppliers(
-        self, query: str, result: PipelineResult
+        self,
+        query: str,
+        result: PipelineResult,
+        reference_title: str = "",
+        ebay_price: float = 0.0,
     ) -> dict[str, list]:
-        """Search all 7 suppliers concurrently."""
+        """Search all 7 suppliers concurrently.
+
+        C14 runs here too: every row the scrapers return is scored against
+        the eBay title, and rows the matcher calls "no confirmed match" are
+        dropped before they can reach profit or the LLM (C12 — a short list
+        is correct; a padded one is not).
+        """
 
         async def _run_one(name: str, scraper) -> tuple[str, list]:
             try:
                 products = await scraper.search(query)
-                return name, products
             except Exception as e:
                 logger.warning("Supplier %s failed: %s", name, e)
                 result.errors.append(f"Supplier {name} failed: {e}")
                 return name, []
+            return name, _match_gate(products, reference_title, ebay_price)
 
         tasks = [
             _run_one(name, scraper)
             for name, scraper in self._supplier_instances.items()
         ]
         pairs = await asyncio.gather(*tasks)
-        return {name: products for name, products in pairs}
+        # C12 — a ceiling across ALL sources, never a target. Rank by match
+        # strength then price so the survivors are the strongest confirmed
+        # identities rather than whichever scraper answered first.
+        flat = sorted(
+            (p for _, products in pairs for p in products),
+            key=lambda p: (-getattr(p, "match_score", 0.0), p.price or 0.0),
+        )[:MAX_SUPPLIERS]
+        by_source: dict[str, list] = {name: [] for name, _ in pairs}
+        for p in flat:
+            by_source[p.source] = by_source.get(p.source, []) + [p]
+        return by_source
 
     # ================================================================
     # Step 3 — LLM analysis
@@ -307,11 +406,36 @@ class Pipeline:
                 "parse_success": analysis.parse_success,
             }
             if analysis.best_supplier_match:
-                result.analysis["best_supplier_match"] = {
-                    "name": analysis.best_supplier_match.name,
-                    "confidence": analysis.best_supplier_match.confidence,
-                    "reasoning": analysis.best_supplier_match.reasoning,
-                }
+                # C12/C13 — verify-or-drop. The model was shown a ranked list
+                # and returns a NAME it says is the best match. A name that
+                # is not on that list is an invention, so we resolve the
+                # returned name against the suppliers we actually scraped;
+                # no match means no row, never a plausible-looking supplier.
+                resolved = _resolve_supplier_choice(
+                    analysis.best_supplier_match.name, supplier_dicts
+                )
+                if resolved is not None:
+                    result.analysis["best_supplier_match"] = {
+                        # C13 — the IDENTITY claim is verified: this name and
+                        # this URL come from a row we scraped ourselves.
+                        "name": resolved["name"],
+                        "provenance": "verified",
+                        "provenance_label": "Verified",
+                        "source_url": resolved.get("url", ""),
+                        "source_name": resolved.get("source", ""),
+                        # C13 — the MODEL'S OPINION about that supplier.
+                        # Tagged ai_insight so a confidence of 0.9 can never
+                        # be read as evidence the supplier was checked.
+                        "confidence": analysis.best_supplier_match.confidence,
+                        "reasoning": analysis.best_supplier_match.reasoning,
+                        "analysis_provenance": "ai_insight",
+                        "analysis_provenance_label": "AI Insight",
+                    }
+                else:
+                    result.analysis["best_supplier_match_unresolved"] = (
+                        "The model named a supplier that was not in the "
+                        "retrieved set — dropped rather than displayed."
+                    )
             return analysis
 
         except Exception as e:

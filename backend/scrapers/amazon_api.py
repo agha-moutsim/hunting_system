@@ -97,7 +97,11 @@ class AmazonUKAPI:
     def search_products(self, keyword: str, limit: int = 10) -> list[dict]:
         """Search Amazon UK products via PA API."""
         if not self.access_key or not self.secret_key:
-            raise ValueError("AMAZON_PA_ACCESS_KEY and AMAZON_PA_SECRET_KEY required")
+            # P4 — fail closed instead of raising: no credentials exist
+            # in this environment, and an exception here took the caller
+            # down with it. SerpApi discovery carries Amazon UK now.
+            print("[WARN] Amazon PA API credentials missing — returning no rows")
+            return []
 
         import json
 
