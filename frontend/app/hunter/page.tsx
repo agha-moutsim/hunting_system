@@ -7,9 +7,17 @@ import Input from "@/components/ui/Input";
 import Badge from "@/components/ui/Badge";
 import Spinner from "@/components/Spinner";
 import DataTable, { Column } from "@/components/DataTable";
+import HotBadge, { hasRealProfit } from "@/components/ui/HotBadge";
+import {
+  DemandCell,
+  HunterEmptyState,
+  ProfitCell,
+  SupplierCell,
+} from "@/components/HunterEmptyState";
 import { apiFetch, apiPost } from "@/lib/api";
 import {
   CategoryProduct,
+  HunterCategory,
   FiltersResponse,
   HunterScanResponse,
   HunterReport,
@@ -26,11 +34,22 @@ export default function HunterPage() {
   const [scan, setScan] = useState<HunterScanResponse | null>(null);
   const [report, setReport] = useState<HunterReport | null>(null);
   const [activeRange, setActiveRange] = useState<PriceRange | null>(null);
+  // REGRESSION-001: the old placeholder said "e.g. Garden Tools, Kitchen",
+  // and every one of those missed the backend's category table and silently
+  // became Electronics. The real category list is fetched and offered as a
+  // picker, and anything typed is searched as typed.
+  const [categories, setCategories] = useState<HunterCategory[]>([]);
 
   useEffect(() => {
     apiFetch<FiltersResponse>("/api/filters")
       .then((d) => setActiveRange(d.range))
       .catch(() => setActiveRange(null));
+  }, []);
+
+  useEffect(() => {
+    apiFetch<{ categories: HunterCategory[] }>("/api/hunter/categories")
+      .then((d) => setCategories(d.categories || []))
+      .catch(() => setCategories([]));
   }, []);
 
   const priceMin = activeRange?.min ?? 5;
@@ -111,12 +130,25 @@ export default function HunterPage() {
       sortValue: (r) => r.price,
     },
     {
+      key: "hot",
+      header: "Trend",
+      render: (r) => (
+        <HotBadge
+          hot={r.hot}
+          basis={r.hot_basis}
+          provenance={r.hot_provenance}
+          reason={r.hot_reason}
+        />
+      ),
+      sortValue: (r) => (r.hot ? 1 : 0),
+    },
+    {
       key: "sold",
       header: "Sold 30d",
       align: "right",
       render: (r) =>
         r.sold_30d != null ? (
-          r.sold_30d
+          <DemandCell row={r} />
         ) : (
           <span className="text-text-dim">⚠️</span>
         ),
@@ -125,36 +157,18 @@ export default function HunterPage() {
     {
       key: "supplier",
       header: "Supplier",
-      render: (r) =>
-        r.supplier_name ? (
-          <a
-            href={r.supplier_url || "#"}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-accent-blue hover:underline"
-          >
-            {r.supplier_name} {formatGBP(r.supplier_price)}
-          </a>
-        ) : (
-          <span className="text-text-dim">{report ? "None" : "…"}</span>
-        ),
+      render: (r) => <SupplierCell row={r} report={!!report} />,
       sortValue: (r) => r.supplier_price ?? -1,
     },
     {
       key: "profit",
       header: "Profit",
       align: "right",
-      render: (r) =>
-        r.profit != null ? (
-          <span
-            className={r.profit > 0 ? "text-accent-green" : "text-accent-red"}
-          >
-            {formatGBP(r.profit)} ({formatPercent(r.margin)})
-          </span>
-        ) : (
-          <span className="text-text-dim">—</span>
-        ),
-      sortValue: (r) => r.profit ?? -1,
+      // REGRESSION-005: a row with no supplier has profit 0 and provenance
+      // "unverified" - that is the ABSENCE of a calculation, so it renders as
+      // a dash with the reason rather than a confident red GBP0.00.
+      render: (r) => <ProfitCell row={r} />,
+      sortValue: (r) => (hasRealProfit(r) ? (r.profit as number) : -1),
     },
     {
       key: "verdict",
@@ -185,14 +199,27 @@ export default function HunterPage() {
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <div className="sm:col-span-2">
               <label className="block text-xs text-text-secondary mb-1">
-                Category
+                Search a category, or type any product
               </label>
               <Input
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
-                placeholder="e.g. Garden Tools, Kitchen, Home Decor"
+                // The old placeholder suggested "Garden Tools, Kitchen",
+                // which are NOT categories - the backend silently searched
+                // Electronics instead. The real names are listed below.
+                placeholder="e.g. cordless drill, garden tools, laptop stand"
+                list="hunter-categories"
                 disabled={scanLoading || lookupLoading}
               />
+              <datalist id="hunter-categories">
+                {categories.map((c) => (
+                  <option key={c.category_id} value={c.label} />
+                ))}
+              </datalist>
+              <p className="text-xs text-text-dim mt-1">
+                Pick one of the {categories.length} categories to browse it, or
+                type your own words and we search eBay for exactly those.
+              </p>
             </div>
             <div>
               <label className="block text-xs text-text-secondary mb-1">
@@ -306,6 +333,11 @@ export default function HunterPage() {
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-text-primary">
               Results ({products.length})
+              {report?.hot_count ? (
+                <span className="ml-2 text-xs font-normal text-text-secondary">
+                  {report.hot_count} trending
+                </span>
+              ) : null}
             </h3>
             {scan && !report && (
               <span className="text-xs text-text-dim">
@@ -313,17 +345,40 @@ export default function HunterPage() {
               </span>
             )}
           </div>
-          {/* TODO(P5 / C11): surface competitor eBay stores here — no per-row
-              expansion exists yet, so add one (or a stores block above the
-              table) once the Hunter endpoints return `ebay_stores`. */}
+          {/* State what was really searched — a keyword search and a category
+              browse are different questions, and the user should know which
+              one they got (REGRESSION-001). */}
+          {(scan?.search || report) && (
+            <p className="text-xs text-text-secondary mb-2">
+              {scan?.search
+                ? scan.search.mode === "category"
+                  ? `Browsing the ${scan.search.label} category.`
+                  : `Searching eBay for "${scan.search.text}".`
+                : null}
+            </p>
+          )}
+          {/* TODO(P5 / C11): surface competitor eBay stores here — the
+              endpoints return `ebay_stores` and stamp them, but no per-row
+              expansion exists yet to show them. */}
           <DataTable
             columns={columns}
             rows={products}
             keyFn={(r, i) => r.url || i}
-            emptyMessage="No products matched this category in the active price range."
+            emptyMessage="No products found."
           />
         </div>
       )}
+
+      {(scan || report) &&
+        products.length === 0 &&
+        !scanLoading &&
+        !lookupLoading && (
+          <HunterEmptyState
+            searchText={scan?.search?.text || category.trim() || undefined}
+            mode={scan?.search?.mode}
+            summary={report?.summary}
+          />
+        )}
 
       {!scanLoading && !lookupLoading && !scan && !error && (
         <Card>

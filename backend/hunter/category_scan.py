@@ -1,34 +1,28 @@
-"""eBay category scanning — fetch listings from a category."""
+"""eBay category scanning — browse a category, or search what the user typed.
+
+REGRESSION-001: the category lookup used to fall back to Electronics (293) for
+anything it did not recognise, and never sent the typed words to eBay at all.
+Resolution now lives in `hunter.category_resolver`; this module only decides
+how to ask (category_ids vs q) and how to parse the answer.
+"""
 
 import re
 from dataclasses import dataclass, field
 from typing import Optional
+from urllib.parse import quote_plus
 
 import requests
 from bs4 import BeautifulSoup
 
 from config import EBAY_UK_BASE, EBAY_CLIENT_ID, EBAY_CLIENT_SECRET, EBAY_API_BASE, EBAY_MARKETPLACE, SCRAPE_CONFIG, FILTERS
 from engine.condition_gate import html_condition_param, is_new
-
-
-# Predefined eBay UK categories
-EBAY_CATEGORIES = {
-    "Electronics": "293",
-    "Home & Garden": "1173",
-    "Clothing, Shoes & Accessories": "11450",
-    "Sports & Outdoors": "888",
-    "Toys & Hobbies": "220",
-    "Health & Beauty": "2610",
-    "Automotive": "9800",
-    "Pet Supplies": "1281",
-    "Baby Essentials": "263955",
-    "Jewellery & Watches": "281",
-    "Business & Industrial": "12576",
-    "Cameras & Photo": "625",
-    "Computers/Tablets": "580581",
-    "Musical Instruments": "619",
-    "Collectibles": "1",
-}
+from hunter.category_resolver import (  # noqa: F401  (re-exported for hunter/__init__)
+    EBAY_CATEGORIES,
+    MODE_CATEGORY,
+    ResolvedSearch,
+    category_choices,
+    resolve_category,
+)
 
 
 @dataclass
@@ -42,12 +36,46 @@ class CategoryProduct:
     condition: str = ""   # C10 — '' = unread; never assume New
     buying_format: str = "Buy It Now"
     category: str = ""
+    # 1.6 — what was actually asked for: "category" or "keyword", plus the
+    # text sent to eBay. A row never claims a category it did not come from.
+    search_mode: str = ""
+    search_query: str = ""
     # Filled later
     sold_30d: int = 0
     sold_7d: int = 0
     supplier_price: float = 0.0
     supplier_name: str = ""
     supplier_url: str = ""
+    # REGRESSION-004 — WHY there is (or is not) a supplier price. "" is
+    # deliberately invalid: a row never looked up must not look like one that
+    # was checked and found clean.
+    #   "found" | "no_supplier" | "out_of_band" | "timeout"
+    supplier_status: str = ""
+    # C13 - the reason behind supplier_status, in words the UI can show.
+    supplier_status_reason: str = ""
+    # REGRESSION-005 - provenance for the MONEY figures. profit/margin stay
+    # 0.0 when we have no data, but these say so, so the UI can show "no
+    # supplier data" instead of a confident red GBP0.00.
+    #   "estimated" (computed from real inputs) | "unverified" (not computable)
+    profit_provenance: str = ""
+    profit_provenance_label: str = ""
+    profit_provenance_reason: str = ""
+    profit_provenance_method: str = ""
+    # "found" | "no_supplier" | "out_of_band" | "timeout" | "" - why the
+    # profit figure is or is not there.
+    profit_status: str = ""
+    # C13 - supplier postage when the source stated it. 0.0 = unknown.
+    shipping_cost: float = 0.0
+    shipping_raw: str = ""
+    # Hot/trending, computed by hunter/demand_hotness.py from the two demand
+    # counts above. `hot` is derived, never assigned by hand;
+    # hot_provenance == "unverified" means we had no demand data to judge.
+    hot: bool = False
+    hot_basis: str = ""
+    hot_provenance: str = ""
+    hot_reason: str = ""
+    demand_pace_7d_per_week: Optional[float] = None
+    demand_pace_30d_per_week: Optional[float] = None
     profit: float = 0.0
     margin: float = 0.0
     verdict: str = ""
@@ -66,26 +94,59 @@ def scan_category(
     price_max: float = FILTERS["price_max"],
     max_results: int = 50,
 ) -> list[CategoryProduct]:
-    """Scan an eBay category and return filtered products."""
-    category_id = EBAY_CATEGORIES.get(category_name, "293")
+    """Browse a known category, or search eBay for what the user actually typed.
+
+    C14/REGRESSION-001: the old one-liner was
+    `EBAY_CATEGORIES.get(category_name, "293")`, so "garden tools" silently
+    became Electronics and the typed words never reached eBay. An empty
+    search returns nothing rather than a default category.
+    """
+    resolved = resolve_category(category_name)
+    if not resolved.text:
+        print("[WARN] Category scan called with no search text - nothing to do")
+        return []
 
     # Try API first
-    products = _scan_via_api(category_id, price_min, price_max, max_results, category_name)
+    products = _scan_via_api(resolved, price_min, price_max, max_results)
     if products:
         return products
 
     # Fallback to scraping
-    return _scan_via_scrape(category_id, price_min, price_max, max_results, category_name)
+    return _scan_via_scrape(resolved, price_min, price_max, max_results)
+
+
+def _search_params(resolved: ResolvedSearch, price_min: float, price_max: float,
+                   max_results: int) -> dict:
+    """The Browse API query for a resolved search.
+
+    Exactly one of `category_ids` (browse) or `q` (search) is ever sent —
+    sending both would let eBay ignore the keywords.
+    """
+    params: dict = {
+        "limit": min(max_results, 50),
+        "filter": (
+            f"buyingOptions:{{FIXED_PRICE}},"
+            f"conditions:{{NEW}},"
+            f"deliveryCountry:GB,"
+            f"price:[{price_min}..{price_max}],"
+            f"priceCurrency:GBP"
+        ),
+        "sort": "-relevance",
+    }
+    if resolved.is_category:
+        params["category_ids"] = resolved.category_id
+    else:
+        params["q"] = resolved.text
+    return params
 
 
 def _scan_via_api(
-    category_id: str,
+    resolved: ResolvedSearch,
     price_min: float,
     price_max: float,
     max_results: int,
-    category_name: str,
 ) -> list[CategoryProduct]:
-    """Scan category via Browse API."""
+    """Browse or search via the Browse API."""
     if not EBAY_CLIENT_ID or not EBAY_CLIENT_SECRET:
         return []
 
@@ -106,21 +167,10 @@ def _scan_via_api(
         resp.raise_for_status()
         token = resp.json()["access_token"]
 
-        # Search category
+        # Search eBay — a category browse, or a real keyword search
         resp = requests.get(
             f"{EBAY_API_BASE}/buy/browse/v1/item_summary/search",
-            params={
-                "category_ids": category_id,
-                "limit": min(max_results, 50),
-                "filter": (
-                    f"buyingOptions:{{FIXED_PRICE}},"
-                    f"conditions:{{NEW}},"       # C10 — asserted by test_condition_gate
-                    f"deliveryCountry:GB,"
-                    f"price:[{price_min}..{price_max}],"
-                    f"priceCurrency:GBP"
-                ),
-                "sort": "-relevance",
-            },
+            params=_search_params(resolved, price_min, price_max, max_results),
             headers={
                 "Authorization": f"Bearer {token}",
                 "X-EBAY-C-MARKETPLACE-ID": EBAY_MARKETPLACE,
@@ -150,7 +200,13 @@ def _scan_via_api(
                     if item.get("thumbnailImages") else None,
                 seller=seller_info.get("username"),
                 condition=condition,
-                category=category_name,
+                # 1.6 — the row records what was ACTUALLY asked for. The old
+                # code stamped the user's raw text onto rows that had come
+                # from category 293, so the page read "garden tools" above a
+                # shelf of electronics.
+                category=resolved.label or resolved.text,
+                search_mode=resolved.mode,
+                search_query=resolved.text,
             ))
 
             if len(products) >= max_results:
@@ -176,19 +232,30 @@ def _scan_via_api(
 
 
 def _scan_via_scrape(
-    category_id: str,
+    resolved: ResolvedSearch,
     price_min: float,
     price_max: float,
     max_results: int,
-    category_name: str,
 ) -> list[CategoryProduct]:
-    """Fallback: scrape eBay category page."""
+    """Fallback: scrape the eBay category page, or run the search on the site.
+
+    A keyword search has no category page, so it uses eBay's own search URL
+    (`/sch/i.html?_nkw=`) rather than a category shelf.
+    """
     products = []
 
     try:
+        if resolved.is_category:
+            path = f"{EBAY_UK_BASE}/b/{resolved.category_id}/n.html"
+            extra = ""
+        else:
+            quoted = quote_plus(resolved.text)
+            path = f"{EBAY_UK_BASE}/sch/i.html"
+            extra = f"&_nkw={quoted}"
         url = (
-            f"{EBAY_UK_BASE}/b/{category_id}/n.html?"
+            f"{path}?"
             f"_pgn=1"
+            f"{extra}"
             f"&LH_Price=1"
             f"&_udlo={price_min:.0f}"
             f"&_udhi={price_max:.0f}"
@@ -246,7 +313,9 @@ def _scan_via_scrape(
                     price=price,
                     url=link_el.get("href", ""),
                     condition=condition,
-                    category=category_name,
+                    category=resolved.label or resolved.text,
+                    search_mode=resolved.mode,
+                    search_query=resolved.text,
                 ))
 
                 if len(products) >= max_results:

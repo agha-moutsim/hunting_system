@@ -275,6 +275,14 @@ export interface BulkResponse {
 
 // ── Hunter ──────────────────────────────────────────────────────
 
+/**
+ * Why a row does or does not have a supplier price.
+ * "" means it was never checked - which must not read like a check that
+ * found nothing.
+ */
+export type SupplierStatus =
+  "found" | "no_supplier" | "out_of_band" | "timeout" | "";
+
 export interface CategoryProduct extends MatchAvailabilityFields {
   title: string;
   price: number;
@@ -283,20 +291,79 @@ export interface CategoryProduct extends MatchAvailabilityFields {
   seller?: string | null;
   condition?: string;
   category?: string;
+  /** What was actually asked of eBay: "category" or "keyword". */
+  search_mode?: string;
+  /** The text really sent to eBay - not whatever the user retyped. */
+  search_query?: string;
   sold_30d?: number;
   sold_7d?: number;
   supplier_price?: number;
   supplier_name?: string;
   supplier_url?: string;
+  /** REGRESSION-004: the reason a supplier price is or is not there. */
+  supplier_status?: SupplierStatus;
+  supplier_status_reason?: string;
+  /**
+   * REGRESSION-005: `profit`/`margin` stay 0 when we have no data, so these
+   * say whether the number is a calculation or the absence of one. A row
+   * with `profit_provenance === "unverified"` must render as "no data",
+   * never as GBP0.00.
+   */
+  profit_provenance?: "verified" | "estimated" | "unverified" | "ai_insight";
+  profit_provenance_label?: string;
+  profit_provenance_reason?: string;
+  profit_provenance_method?: string;
+  profit_status?: SupplierStatus;
+  /** Supplier postage when the source stated it. 0.0 = unknown, not free. */
+  shipping_cost?: number;
+  shipping_raw?: string;
+  /** Computed by hunter/demand_hotness.py from the two demand counts. */
+  hot?: boolean;
+  hot_basis?: string;
+  hot_provenance?: "verified" | "unverified";
+  hot_reason?: string;
+  demand_pace_7d_per_week?: number | null;
+  demand_pace_30d_per_week?: number | null;
   profit?: number;
   margin?: number;
   verdict?: string;
+}
+
+/** What a scan/browse actually resolved to, so the UI can state it. */
+export interface HunterSearchInfo {
+  text: string;
+  mode: "category" | "keyword";
+  label: string;
+  reason: string;
+}
+
+export interface HunterCategory {
+  label: string;
+  category_id: string;
 }
 
 export interface HunterScanResponse {
   products: CategoryProduct[];
   total_scanned: number;
   total_with_demand: number;
+  search?: HunterSearchInfo;
+}
+
+/**
+ * Real counts behind the result, so "no products" is never ambiguous.
+ * A run where every supplier lookup timed out must not look the same as a
+ * category with nothing in it.
+ */
+export interface HunterLookupSummary {
+  products_returned: number;
+  with_supplier: number;
+  no_supplier: number;
+  timed_out: number;
+  out_of_band: number;
+  scanned: number;
+  price_min: number;
+  price_max: number;
+  status_counts: Record<string, number>;
 }
 
 export interface HunterReport {
@@ -307,9 +374,22 @@ export interface HunterReport {
   total_with_demand: number;
   total_with_supplier: number;
   total_pass: number;
+  hot_count?: number;
   products: CategoryProduct[];
   scanned_at: string;
   notes?: string; // PR-4 band-exclusion transparency line
+  provenance?: {
+    profit?: {
+      provenance: string;
+      label?: string;
+      reason?: string;
+      method?: string;
+      rows_unverified: number;
+      rows_total: number;
+    };
+    supplier_status_counts?: Record<string, number>;
+  };
+  summary?: HunterLookupSummary;
 }
 
 // ── Tracker ─────────────────────────────────────────────────────

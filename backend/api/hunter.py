@@ -10,9 +10,28 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+@router.get("/hunter/categories")
+def hunter_categories():
+    """The categories the UI offers, so the box can be a real picker.
+
+    Free text is still allowed and is searched as typed; this is only the
+    list of things we can browse instead of search (REGRESSION-001).
+    """
+    from hunter.category_resolver import category_choices
+
+    return {"categories": category_choices()}
+
+
 @router.post("/hunter/scan")
 def hunter_scan(req: HunterScanRequest):
-    """Scan an eBay category within the price range + run demand check."""
+    """Browse a known category, or search eBay for what the user typed.
+
+    REGRESSION-001: this used to resolve the text through
+    `EBAY_CATEGORIES.get(name, "293")`, so "garden tools" silently became
+    Electronics and the typed words were never sent. The response now carries
+    `search` so the UI can state what was actually looked for.
+    """
+    from hunter.category_resolver import resolve_category
     from hunter.category_scan import scan_category
     from hunter.demand_check import batch_demand_check
     from utils.filters import load_filters
@@ -25,6 +44,8 @@ def hunter_scan(req: HunterScanRequest):
     price_max = rng["price_max"] if req.price_max is None else float(req.price_max)
     if not (0 < price_min < price_max <= 10000):
         price_min, price_max = rng["price_min"], rng["price_max"]
+
+    resolved = resolve_category(req.category)
     products = scan_category(
         req.category,
         price_min=price_min,
@@ -39,6 +60,14 @@ def hunter_scan(req: HunterScanRequest):
         "products": [_product_dict(p) for p in with_demand],
         "total_scanned": total_scanned,
         "total_with_demand": len(with_demand),
+        # What was really asked of eBay — never a category the user did not
+        # choose.
+        "search": {
+            "text": resolved.text,
+            "mode": resolved.mode,
+            "label": resolved.label,
+            "reason": resolved.reason,
+        },
     }
 
 
@@ -108,7 +137,49 @@ def hunter_lookup(req: HunterLookupRequest):
     # C11/C13 — every report row carries the store stamp the scan path
     # carries, so a lookup response never shows unstamped store lists.
     _stamp_report_stores(payload)
+    # REGRESSION-005 — an empty result must say WHY it is empty, in real
+    # counts. The old response returned products: [] and the UI showed a bare
+    # "no products", which was indistinguishable from a genuinely empty
+    # category: a run where every supplier lookup timed out looked identical
+    # to a category with nothing in it.
+    payload["summary"] = _lookup_summary(
+        final, total_scanned, excluded_suppliers
+    )
     return payload
+
+
+def _lookup_summary(
+    products: list, total_scanned: int, excluded_over_band: int
+) -> dict:
+    """Real counts for the empty state - never a message invented to fill it.
+
+    The nudge is derived from what actually happened (how many listings were
+    seen, how many had a supplier, how many were out of band, and the active
+    price range). It never invents a product, a count, or a supplier.
+    """
+    rows = len(products)
+    with_supplier = sum(
+        1 for p in products if getattr(p, "supplier_status", "") == "found"
+    )
+    reasons: dict[str, int] = {}
+    for p in products:
+        key = getattr(p, "supplier_status", "") or "unknown"
+        reasons[key] = reasons.get(key, 0) + 1
+
+    from utils.filters import load_filters
+
+    rng = load_filters()
+    return {
+        "products_returned": rows,
+        "with_supplier": with_supplier,
+        "no_supplier": reasons.get("no_supplier", 0),
+        "timed_out": reasons.get("timeout", 0),
+        "out_of_band": excluded_over_band,
+        "scanned": total_scanned,
+        "price_min": rng["price_min"],
+        "price_max": rng["price_max"],
+        "status_counts": reasons,
+    }
 
 
 def _stamp_report_stores(payload: dict) -> None:

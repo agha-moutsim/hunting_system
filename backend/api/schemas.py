@@ -2,7 +2,7 @@
 
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ── Analyze ─────────────────────────────────────────────────────
@@ -26,7 +26,21 @@ class BulkRequest(BaseModel):
 # ── Hunter ──────────────────────────────────────────────────────
 
 class HunterScanRequest(BaseModel):
+    # REGRESSION-001: a blank or whitespace-only search used to be accepted and
+    # then silently became the Electronics category. Reject it here so the
+    # user is told, rather than being shown a category they never asked for.
     category: str = Field(..., min_length=1)
+
+    @field_validator("category")
+    @classmethod
+    def _category_must_have_words(cls, v: str) -> str:
+        cleaned = " ".join(str(v or "").split())
+        if not cleaned:
+            raise ValueError(
+                "Enter a search term or pick a category"
+            )
+        return cleaned
+
     # None = "use the active range" (resolved server-side); a value the
     # client does send is validated before use (PR-5/PR-7).
     price_min: Optional[float] = None

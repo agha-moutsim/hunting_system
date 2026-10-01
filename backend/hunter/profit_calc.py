@@ -31,13 +31,30 @@ def batch_profit_calc(
 
 
 def _calc_single(product: CategoryProduct, filters: dict):
-    """Adapt one CategoryProduct to DecisionEngine evidence."""
+    """Adapt one CategoryProduct to DecisionEngine evidence.
+
+    REGRESSION-005: when there is no supplier price this used to write
+    `profit = 0` / `margin = 0` and stop, which the frontend rendered as a
+    real red "GBP0.00 (0.0%)". The numbers still start at 0 because that is
+    genuinely all we know, but the row is now stamped UNVERIFIED with the
+    reason, so a missing value can never be read as a measured zero (C1/C13).
+    """
     from engine.decisions import DecisionEngine
+    from engine.provenance import Provenance
 
     if product.price <= 0 or product.supplier_price <= 0:
         product.verdict = "PENDING"
         product.profit = 0
         product.margin = 0
+        product.profit_provenance = Provenance.UNVERIFIED.value
+        product.profit_provenance_label = Provenance.UNVERIFIED.label
+        product.profit_provenance_method = ""
+        product.profit_status = product.supplier_status or "no_supplier"
+        product.profit_provenance_reason = (
+            product.supplier_status_reason
+            or "no approved supplier returned a matching offer, so no profit "
+               "could be calculated"
+        )
         return
 
     evidence = ScrapedProduct(
@@ -48,9 +65,13 @@ def _calc_single(product: CategoryProduct, filters: dict):
         # C10 — pass the condition through verbatim. '' means unread, and the
         # engine marks that row Unverified rather than inventing "New".
         condition=product.condition,
-        # eBay-side delivery estimate is unknown here — C-new shows it as
+        # eBay-side delivery estimate is unknown here - C-new shows it as
         # Unknown rather than borrowing the supplier's ceiling (C1).
         delivery_days_max=None,
+        # REGRESSION-005 - the supplier's postage, when the source stated it.
+        # 0.0 means unread, and calculate_profit reports the figure as
+        # incomplete in that case rather than pretending postage was free.
+        shipping_cost=product.shipping_cost or 0.0,
         verified=True,
     )
     demand = DemandData(
@@ -75,6 +96,21 @@ def _calc_single(product: CategoryProduct, filters: dict):
     product.profit = verdict.profit
     product.margin = verdict.margin
     product.verdict = verdict.verdict.upper()
+    # C13 - this figure is COMPUTED from two real prices, so it is an
+    # estimate with a stated method, not a verified fact and not an insight.
+    from engine.provenance import Provenance
+    product.profit_provenance = Provenance.ESTIMATED.value
+    product.profit_provenance_label = Provenance.ESTIMATED.label
+    product.profit_provenance_method = (
+        "eBay final value fee + listing fee + VAT on fees + returns buffer "
+        f"+ packaging"
+        + ("" if not product.shipping_cost else " + supplier shipping")
+        + "; CONSTRAINTS.md C3"
+    )
+    product.profit_status = product.supplier_status or "found"
+    product.profit_provenance_reason = (
+        product.supplier_status_reason or "supplier price confirmed"
+    )
 
 
 def _supplier_delivery_max(supplier_name: str) -> int | None:
