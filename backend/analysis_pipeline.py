@@ -203,14 +203,42 @@ async def search_all_suppliers(query: str, progress=None) -> list[ScrapedProduct
             except Exception:
                 pass
 
+    # P4 — SerpApi Google Shopping is the PRIMARY discovery source (one call,
+    # at most MAX_CALLS), the seven per-supplier scrapers are the fallback.
+    # Started before the gather so it costs no extra wall-clock time.
+    from scrapers.serpapi_discovery import discover as serpapi_discover
+    discovery_task = asyncio.ensure_future(asyncio.to_thread(serpapi_discover, query))
+
     pairs = await asyncio.gather(*(_run_one(name, cls) for name, cls in scrapers))
 
     all_results: list[ScrapedProduct] = []
+    seen_urls: set[str] = set()
+
+    def _extend(rows) -> None:
+        """Append rows, dropping any URL already collected from another source."""
+        for product in rows or []:
+            url = (getattr(product, "url", "") or "").strip()
+            if url:
+                if url in seen_urls:
+                    continue
+                seen_urls.add(url)
+            all_results.append(product)
+
+    try:
+        discovery_rows = await discovery_task
+    except Exception as e:
+        logger.warning("SerpApi discovery failed: %s", e)
+        discovery_rows = []
+    _extend(discovery_rows)
+    if progress:
+        icon = "✓" if discovery_rows else "–"
+        progress(f"{icon} SerpApi: {len(discovery_rows)} product(s)")
+
     for name, results in pairs:
         icon = "✓" if results else "–"
         if progress:
             progress(f"{icon} {name}: {len(results)} product(s)")
-        all_results.extend(results)
+        _extend(results)
 
     all_results.sort(key=lambda p: p.price)
     return all_results

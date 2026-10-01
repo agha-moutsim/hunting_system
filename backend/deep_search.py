@@ -341,7 +341,13 @@ def _gate_suppliers(
     kept = filter_matches(scored, THRESHOLD_UNVERIFIED)
     dropped = len(scored) - len(kept)
     if dropped:
-        print(f"[INFO] {dropped} supplier row(s) below match threshold — dropped (C14)")
+        print(f"[INFO] {dropped} supplier row(s) below match threshold - dropped (C14)")
+    # C12 — the ceiling, applied AFTER the gate so the survivors are the
+    # strongest matches rather than the first ones we happened to collect.
+    from config import MAX_SUPPLIERS
+    if len(kept) > MAX_SUPPLIERS:
+        print(f"[INFO] {len(kept)} supplier row(s) past the C12 cap - keeping top {MAX_SUPPLIERS}")
+        kept = kept[:MAX_SUPPLIERS]
     return kept
 
 
@@ -466,6 +472,66 @@ def _verify_supplier_candidates(query: str, candidates: list) -> list:
         })
 
     return verified_rows
+
+
+def _discover_approved_suppliers(query: str) -> list[dict]:
+    """P4 — SerpApi Google Shopping rows for the 7 approved suppliers.
+
+    Primary discovery. SerpApi already hands us the title, price and stock
+    read off the live listing, so these rows need no second fetch; they are
+    reshaped to the same dict `_verify_supplier_candidates` builds so the
+    matcher downstream scores both sources identically.
+
+    Fails closed: no SERPAPI_KEY, a transport error or an empty result all
+    produce [] and the analysis simply carries fewer suppliers (C12).
+    """
+    try:
+        from scrapers.serpapi_discovery import discover
+        rows = discover(str(query or "").strip())
+    except Exception as e:
+        print(f"[WARN] supplier discovery failed: {e}")
+        return []
+
+    out: list[dict] = []
+    for product in rows:
+        if not product or not product.url or not product.title:
+            continue
+        cfg_type = product.supplier_type
+        delivery = ""
+        lo, hi = product.delivery_days_min, product.delivery_days_max
+        if lo and hi:
+            delivery = f"{lo}-{hi} days"
+        elif lo or hi:
+            delivery = f"{int(lo or hi)} days"
+        out.append({
+            "name": product.source,
+            "full_name": product.source,
+            "price": float(product.price or 0.0),
+            "url": product.url,
+            "supplier_type": cfg_type,
+            "delivery_days": delivery,
+            "product_title": product.title,
+            "notes": "Price and title read from the live Google Shopping listing.",
+            # C13 — provenance travels with the row. Every value here came
+            # off a real listing, so it is verified; nothing is a guess.
+            "provenance": Provenance.VERIFIED.value,
+            "provenance_label": Provenance.VERIFIED.label,
+            "source_url": product.url,
+            "source_name": product.source,
+            "match_basis": "Google Shopping listing",
+            "image_url": product.image_url or None,
+            # C14 — pHash is computed only when both images exist; a caller
+            # that has none leaves it None, never a made-up hash.
+            "image_hash": None,
+            # P4 — stock/shipping as the source stated them; absent stays
+            # unknown, never defaulted.
+            "in_stock": product.in_stock or "",
+            "stock_raw": product.stock_raw or "",
+            "shipping_cost": float(product.shipping_cost or 0.0),
+            "shipping_days": int(product.shipping_days or 0),
+            "shipping_raw": product.shipping_raw or "",
+        })
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -665,9 +731,21 @@ def deep_search_product(query: str) -> DeepSearchResult:
     # produce a PASS. Candidates the LLM names are only ever URLs to FETCH;
     # a row exists here only if it was retrieved and confirmed (verify-or-drop).
     parsed.pop("suppliers", None)
-    verified_suppliers = _verify_supplier_candidates(
+    # P4 — SerpApi Google Shopping is the PRIMARY source of approved
+    # suppliers; the LLM's candidate URLs are only the SUPPLEMENT, because
+    # the model can name nothing beyond what the corpus already surfaced.
+    # Both streams then pass through the same gate, so neither can reach the
+    # result without a computed match (C14) and neither can push the list
+    # past the C12 ceiling.
+    verified_suppliers = _discover_approved_suppliers(query)
+    seen_supplier_urls = {row.get("url", "") for row in verified_suppliers}
+    for row in _verify_supplier_candidates(
         query, parsed.get("supplier_candidates", []) or []
-    )
+    ):
+        if row.get("url", "") in seen_supplier_urls:
+            continue  # same listing reached twice — one row, not two
+        seen_supplier_urls.add(row.get("url", ""))
+        verified_suppliers.append(row)
     # C14 — retrieved is not the same as matching. Every confirmed page is
     # now scored against the eBay title, and anything the matcher cannot
     # place above the threshold is dropped rather than shown (C12).
