@@ -27,7 +27,7 @@ from engine.price_gate import (
     PRICE_MIN, PRICE_MAX, band_label, excluded_note,
     filter_products, in_band, over_band_reason,
 )
-from engine.match import TIER_NO_MATCH, compute_match
+from engine.match import TIER_NO_MATCH, compute_match, image_hash_for
 from engine.scorecard import format_scorecard
 from engine.source_type import supplier_type
 from engine.stores import resolve_stores, store_provenance_block
@@ -127,7 +127,10 @@ def apply_purchase_history(
 
 
 def _score_supplier(
-    product: ScrapedProduct, reference_title: str, ebay_price: float
+    product: ScrapedProduct,
+    reference_title: str,
+    ebay_price: float,
+    ebay_image_hash: int | None = None,
 ) -> bool:
     """C14 — score one scraped row against the eBay title; keep only a match.
 
@@ -140,14 +143,24 @@ def _score_supplier(
     `brand` is deliberately empty at this point: supplier search runs
     BEFORE the LLM, so no brand is known yet, and an unknown brand scores
     neutrally rather than as a mismatch.
+
+    C14's image phash applies "when both images exist". Without a reference
+    hash there is nothing to compare a candidate image to, so no download is
+    attempted; with one, the candidate image is hashed once and cached on the
+    row. A hash that cannot be obtained stays None and the score simply
+    loses that component — never a fabricated one.
     """
     if not reference_title:
         return True  # nothing to match against — cannot fail it either
+    if ebay_image_hash is not None and product.image_hash is None:
+        product.image_hash = image_hash_for(product.image_url)
     result = compute_match(
         reference_title,
         product.title or "",
         ebay_price=ebay_price,
         candidate_price=product.price or 0.0,
+        ebay_image_hash=ebay_image_hash,
+        candidate_image_hash=product.image_hash,
     )
     product.match_score = result.score
     product.match_tier = result.tier
@@ -403,9 +416,14 @@ async def run_analysis_pipeline(
         # row the matcher cannot place above the threshold is dropped, never
         # shown. Match fields land on the row so every later consumer (LLM,
         # DB, API response) sees the same computed number.
+        # C14 — the reference image is hashed once here, not per row: it is
+        # the eBay listing every supplier row is compared against.
+        ebay_image_hash = image_hash_for(getattr(ebay_product, "image_url", None))
         supplier_results = [
             s for s in supplier_results
-            if _score_supplier(s, ebay_product.title, ebay_product.price or 0.0)
+            if _score_supplier(
+                s, ebay_product.title, ebay_product.price or 0.0, ebay_image_hash
+            )
         ]
         # C12 — a ceiling, never a target. Rank by how confidently the matcher
         # identified the product, then by price, and keep at most 7. Sorting

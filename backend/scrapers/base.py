@@ -134,6 +134,10 @@ class ScrapedProduct:
     match_label: str = ""         # "verified match" | "not confirmed" | "no confirmed match"
     match_basis: str = ""         # human-readable reason the score is what it is
     match_method: str = ""        # names the algorithm, for the audit trail
+    # C14 — pHash of `image_url`, None while it is unread. Written by
+    # engine.match.image_hash_for; never a made-up value, and absent means
+    # the image could not be obtained so the score falls back to text only.
+    image_hash: Optional[int] = None
 
 
 @dataclass

@@ -5,7 +5,7 @@ import time
 from typing import Optional
 
 from hunter.category_scan import CategoryProduct
-from engine.match import TIER_NO_MATCH, compute_match
+from engine.match import TIER_NO_MATCH, compute_match, image_hash_for
 from engine.price_gate import in_band
 from engine.source_type import supplier_type
 from engine.provenance import Provenance
@@ -17,7 +17,12 @@ LOOKUP_TIMEOUT = 15
 _excluded_over_band = 0
 
 
-def _first_valid(products, reference_title: str = "", ebay_price: float = 0.0):
+def _first_valid(
+    products,
+    reference_title: str = "",
+    ebay_price: float = 0.0,
+    ebay_image_hash: int | None = None,
+):
     """The best supplier row with a usable price that also MATCHED (C14).
 
     This used to return the first row with a positive price, which meant
@@ -28,6 +33,10 @@ def _first_valid(products, reference_title: str = "", ebay_price: float = 0.0):
 
     No candidate above the threshold returns None: showing no supplier is
     correct, showing the wrong one is not (C12).
+
+    `ebay_image_hash` turns on C14's image phash. It only ever fires when
+    both sides have an image; with no reference hash nothing is downloaded,
+    and an image that cannot be read stays unknown rather than guessed.
     """
     best = None
     best_key = None
@@ -35,11 +44,15 @@ def _first_valid(products, reference_title: str = "", ebay_price: float = 0.0):
         if not p.price or p.price <= 0:
             continue
         if reference_title:
+            if ebay_image_hash is not None and getattr(p, "image_hash", None) is None:
+                p.image_hash = image_hash_for(getattr(p, "image_url", None))
             r = compute_match(
                 reference_title,
                 getattr(p, "title", "") or "",
                 ebay_price=ebay_price,
                 candidate_price=p.price,
+                ebay_image_hash=ebay_image_hash,
+                candidate_image_hash=getattr(p, "image_hash", None),
             )
             if r.tier == TIER_NO_MATCH:
                 continue
@@ -66,7 +79,10 @@ async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
             from scrapers.cjdropshipping import CJDropshippingScraper
             scraper = CJDropshippingScraper()
             products = await asyncio.wait_for(scraper.search(product.title), timeout=10)
-            hit = _first_valid(products, product.title, product.price or 0.0)
+            hit = _first_valid(
+                products, product.title, product.price or 0.0,
+                image_hash_for(getattr(product, "image_url", None)),
+            )
             if hit:
                 return {
                     "name": "CJ Dropshipping",
@@ -101,7 +117,10 @@ async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
             from scrapers.aliexpress import AliExpressScraper
             scraper = AliExpressScraper()
             products = await asyncio.wait_for(scraper.search(product.title), timeout=10)
-            hit = _first_valid(products, product.title, product.price or 0.0)
+            hit = _first_valid(
+                products, product.title, product.price or 0.0,
+                image_hash_for(getattr(product, "image_url", None)),
+            )
             if hit:
                 return {
                     "name": "AliExpress",
@@ -136,7 +155,10 @@ async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
             from scrapers.amazon_uk import AmazonUKScraper
             scraper = AmazonUKScraper()
             products = await asyncio.wait_for(scraper.search(product.title), timeout=10)
-            hit = _first_valid(products, product.title, product.price or 0.0)
+            hit = _first_valid(
+                products, product.title, product.price or 0.0,
+                image_hash_for(getattr(product, "image_url", None)),
+            )
             if hit:
                 return {
                     "name": "Amazon UK",

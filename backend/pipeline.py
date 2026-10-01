@@ -21,7 +21,7 @@ from datetime import datetime
 from typing import Any, Optional
 
 from config import FILTERS, MAX_SUPPLIERS
-from engine.match import TIER_NO_MATCH, compute_match
+from engine.match import TIER_NO_MATCH, compute_match, image_hash_for
 from db.database import SessionLocal
 from db.queries import (
     save_analysis_data,
@@ -106,7 +106,10 @@ def _resolve_supplier_choice(name: Any, suppliers: list[dict]) -> dict | None:
 
 
 def _match_gate(
-    products: list, reference_title: str, ebay_price: float
+    products: list,
+    reference_title: str,
+    ebay_price: float,
+    ebay_image_hash: int | None = None,
 ) -> list:
     """Score each scraped row against the eBay title; keep the matches (C14).
 
@@ -115,6 +118,10 @@ def _match_gate(
     consumer has to recompute, and none can substitute its own number.
     With nothing to match against the rows are kept as-is: we do not fail
     evidence we were never able to test.
+
+    `ebay_image_hash` enables C14's image phash. It is only consulted when
+    both sides have an image; without a reference hash no image is fetched
+    at all, and one that cannot be read stays None rather than guessed.
     """
     if not products:
         return []
@@ -125,11 +132,15 @@ def _match_gate(
     for p in products:
         if not p.price or p.price <= 0:
             continue
+        if ebay_image_hash is not None and getattr(p, "image_hash", None) is None:
+            p.image_hash = image_hash_for(getattr(p, "image_url", None))
         r = compute_match(
             reference_title,
             p.title or "",
             ebay_price=ebay_price,
             candidate_price=p.price,
+            ebay_image_hash=ebay_image_hash,
+            candidate_image_hash=getattr(p, "image_hash", None),
         )
         p.match_score = r.score
         p.match_tier = r.tier
@@ -191,6 +202,9 @@ class Pipeline:
         if not product:
             return result.to_dict()
 
+        # C14 — hash the reference eBay image once, before it is serialised,
+        # so the product itself reports the hash the matcher went on to use.
+        product.image_hash = image_hash_for(getattr(product, "image_url", None))
         result.product = asdict(product)
         result.demand = asdict(demand) if demand else {}
 
@@ -199,6 +213,7 @@ class Pipeline:
             query, result,
             reference_title=product.title,
             ebay_price=product.price or 0.0,
+            ebay_image_hash=product.image_hash,
         )
         result.suppliers = {
             k: [asdict(p) for p in v] for k, v in supplier_products.items()
@@ -244,6 +259,8 @@ class Pipeline:
         demand = DemandData(verified=False)
         query = _build_query_from_title(title)
 
+        # C14 — same reference hash as the run() path, taken before asdict.
+        product.image_hash = image_hash_for(getattr(product, "image_url", None))
         result.product = asdict(product)
         result.demand = asdict(demand)
 
@@ -252,6 +269,7 @@ class Pipeline:
             query, result,
             reference_title=product.title,
             ebay_price=product.price or 0.0,
+            ebay_image_hash=product.image_hash,
         )
         result.suppliers = {
             k: [asdict(p) for p in v] for k, v in supplier_products.items()
@@ -328,6 +346,7 @@ class Pipeline:
         result: PipelineResult,
         reference_title: str = "",
         ebay_price: float = 0.0,
+        ebay_image_hash: int | None = None,
     ) -> dict[str, list]:
         """Search all 7 suppliers concurrently.
 
@@ -344,7 +363,7 @@ class Pipeline:
                 logger.warning("Supplier %s failed: %s", name, e)
                 result.errors.append(f"Supplier {name} failed: {e}")
                 return name, []
-            return name, _match_gate(products, reference_title, ebay_price)
+            return name, _match_gate(products, reference_title, ebay_price, ebay_image_hash)
 
         tasks = [
             _run_one(name, scraper)

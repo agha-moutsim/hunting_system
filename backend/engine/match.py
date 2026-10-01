@@ -41,6 +41,8 @@ __all__ = [
     "price_plausible",
     "phash_from_bytes",
     "phash_similarity",
+    "image_hash_for",
+    "clear_image_hash_cache",
     "compute_match",
     "passes_verified",
     "passes_threshold",
@@ -390,6 +392,62 @@ def phash_similarity(hash_a: int | None, hash_b: int | None) -> float | None:
         return None
     distance = bin(int(hash_a) ^ int(hash_b)).count("1")
     return max(0.0, 1.0 - (distance / 32.0))
+
+
+# --- Image hashing ---------------------------------------------------------
+
+# C14 uses image phash "when both images exist", so somebody has to turn the
+# image URL into bytes. Cached by URL for the life of the process: the same
+# supplier image is scored against many eBay titles (Bulk, category scans), and
+# a dead host caches None so it is tried once rather than on every row.
+_IMAGE_HASH_CACHE: dict[str, int | None] = {}
+_IMAGE_TIMEOUT = 5.0
+
+
+def image_hash_for(url) -> int | None:
+    """pHash of the image at `url`, or None when it cannot be obtained.
+
+    None means UNKNOWN, and `compute_match` already excludes an unknown
+    component rather than scoring it — so an unreachable image costs the
+    row its image signal, never a fabricated one (C1/C13).
+
+    `requests` is imported inside the function: this module stays importable
+    without a network stack, which is what makes it a pure function.
+    """
+    if not url or not isinstance(url, str):
+        return None
+    key = url.strip()
+    if not key:
+        return None
+    if key in _IMAGE_HASH_CACHE:
+        return _IMAGE_HASH_CACHE[key]
+
+    # Imported here, not at module level: this file must stay importable with
+    # no network stack, which is what keeps `compute_match` a pure function.
+    import requests
+
+    hashed: int | None = None
+    try:
+        resp = requests.get(
+            key,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; eBayHunter/1.0)"},
+            timeout=_IMAGE_TIMEOUT,
+        )
+        resp.raise_for_status()
+        hashed = phash_from_bytes(resp.content)
+    except (requests.RequestException, ValueError, OSError):
+        # Request failed or timed out, or the bytes were not an image. Any of
+        # them means "no hash" — the caller falls back to text-only scoring
+        # rather than inventing one (C1/C13).
+        hashed = None
+
+    _IMAGE_HASH_CACHE[key] = hashed
+    return hashed
+
+
+def clear_image_hash_cache() -> None:
+    """Drop the URL -> pHash cache. For tests and long-lived processes."""
+    _IMAGE_HASH_CACHE.clear()
 
 
 # --- Assembly ---------------------------------------------------------------

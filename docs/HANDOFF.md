@@ -29,7 +29,7 @@ is explicitly labelled as not verified.** A fabricated price costs real money.
 ## 1. Verification (run this before and after every change)
 
 ```powershell
-# Backend tests — baseline is 609
+# Backend tests — baseline is 641
 $env:PYTHONIOENCODING='utf-8'
 python -m pytest tests/ -q --ignore=tests/test_phase3.py
 
@@ -52,10 +52,12 @@ regression. **`tsc --noEmit` is the frontend gate.**
 
 ### Current state (verified just now)
 
-- `609 passed, 33 warnings` ✅
+- `641 passed, 33 warnings` ✅
 - `npx tsc --noEmit` → **exit 0** ✅
 - Backend import smoke → `OK` ✅
-- Nothing committed (last commit `cf6e094`). ~63 paths in the working tree (§7).
+- Pushed: `8320a7f` (P4 SerpApi) on top of `2ed42c5` (P0–P5).
+  Working tree clean apart from `backend/data/custom_filters.json`, which the
+  running app rewrites — leave it out of code commits.
 
 ### Running the app
 
@@ -181,17 +183,45 @@ the filesystem before re-running an agent.
 
 ### 4.2 P4 remaining
 
-- **SerpApi discovery is built but NOT wired into the consumers.**
-  `scrapers/serpapi_discovery.py::discover(query)` exists; `analysis_pipeline`
-  still calls the seven per-supplier scrapers via `search_all_suppliers`, and
-  `deep_search` still calls CJ/AliExpress/Amazon directly. Decide: make
-  SerpApi the primary discovery source and keep the direct scrapers as
-  fallback, or keep both. This is the main unfinished P4 item.
-- `deep_search._verify_supplier_candidates` does not use
-  `serpapi_discovery` either.
-- Image pHash is implemented but **never fed** — no caller passes
+**SerpApi discovery — DONE (commit `8320a7f`).**
+
+It turned out the module had never been run: `google_shopping` results carry
+**no merchant URL at all** (`link` is absent, `product_link` is always
+`https://www.google.com/...`), so the domain-match never fired and `_row_for`
+dropped every row for a missing `url`. Verified against the live API.
+
+Rewritten as three stages sharing one budget of `MAX_CALLS = 10` requests:
+
+1. **SEARCH** — one `google_shopping` call (+ a `site:` pass per missed
+   supplier) identifies the supplier from `source` and reads Google's title
+   and price.
+2. **RESOLVE** — one `google_immersive_product` call per row we keep returns
+   `product_results.stores[]`, the only place SerpApi publishes the merchant
+   URL, offer price, `shipping` line and stock wording.
+3. **BUILD** — coverage first (every supplier's first row, then spares),
+   capped at `MAX_SUPPLIERS`.
+
+The slug comes from the **offer's own domain**, never from where Google filed
+the search result — a test locks that in (a B&Q offer surfacing under a
+Toolstation search must not be labelled Toolstation).
+
+Wired into:
+
+- `analysis_pipeline.search_all_suppliers` — discovery runs concurrently with
+  the seven scrapers, deduped by URL.
+- `deep_search` — discovery is the **primary** source, LLM candidate URLs the
+  **supplement**, deduped by URL before the gate.
+- `_gate_suppliers` now applies the C12 cap (`config.MAX_SUPPLIERS`) _after_
+  the match gate, so survivors are the strongest matches.
+
+Live smoke (2026-10-01): 5 rows across Amazon UK / B&Q / Toolstation, real
+`toolstation.com` / `diy.com` / `amazon.co.uk` URLs, `in_stock`, `shipping_raw
+= "Free"` with `shipping_cost = 0.0`. Site passes time out sometimes; the
+budget stops cleanly.
+
+- **Image pHash is implemented but never fed** — no caller passes
   `ebay_image_hash`/`candidate_image_hash`. Wire it where both images exist
-  (C14 explicitly names pHash).
+  (C14 explicitly names pHash). **This is the last P4 item.**
 
 ### 4.3 P6 — documentation
 
@@ -283,6 +313,7 @@ frontend/components/ui/MatchBadge.tsx    match tier + stock/shipping copy
 frontend/components/EbayStoresCard.tsx
 tests/test_match.py                  187 tests
 tests/test_match_wiring.py            67 tests
+tests/test_serpapi_discovery.py       32 tests  (P4 discovery, zero network)
 tests/test_provenance.py             87 tests
 tests/test_store_wiring.py           42 tests
 tests/test_stores.py                 62 tests
@@ -297,8 +328,9 @@ hunter}.py`, `backend/export/{format,csv_export}.py`,
 
 **Test suites (do not edit when you own only one file):**
 `test_match.py` (187), `test_match_wiring.py` (67), `test_provenance.py` (87),
-`test_store_wiring.py` (42), `test_stores.py` (62) + pre-existing ~164 →
-**609 total**.
+`test_stores.py` (62), `test_store_wiring.py` (42),
+`test_serpapi_discovery.py` (32, zero network) + pre-existing ~164 →
+**641 total**.
 
 ---
 
@@ -321,15 +353,14 @@ hunter}.py`, `backend/export/{format,csv_export}.py`,
 
 ## 9. Suggested first three moves in the new session
 
-1. **Verify:** run §1. Expect `609 passed`, `tsc` exit 0. If not, stop and
+1. **Verify:** run §1. Expect `641 passed`, `tsc` exit 0. If not, stop and
    diagnose — do not build on a broken baseline.
-2. **Finish P4** (§4.2) — the main outstanding work:
-   - wire `scrapers/serpapi_discovery.py::discover()` into
-     `analysis_pipeline.search_all_suppliers` and
-     `deep_search._verify_supplier_candidates` (it is built but nothing
-     calls it; the seven direct scrapers are still the only source)
+2. **Finish P4** (§4.2) — the one remaining item:
    - feed **pHash** where both images exist — `compute_match` accepts
-     `ebay_image_hash`/`candidate_image_hash` but no caller passes them
+     `ebay_image_hash`/`candidate_image_hash` but no caller passes them.
+     eBay's `image_url` and the supplier's are both on the row.
 3. **Ask the user** whether they want `docs/P3-changes.md` and
    `docs/P4-changes.md` before writing any — docs are created on request only.
    Then §4.3 P6 close-out.
+
+SerpApi discovery is done — do not redo it (§4.2 documents the three stages).

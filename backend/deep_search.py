@@ -18,6 +18,7 @@ from bs4 import BeautifulSoup
 from engine.match import (
     THRESHOLD_UNVERIFIED,
     filter_matches,
+    image_hash_for,
     score_candidates,
 )
 from engine.price_gate import (
@@ -317,26 +318,53 @@ def _page_availability(html: str, url: str) -> dict:
     }
 
 
+def _reference_image_hash(sold_data) -> int | None:
+    """C14's reference side: the pHash of a real eBay sold listing.
+
+    Deep Search works from the sold-listing window rather than a single
+    product page, so those listings ARE the reference. Returns None when
+    there is no sold data or no readable image — the image signal then
+    simply does not apply and scoring stays text-only, because a substitute
+    image would be a guess (C1/C13).
+    """
+    for item in list(getattr(sold_data, "items", None) or [])[:3]:
+        hashed = image_hash_for(getattr(item, "image_url", None))
+        if hashed is not None:
+            return hashed
+    return None
+
+
 def _gate_suppliers(
     rows: list,
     reference_title: str,
     *,
     brand: str = "",
     ebay_price: float = 0.0,
+    ebay_image_hash: int | None = None,
 ) -> list:
     """Score every supplier row against the eBay title and keep what passed.
 
     C14 makes matching deterministic: `score_candidates` computes
     `match_score` (never a constant, never the LLM's confidence) and
-    C12 admits a row only when it cleared the threshold — so anything the
+    C12 admits a row only when it cleared the threshold - so anything the
     matcher calls "no confirmed match" is dropped rather than displayed.
     Rows between the unverified and verified floors survive but carry
     `match_tier == "unverified"`, and the caller must label them as such.
+
+    C14's image phash applies "when both images exist". Without a reference
+    hash no image is downloaded at all; with one, each row's image is hashed
+    once and cached on the row, and an image that cannot be read stays None
+    so the score loses that component rather than gaining a made-up one.
     """
     if not rows or not reference_title:
         return rows
+    if ebay_image_hash is not None:
+        for row in rows:
+            if isinstance(row, dict) and row.get("image_hash") is None:
+                row["image_hash"] = image_hash_for(row.get("image_url"))
     scored = score_candidates(
-        reference_title, rows, brand=brand, ebay_price=ebay_price
+        reference_title, rows, brand=brand, ebay_price=ebay_price,
+        ebay_image_hash=ebay_image_hash,
     )
     kept = filter_matches(scored, THRESHOLD_UNVERIFIED)
     dropped = len(scored) - len(kept)
@@ -754,6 +782,7 @@ def deep_search_product(query: str) -> DeepSearchResult:
         result.product_name or query,
         brand=parsed.get("brand_name", ""),
         ebay_price=result.ebay_avg_price or 0.0,
+        ebay_image_hash=_reference_image_hash(sold_for_stores),
     )
     if verified_suppliers:
         result.suppliers = verified_suppliers
@@ -992,6 +1021,7 @@ def deep_search_fast(query: str) -> DeepSearchResult:
         result.suppliers,
         result.product_name or query,
         ebay_price=result.ebay_avg_price or 0.0,
+        ebay_image_hash=_reference_image_hash(sold_for_stores),
     )
 
     # Find best supplier
