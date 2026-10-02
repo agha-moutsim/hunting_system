@@ -44,6 +44,9 @@ export default function HunterPage() {
   // switching never costs a request - only a 7d row with a real capture can
   // ever read as "verified", which is the honest part of this toggle.
   const [hotWindow, setHotWindow] = useState<"7d" | "30d">("30d");
+  // "Hot items" is a genuine view of the results, not a buried badge:
+  // filter to the rows the current window actually grades as trending.
+  const [hotOnly, setHotOnly] = useState(false);
 
   useEffect(() => {
     apiFetch<FiltersResponse>("/api/filters")
@@ -109,7 +112,37 @@ export default function HunterPage() {
     }
   }
 
-  const products = report?.products || scan?.products || [];
+  const allProducts = report?.products || scan?.products || [];
+  // "Hot items" = the rows the chosen window grades as trending. When the
+  // window is 7d this is often small or zero - that is the honest answer,
+  // not a bug. A row is only "hot" on 7d with a real capture.
+  const products = hotOnly
+    ? allProducts.filter((p) =>
+        hotWindow === "7d"
+          ? p.hot_7d === true && p.hot_7d_provenance === "verified"
+          : p.hot_30d === true
+      )
+    : allProducts;
+
+  // When the user is viewing only hot items, the list is also re-sorted by
+  // the current window's hotness so the strongest real trends sit on top.
+  const displayProducts = hotOnly
+    ? products.slice().sort((a, b) => {
+        const ah = hotWindow === "7d" ? (a.hot_7d ? 1 : 0) : a.hot_30d ? 1 : 0;
+        const bh = hotWindow === "7d" ? (b.hot_7d ? 1 : 0) : b.hot_30d ? 1 : 0;
+        if (bh !== ah) return bh - ah;
+        const ap =
+          hotWindow === "7d"
+            ? (a.demand_pace_7d_per_week ?? -1)
+            : (a.demand_pace_30d_per_week ?? -1);
+        const bp =
+          hotWindow === "7d"
+            ? (b.demand_pace_7d_per_week ?? -1)
+            : (b.demand_pace_30d_per_week ?? -1);
+        // Higher pace first (we want big pace near the top).
+        return bp - ap;
+      })
+    : products;
 
   const columns: Column<CategoryProduct>[] = [
     {
@@ -393,12 +426,17 @@ export default function HunterPage() {
         <div>
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-text-primary">
-              Results ({products.length})
-              {report?.hot_count ? (
+              {hotOnly ? "Hot items" : "Results"} ({displayProducts.length})
+              {!hotOnly && report && (
                 <span className="ml-2 text-xs font-normal text-text-secondary">
-                  {report.hot_count} trending
+                  {hotWindow === "7d"
+                    ? report.products.filter(
+                        (p) => p.hot_7d && p.hot_7d_provenance === "verified"
+                      ).length
+                    : report.products.filter((p) => p.hot_30d).length}{" "}
+                  trending in {hotWindow}
                 </span>
-              ) : null}
+              )}
             </h3>
             {scan && !report && (
               <span className="text-xs text-text-dim">
@@ -434,7 +472,7 @@ export default function HunterPage() {
               ever "verified" when a real purchase-history capture exists, which
               is why the 7d view is often thinner. That is the honest answer,
               not the feature being broken. */}
-          <div className="flex items-center gap-2 mb-2 text-xs text-text-secondary">
+          <div className="flex flex-wrap items-center gap-2 mb-2 text-xs text-text-secondary">
             <span>Hot window:</span>
             {(["7d", "30d"] as const).map((w) => (
               <button
@@ -458,12 +496,35 @@ export default function HunterPage() {
                 of {report?.products?.length ?? 0} rows have real 7-day data
               </span>
             )}
+            <button
+              type="button"
+              onClick={() => setHotOnly((v) => !v)}
+              className={`px-2 py-0.5 rounded border ${
+                hotOnly
+                  ? "border-accent-blue text-text-primary bg-bg-surface"
+                  : "border-border text-text-dim"
+              }`}
+              title="Filter to rows the current window grades as trending"
+            >
+              {" "}
+              {hotOnly ? "Showing hot items only" : "Show hot items only"}
+            </button>
+            {hotOnly && (
+              <span className="text-text-dim">
+                {displayProducts.length} of {allProducts.length} rows are
+                trending in {hotWindow}
+              </span>
+            )}
           </div>
           <DataTable
             columns={columns}
-            rows={products}
+            rows={displayProducts}
             keyFn={(r, i) => r.url || i}
-            emptyMessage="No products found."
+            emptyMessage={
+              hotOnly
+                ? `No rows are trending in ${hotWindow} right now. Try the ${hotWindow === "7d" ? "30d" : "7d"} window, or widen the price range.`
+                : "No products found."
+            }
           />
 
           {/* C11 — the full competitor list. Every row in a scan shares the
