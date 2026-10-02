@@ -27,8 +27,18 @@ def format_scorecard(
     lines.append("FILTERS")
     lines.append("-" * 55)
     for f in verdict.filters:
+        if f.advisory:
+            # An advisory row is information, not a rule: the verdict ladder
+            # already excludes it, so stamping it [FAIL] (or [PASS]) would
+            # read as a decision that was never made. Say what kind of row
+            # this is, and whether we could actually confirm it.
+            tag = "INFO" if f.verified else "INFO?"
+            note = "" if f.verified else " (unverified)"
+            lines.append(f"  [{tag}] {f.name}: {f.actual}{note} (expected {f.expected})")
+            continue
         tag = _status_icon(f.passed)
-        lines.append(f"  [{tag}] {f.name}: {f.actual} (expected {f.expected})")
+        suffix = "" if f.verified else " (unverified)"
+        lines.append(f"  [{tag}] {f.name}: {f.actual}{suffix} (expected {f.expected})")
     lines.append("")
 
     # --- Demand ---

@@ -1138,8 +1138,18 @@ def _calculate_profit_and_verdict(
         verified=False,  # eBay sold-search estimates, not verified counts
     )
 
+    _store_prov = result.ebay_stores_provenance or {}
     verdict = DecisionEngine(filters or load_filters()).evaluate(
-        evidence, demand, supplier_cost, supplier_delivery_days
+        evidence,
+        demand,
+        supplier_cost,
+        supplier_delivery_days,
+        # C11 - advisory only; a short or widened store search is a floor,
+        # not a total, so it must not read as a market with no competitors.
+        competitor_store_count=_store_prov.get("store_count"),
+        competitor_stores_verified=(
+            _store_prov.get("provenance") == "verified"
+        ),
     )
 
     result.profit = verdict.profit

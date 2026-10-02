@@ -7,6 +7,7 @@ engine's evidence interface — no rules of its own (C1).
 
 from typing import Optional
 
+from config import STORE_COUNT
 from hunter.category_scan import CategoryProduct
 from scrapers.base import DemandData, ScrapedProduct
 
@@ -92,6 +93,12 @@ def _calc_single(product: CategoryProduct, filters: dict):
         demand,
         product.supplier_price,
         supplier_delivery_days=_supplier_delivery_max(product.supplier_name),
+        # C11 - the real store count reaches the verdict as an ADVISORY row.
+        # It is reported and never gated (there is no competitor threshold to
+        # gate against), and fewer than STORE_COUNT stores means the ladder
+        # broadened its search, so the count is a floor, not a total.
+        competitor_store_count=len(product.ebay_stores),
+        competitor_stores_verified=len(product.ebay_stores) >= STORE_COUNT,
     )
     product.profit = verdict.profit
     product.margin = verdict.margin

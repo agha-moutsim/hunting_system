@@ -500,8 +500,20 @@ async def run_analysis_pipeline(
         if llm_result and getattr(llm_result, "brand_name", ""):
             ebay_product.brand = llm_result.brand_name
         engine = DecisionEngine(filters=filters)
+        # C11 - the store count reached the verdict as an ADVISORY row. It is
+        # reported, never gated (no threshold exists to gate against), and its
+        # verified status comes from the provenance block, so a short or failed
+        # store search is never read as a market with no competitors.
+        _store_prov = results.get("ebay_stores_provenance") or {}
         verdict = engine.evaluate(
-            ebay_product, demand, best_supplier_price, supplier_delivery_days
+            ebay_product,
+            demand,
+            best_supplier_price,
+            supplier_delivery_days,
+            competitor_store_count=_store_prov.get("store_count"),
+            competitor_stores_verified=(
+                _store_prov.get("provenance") == "verified"
+            ),
         )
         results["verdict"] = verdict
         if verdict:

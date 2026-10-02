@@ -60,6 +60,8 @@ class DecisionEngine:
         demand: Optional[DemandData] = None,
         supplier_price: Optional[float] = None,
         supplier_delivery_days: Optional[int] = None,
+        competitor_store_count: Optional[int] = None,
+        competitor_stores_verified: bool = True,
     ) -> Verdict:
         filters: list[FilterResult] = []
 
@@ -147,9 +149,19 @@ class DecisionEngine:
             ))
 
         # --- Profit ---
+        # The supplier's postage is part of the cost of doing this deal, and
+        # every caller goes to the trouble of reading it off the source and
+        # passing it in. It used to be dropped here, so the headline profit
+        # and the margin were overstated by exactly the postage on every
+        # product that charges it. 0.0 means UNREAD, not free - calculate_profit
+        # reports the figure as incomplete in that case (C1/C13).
         profit_info = {"profit": 0.0, "margin": 0.0}
         if supplier_price is not None:
-            profit_info = calculate_profit(product.price, supplier_price)
+            profit_info = calculate_profit(
+                product.price,
+                supplier_price,
+                shipping_cost=getattr(product, "shipping_cost", 0.0) or 0.0,
+            )
 
         # --- Margin filter ---
         margin_min = self.filters.get("margin_min", 25.0)
@@ -186,6 +198,38 @@ class DecisionEngine:
             verified=product_days is not None,
             advisory=True,
         ))
+
+        # --- Competition (ADVISORY: C11 count, never a rule) ---
+        # There is no user-set "maximum competitors" threshold anywhere in
+        # config, and inventing one to fail products on would be a fabricated
+        # business rule. So the count is reported, never gated - and zero is
+        # reported as a DEMAND WARNING, because "nobody else is selling this"
+        # is what no demand looks like, not an open field.
+        if competitor_store_count is not None:
+            n = int(competitor_store_count)
+            if n <= 0:
+                competition_actual = "No competitor stores found"
+                competition_note = (
+                    "treat as a demand warning, not an opportunity"
+                )
+            else:
+                competition_actual = f"{n} competitor store{'s' if n != 1 else ''} found"
+                competition_note = (
+                    "broadened search, so this is a floor not a total"
+                    if not competitor_stores_verified
+                    else "counted from the sold-listing search"
+                )
+            filters.append(FilterResult(
+                name="Competition",
+                # Advisory rows are excluded from the verdict below; `passed`
+                # is reported only so a renderer has something to colour by,
+                # and it never reaches gating.
+                passed=n > 0,
+                actual=competition_actual,
+                expected=f"informational only - {competition_note}",
+                verified=bool(competitor_stores_verified),
+                advisory=True,
+            ))
 
         # --- Brand filter (VeRO-based, C5) ---
         brand_name = getattr(product, "brand", None)
