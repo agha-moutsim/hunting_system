@@ -35,6 +35,11 @@ MAX_STORES = STORE_COUNT
 # The window the counts are taken from. Browse API / HTML sold search both
 # page at 50; the label says so because the number means nothing without it.
 OBSERVED_WINDOW = 50
+# eBay bills per call. A rare product would otherwise walk every query rung
+# (measured: 15 calls / 67s for one title), so the ladder is bounded. Rungs
+# are ordered most-precise-first, so the cap drops the broadest ones - the
+# least trustworthy for identity - and never the ones we would prefer.
+MAX_LADDER_RUNGS = 8
 
 # C11 — the required human label. Kept in one place so every renderer and
 # every export uses identical wording.
@@ -259,20 +264,275 @@ def stores_from_scan(product: Any, limit: int = MAX_STORES) -> list[dict]:
 # Shared discovery entry point
 # ---------------------------------------------------------------------------
 
-def discover_stores(query: str, limit: int = MAX_STORES) -> list[dict]:
-    """Find the top ``limit`` eBay stores for a query.
+def search_stores(query: str, limit: int = MAX_STORES) -> tuple[list[dict], dict]:
+    """Find competitor stores, widening BOTH the price band and the query.
 
-    The ONE entry point a feature should reach for when it has no sellers
-    already in hand. Tries the sold-listing search (gives real observed
-    counts), then a plain search (sellers but no counts).
+    REGRESSION-006: the user saw one competitor store, or none, on every
+    analysis. Two compounding causes, both measured against the live Browse
+    API rather than reasoned about:
 
-    Never raises: an analysis must not fail because store discovery did.
+      1. PRICE BAND. `discover_stores` searched inside the user's ACTIVE band
+         (default GBP5-35). That band is a SOURCING decision - what you are
+         willing to buy - not a statement about who competes with you. A shop
+         selling a GBP120 greenhouse competes with the GBP29.99 greenhouse the
+         user intends to buy, so filtering competitors by the buyer's own
+         budget removed exactly the sellers worth knowing about. Measured:
+
+             "Greenhouse 6ft Polycarbonate"  band 5-35 -> 0 sellers
+                                            band 1-100 -> 6 sellers
+                                            no band    -> 24 sellers
+
+      2. THE FULL TITLE. eBay matches on all terms, so a 12-word title
+         matched nothing:
+
+             "Pasabahce 2 Colorful Cups Saucers Dissolving Skyline Bone
+              China 5oz Coffee Tea"            -> 0 items, 0 sellers
+             "pasabahce colorful cups saucers" -> 50 items, 24 sellers
+
+    `sort` was ruled out: -relevance and -dateSold return identical counts.
+
+    The ladder therefore widens in a fixed order, always trying the most
+    precise rung first:
+
+        exact title + active band      (what we did before, and it often
+                                       returned literally nothing)
+        exact title + wide band        (competitors outside the buy budget)
+        shorter query + wide band      (competitors for a broader product)
+
+    Rungs are MERGED until `limit` distinct sellers are collected, not
+    abandoned at the first hit: C11 asks for up to 4 stores, and one seller
+    has not answered that. Measured - the Bosch drill returns 1 seller in the
+    buying band and 4 once the band is widened, so stopping early would have
+    preserved the very bug this fixes.
+
+    Procurement is NOT affected: the ladder is used only to find WHO the
+    competitors are. What the user may buy is still governed by the active
+    band everywhere else (PR-1/PR-4).
+
+    Returns ``(rows, provenance)``. Whenever a rung other than the first was
+    needed, the block is stamped UNVERIFIED with the reason, because we have
+    not confirmed those stores sell *this* item. C11 says show real stores;
+    C13 says never claim more than we know.
+
+    Never raises - an analysis must not fail because store discovery did.
+    """
+    from engine.provenance import Provenance
+
+    original = str(query or "").strip()
+    if not original:
+        return [], {
+            "provenance": Provenance.UNVERIFIED.value,
+            "label": Provenance.UNVERIFIED.label,
+            "reason": "no search text supplied",
+            "broadened": False,
+        }
+
+    rungs = _store_ladder(original)
+
+    # Merge across rungs rather than stopping at the first hit. C11 asks for
+    # UP TO 4 stores; a rung that yields one seller has not answered the
+    # question. Measured on real titles:
+    #
+    #   "Bosch Professional GSB 13 RE 18V Cordless Combi Drill Body Only"
+    #       active band 5-35 ->  1 seller,  1 item
+    #       wide band 1-500   ->  4 sellers, 42 items
+    #
+    # Stopping at the first hit would have kept showing 1 store - the exact
+    # symptom this ladder exists to fix. So rungs are tried until `limit` is
+    # reached or the ladder runs out, and the most precise rungs win any ties.
+    merged: list[dict] = []
+    seen_names: set[str] = set()
+    used_bands: list[tuple[float, float] | None] = []
+    used_queries: list[str] = []
+
+    for index, (candidate, band) in enumerate(rungs):
+        if len(merged) >= limit:
+            break
+        # The plain-search fallback is a different SOURCE, not a widening
+        # step, so it is tried once (on the most precise rung) rather than on
+        # every rung - otherwise a 12-rung ladder would spend 24 eBay calls
+        # chasing a source that returns the same sellers anyway.
+        rows = _stores_for_single_query(candidate, limit, band=band,
+                                        allow_search_fallback=(index == 0))
+        if not rows:
+            continue
+        used_queries.append(candidate)
+        used_bands.append(band)
+        for row in rows:
+            key = str(row.get("name", "")).lower()
+            if not key or key in seen_names:
+                continue
+            seen_names.add(key)
+            merged.append(row)
+
+    rows = merged[:limit]
+
+    if not rows:
+        return [], {
+            "provenance": Provenance.UNVERIFIED.value,
+            "label": Provenance.UNVERIFIED.label,
+            "reason": (
+                f"eBay returned no listings for '{original}' in any price "
+                f"range tried, so no competitor stores could be identified"
+            ),
+            "broadened": True,
+            "query_original": original,
+        }
+
+    # The stores we show come from the most precise rung that produced any.
+    used_query = used_queries[0] if used_queries else original
+    used_band = used_bands[0] if used_bands else None
+
+    is_exact = used_query == original
+    in_active_band = _is_active_band(used_band)
+    broadened = not (is_exact and in_active_band)
+
+    entry: dict[str, Any] = {
+        "query_used": used_query,
+        "query_original": original,
+        "price_band_used": (
+            None if used_band is None
+            else [round(used_band[0], 2), round(used_band[1], 2)]
+        ),
+        "broadened": broadened,
+    }
+
+    if broadened:
+        reasons = []
+        if not in_active_band:
+            reasons.append(
+                f"found outside the active GBP5-35 buying band "
+                f"(searched GBP{used_band[0]:g}-GBP{used_band[1]:g})"
+                if used_band else "found with no price restriction"
+            )
+        if not is_exact:
+            reasons.append(
+                f"eBay matched nothing for the full title, so competitors come "
+                f"from the broader search '{used_query}'"
+            )
+        entry.update({
+            "provenance": Provenance.UNVERIFIED.value,
+            "label": Provenance.UNVERIFIED.label,
+            "reason": (
+                "these stores sell the same product outside your buying band, "
+                "or a similar product - they are real sellers but not a "
+                "confirmed head-to-head match: " + "; ".join(reasons)
+            ),
+        })
+        return rows, entry
+
+    entry.update({
+        "provenance": Provenance.VERIFIED.value,
+        "label": Provenance.VERIFIED.label,
+        "source_name": SOURCE_NAME,
+        "method": (
+            f"aggregated seller.username from eBay sold-listing search; "
+            f"top {len(rows)} by observed count, cap {OBSERVED_WINDOW}"
+        ),
+    })
+    return rows, entry
+
+
+def _is_active_band(band: tuple[float, float] | None) -> bool:
+    """True when `band` is the user's active buying range (or unrestricted)."""
+    if band is None:
+        return False
+    try:
+        from engine.price_gate import active_bounds
+        lo, hi = active_bounds()
+    except Exception:  # noqa: BLE001
+        return True
+    return abs(band[0] - lo) < 0.01 and abs(band[1] - hi) < 0.01
+
+
+def _store_ladder(title: str) -> list[tuple[str, tuple[float, float] | None]]:
+    """(query, price_band) rungs, most precise first.
+
+    Widen the BAND before the QUERY. That order is deliberate and measured:
+    "Greenhouse 6ft Polycarbonate" gains 24 sellers by widening the band alone
+    and keeps its exact title, whereas shortening the query on its own gives
+    0. A competitor is identified by the product, not by the words we happen
+    to search, so keeping the title and losing the price filter is the smaller
+    claim to make.
+
+    Capped by `MAX_LADDER_RUNGS` because eBay bills per call and a rare
+    product would otherwise walk every rung (measured: 67s and 15 calls for
+    one Pasabahce title before the cap). When the cap bites it keeps the exact
+    title and the brand-drop rungs, and trims the tail-shortening ladder -
+    because a rare BRAND is the other way a title matches nothing
+    ("pasabahce 2 colorful cups & saucers" -> 0 items; "colorful cups" -> 49).
+    """
+    try:
+        from engine.price_gate import active_bounds
+        lo, hi = active_bounds()
+    except Exception:  # noqa: BLE001
+        lo, hi = 5.0, 35.0
+
+    try:
+        from engine.query_extract import (
+            fallback_queries,
+            _leading_brand_candidates,
+        )
+    except Exception:  # noqa: BLE001
+        fallback_queries = None
+        _leading_brand_candidates = None
+
+    wide = (1.0, 500.0)
+    rungs: list[tuple[str, tuple[float, float] | None]] = [(title, (lo, hi))]
+    if (lo, hi) != wide:
+        rungs.append((title, wide))
+        rungs.append((title, None))
+
+    shorten_rungs: list[tuple[str, tuple[float, float] | None]] = []
+    if fallback_queries is not None:
+        try:
+            for shorter in fallback_queries(title):
+                shorten_rungs.append((shorter, wide))
+                shorten_rungs.append((shorter, None))
+        except Exception as e:  # noqa: BLE001 - never break on extraction bugs
+            print(f"[WARN] query extraction failed for '{title}': {e}")
+
+    brand_rungs: list[tuple[str, tuple[float, float] | None]] = []
+    if _leading_brand_candidates is not None:
+        try:
+            for shorter in _leading_brand_candidates(title):
+                brand_rungs.append((shorter, wide))
+                brand_rungs.append((shorter, None))
+        except Exception as e:  # noqa: BLE001
+            print(f"[WARN] brand-drop extraction failed for '{title}': {e}")
+
+    # Drop a shortening rung that repeats a brand-drop rung, so the budget is
+    # not spent twice on the same query.
+    brand_queries = {q.lower() for q, _b in brand_rungs}
+    shorten_rungs = [
+        (q, b) for q, b in shorten_rungs if q.lower() not in brand_queries
+    ]
+
+    ladder = rungs + brand_rungs + shorten_rungs
+    return ladder[:MAX_LADDER_RUNGS]
+
+
+def _stores_for_single_query(
+    query: str,
+    limit: int = MAX_STORES,
+    band: tuple[float, float] | None = None,
+    allow_search_fallback: bool = True,
+) -> list[dict]:
+    """Stores for exactly one query inside one price band.
+
+    `band=None` means "no price restriction", which is a different request
+    from any band, so the two search paths each honour it explicitly rather
+    than inheriting the active bounds.
+
+    `allow_search_fallback=False` skips the plain-search second try. The
+    ladder widens the band and the query, and doing a second source on every
+    rung would double the call count for no new information.
     """
     if not query:
         return []
     try:
         from scrapers.ebay_sold import EbaySoldScraper
-        sold = EbaySoldScraper().get_sold_data(query)
+        sold = EbaySoldScraper().get_sold_data(query, price_band=band)
         rows = stores_from_items(getattr(sold, "items", []) or [], limit=limit)
         if rows:
             return rows
@@ -280,20 +540,36 @@ def discover_stores(query: str, limit: int = MAX_STORES) -> list[dict]:
                                        limit=limit)
         if rows:
             return rows
-    except Exception as e:  # noqa: BLE001 — discovery must never break analysis
+    except Exception as e:  # noqa: BLE001 - discovery must never break analysis
         print(f"[WARN] store discovery (sold search) failed for '{query}': {e}")
+
+    if not allow_search_fallback:
+        return []
 
     try:
         from scrapers.ebay import EbayScraper
-        products = EbayScraper().search(query, limit=OBSERVED_WINDOW)
+        products = EbayScraper().search(query, limit=OBSERVED_WINDOW,
+                                        price_band=band)
         return stores_from_products(products, limit=limit)
     except Exception as e:  # noqa: BLE001
         print(f"[WARN] store discovery (search fallback) failed for '{query}': {e}")
         return []
 
 
+def discover_stores(query: str, limit: int = MAX_STORES) -> list[dict]:
+    """Stores for a query, with the ladder applied. Rows only.
+
+    Kept as the row-only interface for callers that predate
+    `search_stores`; new code should call `search_stores` so it can also
+    report whether the search had to be broadened.
+    """
+    rows, _provenance = search_stores(query, limit=limit)
+    return rows
+
+
 def resolve_stores(query: str = "", demand: Any = None, products: Iterable[Any] = None,
-                   sold_data: Any = None, limit: int = MAX_STORES) -> list[dict]:
+                   sold_data: Any = None, limit: int = MAX_STORES,
+                   provenance: Optional[dict] = None) -> list[dict]:
     """Best-available stores for a caller, preferring data it ALREADY holds.
 
     Order matters — free data first, network last:
@@ -301,7 +577,15 @@ def resolve_stores(query: str = "", demand: Any = None, products: Iterable[Any] 
       2. ``demand``     (DemandData.top_sellers — same query, no new call)
       3. ``products``   (a search result the caller already has)
       4. ``query``      (last resort: spend a request)
+
+    When rung 4 is used, `provenance` is filled with the ladder's own
+    provenance (including whether the search had to widen), so the caller can
+    stamp the block honestly instead of claiming "verified" for a broadened
+    search. Free-data rungs (1-3) never widen, so they are verified as-is.
     """
+    if provenance is not None:
+        provenance.clear()
+
     if sold_data is not None:
         rows = stores_from_items(getattr(sold_data, "items", []) or [], limit=limit)
         if not rows:
@@ -321,7 +605,10 @@ def resolve_stores(query: str = "", demand: Any = None, products: Iterable[Any] 
             return rows
 
     if query:
-        return discover_stores(query, limit=limit)
+        rows, ladder = search_stores(query, limit=limit)
+        if provenance is not None:
+            provenance.update(ladder)
+        return rows
     return []
 
 
@@ -329,23 +616,59 @@ def resolve_stores(query: str = "", demand: Any = None, products: Iterable[Any] 
 # Provenance helpers for the store block
 # ---------------------------------------------------------------------------
 
-def store_provenance_block(stores: Optional[list]) -> dict:
+def store_provenance_block(stores: Optional[list], ladder: Optional[dict] = None) -> dict:
     """The C13 stamp for the store block.
 
     An empty list is UNVERIFIED — "we found no stores" and "we could not
     look" are both unconfirmed, and neither may be shown as verified.
+
+    REGRESSION-006: a SHORT list is also reported, because C11 asks for up to
+    MAX_STORES and returning one is a different fact from returning four.
+    The count that came back, the reason, and whether the search had to widen
+    all travel together - a single store stamped "Verified, top 1 by
+    observed count" reads exactly like a healthy result, and it is the
+    failure the user reported.
     """
     from engine.provenance import Provenance
 
     found = bool(stores)
-    prov = Provenance.VERIFIED if found else Provenance.UNVERIFIED
+    short = bool(found) and len(stores) < MAX_STORES
+
+    prov = Provenance.VERIFIED if (found and not short) else Provenance.UNVERIFIED
     entry: dict[str, Any] = {"provenance": prov.value, "label": prov.label}
+
     if found:
         entry["source_name"] = SOURCE_NAME
         entry["method"] = (
             f"aggregated seller.username from eBay sold-listing search; "
             f"top {len(stores)} by observed count, cap {OBSERVED_WINDOW}"
         )
+        entry["store_count"] = len(stores)
+        entry["max_stores"] = MAX_STORES
     else:
-        entry["reason"] = "no seller usernames returned by the eBay search"
+        entry["store_count"] = 0
+        entry["max_stores"] = MAX_STORES
+        entry["reason"] = (ladder or {}).get(
+            "reason", "no seller usernames returned by the eBay search"
+        )
+
+    if short:
+        entry["reason"] = (
+            f"only {len(stores)} of {MAX_STORES} competitor stores were "
+            f"identified - eBay returned very few listings for this product, "
+            f"so this is a thin competitor picture rather than a full one"
+        )
+
+    # A widened search is never a confirmed head-to-head set (C13).
+    if ladder:
+        if ladder.get("broadened"):
+            entry["provenance"] = Provenance.UNVERIFIED.value
+            entry["label"] = Provenance.UNVERIFIED.label
+            entry["broadened"] = True
+            entry.setdefault("reason", ladder.get("reason", ""))
+        if ladder.get("query_used"):
+            entry["query_used"] = ladder["query_used"]
+        if ladder.get("price_band_used") is not None:
+            entry["price_band_used"] = ladder["price_band_used"]
+
     return entry

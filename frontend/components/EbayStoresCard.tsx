@@ -3,32 +3,49 @@
 import Card from "@/components/ui/Card";
 import EmptyState from "@/components/EmptyState";
 import ProvenanceBadge from "@/components/ui/ProvenanceBadge";
-import { EbayStore } from "@/lib/types";
+import { EbayStore, ProvenanceInfo } from "@/lib/types";
 import { formatGBP } from "@/lib/format";
 
 /**
  * Competitor eBay stores (C11 — up to 4 real seller usernames).
  * `sold_count` is listings observed in the search window, never eBay's sold
  * count, so the backend-supplied label is surfaced verbatim.
+ *
+ * REGRESSION-006: the block's own provenance is shown, because a thin result
+ * reads as a healthy one otherwise. A single store stamped "verified" looks
+ * identical to four, which is exactly what the user could not distinguish.
+ * So the reason travels with the block: too few found, or a search that had
+ * to widen past the buying band to find anyone.
  */
 export default function EbayStoresCard({
   stores,
+  provenance,
 }: {
   stores?: EbayStore[] | null;
+  provenance?: ProvenanceInfo | null;
 }) {
+  const reason = provenance?.reason?.trim();
+
   if (!stores?.length) {
     return (
       <Card title="eBay Stores">
         <EmptyState
           title="No competitor stores"
-          message="No competitor eBay stores were returned for this analysis."
+          message={
+            reason ||
+            "No competitor eBay stores were returned for this analysis."
+          }
         />
       </Card>
     );
   }
 
   return (
-    <Card title={`eBay Stores (${stores.length})`}>
+    <Card
+      title={`eBay Stores (${stores.length}${
+        provenance?.max_stores ? ` of ${provenance.max_stores}` : ""
+      })`}
+    >
       <div className="space-y-2">
         {stores.map((s, i) => (
           <div
@@ -68,6 +85,19 @@ export default function EbayStoresCard({
           </div>
         ))}
       </div>
+
+      {/* The block-level stamp. Hidden when everything was found exactly,
+          shown whenever the picture is partial - which is information, not
+          an apology. */}
+      {(reason || provenance?.provenance === "unverified") && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-text-secondary">
+          <ProvenanceBadge
+            provenance={provenance?.provenance ?? "unverified"}
+            label={provenance?.label ?? "Unverified"}
+          />
+          {reason && <span className="min-w-0">{reason}</span>}
+        </div>
+      )}
     </Card>
   );
 }

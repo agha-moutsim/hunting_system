@@ -134,15 +134,17 @@ class DeepSearchResult:
                       products: Any = None, query: str = "") -> None:
         """Populate the C11 store block, preferring data we already fetched."""
         from engine.stores import resolve_stores, store_provenance_block
+        ladder: dict = {}
         try:
             # Network-last: sold_data/demand/products cost nothing extra.
             stores = resolve_stores(sold_data=sold_data, demand=demand,
-                                    products=products, query=query)
+                                    products=products, query=query,
+                                    provenance=ladder)
         except Exception as e:  # noqa: BLE001 — stores never break an analysis
             print(f"[WARN] store discovery failed: {e}")
             stores = []
         self.ebay_stores = stores
-        self.ebay_stores_provenance = store_provenance_block(stores)
+        self.ebay_stores_provenance = store_provenance_block(stores, ladder)
 
     def set_fact_provenance(self, name: str, provenance: Provenance,
                             source_url: str = "", method: str = "",
@@ -902,12 +904,15 @@ def deep_search_fast(query: str) -> DeepSearchResult:
     except Exception as e:
         print(f"[WARN] eBay sold data failed: {e}")
 
-    # C11 — stores for Bulk, from the query we just ran. Deliberately NO
-    # `query=` fallback here: this is the fast path (seconds, no LLM), and
-    # Bulk runs it once per line, so a network retry per query would cost
-    # more than the feature is worth. Sold data → stores for free; no sold
-    # data → [] with an UNVERIFIED stamp that says so.
-    result.attach_stores(sold_data=sold_for_stores)
+    # C11 — stores for Bulk, from the query we just ran.
+    #
+    # REGRESSION-006: this used to pass NO query, deliberately, so the store
+    # block had no fallback rung and a product with few sold listings showed
+    # no stores at all. The ladder stops at its first hit and the sold data
+    # this run already fetched is rung 1 (free), so passing the query costs
+    # nothing in the common case and only spends a request when that data had
+    # no sellers. That is a fair trade for actually showing the stores.
+    result.attach_stores(sold_data=sold_for_stores, query=query)
 
     # ── Run supplier scrapes in PARALLEL ──
     import asyncio

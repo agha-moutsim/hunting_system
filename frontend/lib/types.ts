@@ -13,6 +13,17 @@ export interface ProvenanceInfo {
   source_name?: string;
   method?: string;
   reason?: string;
+  /**
+   * REGRESSION-006: the C11 store block carries its own count so a partial
+   * result can say so. A single store stamped "verified" is indistinguishable
+   * from a full set, which is how a one-store result went unnoticed.
+   */
+  store_count?: number;
+  max_stores?: number;
+  /** True when the eBay query had to widen past the active buying band. */
+  broadened?: boolean;
+  query_used?: string;
+  price_band_used?: [number, number] | null;
 }
 
 /** Top-level provenance block attached to analysis responses. */
@@ -264,6 +275,12 @@ export interface DeepSearchResult {
   provenance?: ProvenanceBlock;
   /** Competitor eBay stores (C11) — supersedes ebay_top_sellers. */
   ebay_stores?: EbayStore[];
+  /**
+   * C11/C13: the block stamp. REGRESSION-006 - a short list stamped
+   * "verified" is indistinguishable from a full one, which is how a
+   * single-store result went unnoticed.
+   */
+  ebay_stores_provenance?: ProvenanceInfo;
 }
 
 export interface BulkResponse {
@@ -324,6 +341,9 @@ export interface CategoryProduct extends MatchAvailabilityFields {
   hot_reason?: string;
   demand_pace_7d_per_week?: number | null;
   demand_pace_30d_per_week?: number | null;
+  /** C11 competitor stores observed in this row's category scan. */
+  ebay_stores?: EbayStore[];
+  ebay_stores_provenance?: ProvenanceInfo;
   profit?: number;
   margin?: number;
   verdict?: string;

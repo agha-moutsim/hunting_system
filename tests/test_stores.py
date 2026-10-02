@@ -147,20 +147,35 @@ class _ScraperSpy:
 
 
 class _FallbackProbe:
-    """Fake for ``discover_stores`` — the one path allowed to spend a request.
+    """Fake for the network rung - the one path allowed to spend a request.
 
     Built with ``rows=None`` it must NEVER be called: reaching it fails the
-    test with an AssertionError instead of a silent network call."""
+    test with an AssertionError instead of a silent network call.
 
-    def __init__(self, rows=None):
+    REGRESSION-006: the rung is ``search_stores`` now, which returns
+    ``(rows, provenance)`` and walks a price/query ladder. The probe mimics
+    that shape, and a widened search reports itself as broadened so callers
+    cannot stamp it verified.
+    """
+
+    def __init__(self, rows=None, broadened=False):
         self.rows = rows
+        self.broadened = broadened
         self.calls = []
 
-    def __call__(self, query, limit=None):
+    def __call__(self, query, limit=None, provenance=None):
         self.calls.append((query, limit))
         if self.rows is None:
             raise AssertionError(f"search fallback reached for {query!r}")
-        return self.rows
+        ladder = {
+            "query_used": query,
+            "query_original": query,
+            "broadened": self.broadened,
+            "provenance": "unverified" if self.broadened else "verified",
+        }
+        if provenance is not None:
+            provenance.update(ladder)
+        return self.rows, ladder
 
 
 # ---------------------------------------------------------------------------
@@ -417,9 +432,9 @@ class TestResolveStoresPriority:
     caller already holds sellers. The probe raises if it is reached."""
 
     @staticmethod
-    def _fallback(monkeypatch, rows=None):
-        probe = _FallbackProbe(rows)
-        monkeypatch.setattr(stores_mod, "discover_stores", probe)
+    def _fallback(monkeypatch, rows=None, broadened=False):
+        probe = _FallbackProbe(rows, broadened)
+        monkeypatch.setattr(stores_mod, "search_stores", probe)
         return probe
 
     @staticmethod
@@ -466,6 +481,16 @@ class TestResolveStoresPriority:
         rows = resolve_stores(query="widget")
         assert rows == [{"name": "from_search"}]
         assert [call[0] for call in probe.calls] == ["widget"]
+
+    def test_the_ladder_provenance_reaches_the_caller(self, monkeypatch):
+        """A widened search must not be stamped verified downstream."""
+        probe = self._fallback(monkeypatch, rows=[{"name": "from_search"}],
+                               broadened=True)
+        ladder: dict = {}
+        resolve_stores(query="widget", provenance=ladder)
+
+        assert ladder["broadened"] is True
+        assert ladder["provenance"] == "unverified"
 
     def test_nothing_at_all_returns_empty_without_fallback(self, monkeypatch):
         probe = self._fallback(monkeypatch)
@@ -518,12 +543,39 @@ class TestDiscoverStores:
 # ---------------------------------------------------------------------------
 
 class TestStoreProvenanceBlock:
-    def test_non_empty_block_is_verified_with_source_and_method(self):
-        block = store_provenance_block([{"name": "good_store"}])
+    def test_a_full_block_is_verified_with_source_and_method(self):
+        # REGRESSION-006: a SHORT block is no longer "verified". C11 asks for
+        # up to MAX_STORES, and one store stamped Verified reads exactly like
+        # a healthy result - which is what the user reported seeing.
+        block = store_provenance_block(
+            [{"name": f"store_{i}"} for i in range(MAX_STORES)])
         assert block["provenance"] == Provenance.VERIFIED.value
         assert block["source_name"]
         assert block["method"]
         assert "observed" in block["method"]
+
+    def test_a_short_block_says_how_short_it_is(self):
+        block = store_provenance_block([{"name": "only_store"}])
+        assert block["provenance"] == Provenance.UNVERIFIED.value
+        assert block["store_count"] == 1
+        assert block["max_stores"] == MAX_STORES
+        assert "1 of" in block["reason"]
+
+    def test_a_widened_search_is_never_verified(self):
+        rows = [{"name": f"store_{i}"} for i in range(MAX_STORES)]
+        block = store_provenance_block(
+            rows, {"broadened": True, "reason": "found outside your band",
+                   "query_used": "widget", "price_band_used": [1, 500]})
+        assert block["provenance"] == Provenance.UNVERIFIED.value
+        assert block["broadened"] is True
+        assert block["query_used"] == "widget"
+        assert block["price_band_used"] == [1, 500]
+
+    def test_an_empty_block_reports_the_ladder_reason(self):
+        block = store_provenance_block(
+            [], {"reason": "eBay returned no listings for 'x' at any band"})
+        assert block["provenance"] == Provenance.UNVERIFIED.value
+        assert "no listings" in block["reason"]
 
     @pytest.mark.parametrize("empty", [[], None])
     def test_empty_block_is_unverified_with_a_reason(self, empty):

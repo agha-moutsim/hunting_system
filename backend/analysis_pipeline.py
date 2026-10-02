@@ -379,13 +379,15 @@ async def run_analysis_pipeline(
         # request when that yielded no sellers — so the common case costs
         # nothing extra. Network failure degrades to [] + UNVERIFIED, never
         # an exception that kills the analysis.
+        ladder: dict = {}
         try:
-            stores = resolve_stores(demand=demand, query=search_term)
+            stores = resolve_stores(demand=demand, query=search_term,
+                                    provenance=ladder)
         except Exception as e:  # noqa: BLE001 — stores are additive, not load-bearing
             logger.warning("Store discovery failed (non-fatal): %s", e)
             stores = []
         results["ebay_stores"] = stores
-        results["ebay_stores_provenance"] = store_provenance_block(stores)
+        results["ebay_stores_provenance"] = store_provenance_block(stores, ladder)
 
         if demand and demand.sold_count_30d:
             _report(f"✓ Demand: {demand.sold_count_30d} sold in 30 days")

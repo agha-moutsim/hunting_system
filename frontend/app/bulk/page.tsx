@@ -5,6 +5,7 @@ import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Badge from "@/components/ui/Badge";
 import Spinner from "@/components/Spinner";
+import EbayStoresCard from "@/components/EbayStoresCard";
 import { apiPost } from "@/lib/api";
 import { BulkResponse, DeepSearchResult } from "@/lib/types";
 import { formatGBP, formatPercent, truncate } from "@/lib/format";
@@ -174,9 +175,6 @@ export default function BulkPage() {
           </Card>
 
           <div className="space-y-3">
-            {/* TODO(P5 / C11): each DeepSearchResult may carry `ebay_stores`,
-                but bulk rows have no expansion/detail panel — add one here
-                rather than cramming store rows into every card. */}
             {result.results.map((r: DeepSearchResult, i) => (
               <Card key={i}>
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -210,6 +208,15 @@ export default function BulkPage() {
                       {formatPercent(r.margin)}
                     </div>
                   </div>
+                </div>
+                {/* C11: competitor stores. These raws already carry them -
+                    the block was simply never rendered, so the data reached
+                    the browser and was discarded here. */}
+                <div className="mt-3">
+                  <EbayStoresCard
+                    stores={r.ebay_stores}
+                    provenance={r.ebay_stores_provenance}
+                  />
                 </div>
               </Card>
             ))}

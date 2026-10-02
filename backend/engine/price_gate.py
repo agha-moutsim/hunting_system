@@ -31,13 +31,24 @@ def active_bounds() -> tuple[float, float]:
 
 def in_band(price: float | None) -> bool:
     """True when the price falls inside the active range (inclusive)."""
+    return in_band_range(price, *_range())
+
+
+def in_band_range(price: float | None, lo: float, hi: float) -> bool:
+    """True when the price falls inside an EXPLICIT range (inclusive).
+
+    Separate from `in_band` because a caller that searched eBay with a wider
+    band must gate its results against THAT band. Re-checking the active range
+    instead would throw away exactly the listings the wider search was for -
+    which is what made competitor-store discovery return nothing
+    (REGRESSION-006).
+    """
     if price is None:
         return False
     try:
         p = float(price)
     except (TypeError, ValueError):
         return False
-    lo, hi = _range()
     return lo <= p <= hi
 
 

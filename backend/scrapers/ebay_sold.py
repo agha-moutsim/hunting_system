@@ -12,9 +12,27 @@ import requests
 from bs4 import BeautifulSoup
 
 from config import EBAY_UK_BASE, EBAY_CLIENT_ID, EBAY_CLIENT_SECRET, EBAY_API_BASE, EBAY_MARKETPLACE, SCRAPE_CONFIG
-from engine.price_gate import active_bounds, in_band
+from engine.price_gate import active_bounds, in_band, in_band_range
 from engine.condition_gate import api_condition_filter, html_condition_param, is_new
 from scrapers.availability import ebay_item_availability
+
+
+class _Unset:
+    """Sentinel: 'caller did not pass a band', distinct from an explicit None.
+
+    REGRESSION-006: the three cases - omitted, a (lo, hi) tuple, and an
+    explicit "no price restriction" - cannot share a single ``None`` default,
+    because ``None`` is itself one of the meaningful values. Without this,
+    every procurement call that passed nothing was indistinguishable from one
+    that asked for the whole of eBay.
+    """
+
+
+_UNSET = _Unset()
+
+# The local gate for an unrestricted request needs finite bounds, but must
+# not re-impose the user's buying range. Any real eBay price is inside this.
+_UNRESTRICTED_BOUNDS = (0.0, 1_000_000.0)
 
 
 @dataclass
@@ -78,6 +96,11 @@ class EbaySoldScraper:
         self._token_expiry = 0
         self._band_excluded = 0
         self._condition_excluded = 0  # C10: non-New rows dropped
+        # REGRESSION-006: which band this call searches, resolved per call.
+        # Defaults to the active band so a caller that never passes one keeps
+        # the original behaviour exactly.
+        self._band_used = active_bounds()
+        self._unrestricted = False
 
     def _get_token(self) -> str:
         """Get OAuth token via Client Credentials flow."""
@@ -105,12 +128,46 @@ class EbaySoldScraper:
         self._token_expiry = now + data.get("expires_in", 7200) - 300
         return self._token
 
-    def get_sold_data(self, query: str) -> EbaySoldData:
-        """Get real sold data for a product from eBay UK."""
+    def get_sold_data(self, query: str,
+                      price_band: tuple[float, float] | None | _Unset = _UNSET
+                      ) -> EbaySoldData:
+        """Get real sold data for a product from eBay UK.
+
+        `price_band` overrides the ACTIVE band for this call only:
+
+          omitted (the default) -> the active band, unchanged
+          a (lo, hi) tuple       -> that band, used in the query AND locally
+          explicit ``None``     -> NO price restriction at all
+
+        The three cases need three states, and a bare ``None`` default could
+        not express them: ``None`` is a meaningful request in its own right
+        ("no restriction"), so it is distinguished by a sentinel
+        (REGRESSION-006). Getting this wrong silently widened every
+        procurement search to the whole of eBay.
+
+        Competitor-store discovery passes the wide band, because a shop
+        selling a GBP120 greenhouse competes with the GBP29.99 one you intend
+        to buy. Procurement callers pass nothing and keep the active band
+        (PR-1/PR-4 unchanged).
+        """
+        # Resolve the three states into one internal representation.
+        self._band_used = None if price_band is None else (
+            None if isinstance(price_band, _Unset) else tuple(price_band)
+        )
+        if isinstance(price_band, _Unset):
+            self._band_used = active_bounds()
+            self._unrestricted = False
+        elif price_band is None:
+            self._band_used = None
+            self._unrestricted = True
+        else:
+            self._band_used = (float(price_band[0]), float(price_band[1]))
+            self._unrestricted = False
         result = EbaySoldData(
             product_name=query,
             query=query,
         )
+        self._band_override = price_band
         self._band_excluded = 0
         self._condition_excluded = 0
 
@@ -134,13 +191,27 @@ class EbaySoldScraper:
 
         return result
 
+    def _resolve_band(self) -> tuple[float, float]:
+        """The price bounds for THIS call, for the local gate.
+
+        Even when the request carried no price clause, a finite local bound is
+        needed so the gate below has something to compare against. The
+        unrestricted case uses a deliberately wide range - the API already
+        declined to filter, so locally re-imposing the GBP5-35 band would
+        discard exactly the listings the wide search was for
+        (REGRESSION-006).
+        """
+        if self._band_used is not None:
+            return self._band_used
+        return _UNRESTRICTED_BOUNDS
+
     def _get_sold_via_api(self, query: str) -> list[EbaySoldItem]:
         """Try to get sold items via Browse API (filter by sold status)."""
         if not EBAY_CLIENT_ID or not EBAY_CLIENT_SECRET:
             return []
 
         try:
-            lo, hi = active_bounds()
+            lo, hi = self._resolve_band()
             band_api = f"price:[{lo:.0f}..{hi:.0f}],priceCurrency:GBP"
             # C10 — condition joins the filter so Used listings never enter
             # the demand set or the top-seller aggregation.
@@ -148,7 +219,8 @@ class EbaySoldScraper:
             filter_parts = ["buyingOptions:{FIXED_PRICE}", "deliveryCountry:GB"]
             if cond:
                 filter_parts.append(cond)
-            filter_parts.append(band_api)
+            if self._band_used is not None:
+                filter_parts.append(band_api)
             resp = requests.get(
                 f"{EBAY_API_BASE}/buy/browse/v1/item_summary/search",
                 params={
@@ -171,7 +243,11 @@ class EbaySoldScraper:
             for item in data.get("itemSummaries", []):
                 price_info = item.get("price", {})
                 price = float(price_info.get("value", 0))
-                if not in_band(price):
+                # Gate against the band this call actually searched, not the
+                # active one. Re-checking the active range here silently
+                # discarded every listing a widened store search had found
+                # (REGRESSION-006).
+                if not in_band_range(price, lo, hi):
                     self._band_excluded += 1  # PR-4
                     continue
                 condition = item.get("condition", "")
@@ -201,18 +277,25 @@ class EbaySoldScraper:
             return []
 
     def _get_sold_via_scrape(self, query: str) -> list[EbaySoldItem]:
-        """Scrape eBay sold listings page."""
+        """Scrape eBay sold listings page (HTML fallback)."""
         items = []
 
         for page in range(1, self.MAX_PAGES + 1):
             try:
-                lo, hi = active_bounds()
+                lo, hi = self._resolve_band()
+                # The price clause is omitted entirely when the caller asked
+                # for no restriction, so the two never disagree with the
+                # local in_band() gate below.
+                price_clause = (
+                    "" if self._band_used is None
+                    else f"&_udlo={lo:.0f}&_udhi={hi:.0f}"
+                )
                 url = (
                     f"{self.SOLD_URL}?"
                     f"_nkw={query.replace(' ', '+')}"
                     f"&LH_Complete=1&LH_Sold=1"
                     f"&_sop=13"  # Sort by most recently sold
-                    f"&_udlo={lo:.0f}&_udhi={hi:.0f}"
+                    f"{price_clause}"
                     f"{html_condition_param()}"  # C10 — New-only at query time
                     f"&_pgn={page}"
                 )
@@ -267,7 +350,8 @@ class EbaySoldScraper:
                 price = float(price_match.group())
                 if price <= 0:
                     continue
-                if not in_band(price):
+                # Gate against the band this call searched (REGRESSION-006).
+                if not in_band_range(price, lo, hi):
                     self._band_excluded += 1  # PR-4
                     continue
 

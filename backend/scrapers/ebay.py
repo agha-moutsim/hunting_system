@@ -15,12 +15,28 @@ from config import (
     EBAY_UK_BASE, EBAY_CLIENT_ID, EBAY_CLIENT_SECRET,
     EBAY_MARKETPLACE, EBAY_API_BASE, EBAY_ENVIRONMENT, SCRAPE_CONFIG,
 )
-from engine.price_gate import active_bounds, in_band
+from engine.price_gate import active_bounds, in_band, in_band_range
 from engine.condition_gate import api_condition_filter, html_condition_param, is_new
 
 # Query-time New-only (C10). Composed at CALL TIME so a changed active
 # condition reaches the very next request — never an import-time literal.
 _BASE_API_FILTER = "buyingOptions:{FIXED_PRICE},deliveryCountry:GB"
+
+
+class _Unset:
+    """Sentinel: 'no band argument', distinct from an explicit None.
+
+    REGRESSION-006: omitted / (lo, hi) / None (no restriction) are three
+    different requests, and a bare None default can only express two of them.
+    Without the sentinel, every call that passed nothing would have looked
+    like a request for the whole of eBay.
+    """
+
+
+_UNSET = _Unset()
+# Local-gate bounds for an unrestricted request: finite, but not the user's
+# buying range, which must not be re-imposed on a deliberately wide search.
+_UNRESTRICTED_BOUNDS = (0.0, 1_000_000.0)
 
 
 def _api_filter(band_api: str) -> str:
@@ -84,22 +100,48 @@ class EbayScraper:
             "Content-Type": "application/json",
         }
 
-    def search(self, query: str, limit: int = 10) -> list[ScrapedProduct]:
-        """Search eBay UK via Browse API."""
+    def search(self, query: str, limit: int = 10,
+               price_band: tuple[float, float] | None | _Unset = _UNSET
+               ) -> list[ScrapedProduct]:
+        """Search eBay UK via Browse API.
+
+        `price_band` overrides the ACTIVE range for this call only, with
+        three distinct states (omitted / a band / explicit None for "no
+        restriction") because None is itself meaningful. Competitor-store
+        discovery needs the unrestricted form (REGRESSION-006). Omitting the
+        argument preserves the original behaviour exactly.
+        """
         if not EBAY_CLIENT_ID or not EBAY_CLIENT_SECRET:
             print("[INFO] No eBay API keys — returning empty. Add EBAY_CLIENT_ID/EBAY_CLIENT_SECRET to .env")
             return []
         try:
-            return self._search_api(query, limit)
+            return self._search_api(query, limit, price_band=price_band)
         except Exception as e:
             print(f"[WARN] API search failed: {e}")
             return []
 
-    def _search_api(self, query: str, limit: int = 10) -> list[ScrapedProduct]:
-        """Search via Browse API. The ACTIVE range is pushed into the query
-        (PR-2 layer 1) — read at call time, never an import-time constant."""
-        lo, hi = active_bounds()
-        band_api = f"price:[{lo:.0f}..{hi:.0f}],priceCurrency:GBP"
+    def _search_api(self, query: str, limit: int = 10,
+                    price_band: tuple[float, float] | None | _Unset = _UNSET
+                    ) -> list[ScrapedProduct]:
+        """Search via Browse API.
+
+        The band used is pushed into the query (PR-2 layer 1) AND applied
+        again locally below, so the two can never disagree. Dropping the price
+        clause and skipping the local gate happen together, or eBay sends
+        listings the local filter would then discard.
+        """
+        if isinstance(price_band, _Unset):
+            lo, hi = active_bounds()
+            unrestricted = False
+        elif price_band is None:
+            lo, hi = 0.0, 1_000_000.0
+            unrestricted = True
+        else:
+            lo, hi = float(price_band[0]), float(price_band[1])
+            unrestricted = False
+
+        band_api = ("" if unrestricted
+                    else f"price:[{lo:.0f}..{hi:.0f}],priceCurrency:GBP")
         resp = requests.get(
             f"{EBAY_API_BASE}/buy/browse/v1/item_summary/search",
             params={
@@ -118,7 +160,7 @@ class EbayScraper:
         for item in data.get("itemSummaries", []):
             price_info = item.get("price", {})
             price = float(price_info.get("value", 0))
-            if not in_band(price):
+            if not unrestricted and not in_band_range(price, lo, hi):
                 continue  # defence in depth — PR-2 layer 1 (search time)
             condition = item.get("condition", "")
             if not is_new(condition):

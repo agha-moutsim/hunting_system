@@ -8,6 +8,7 @@ import Badge from "@/components/ui/Badge";
 import Spinner from "@/components/Spinner";
 import DataTable, { Column } from "@/components/DataTable";
 import HotBadge, { hasRealProfit } from "@/components/ui/HotBadge";
+import EbayStoresCard from "@/components/EbayStoresCard";
 import {
   DemandCell,
   HunterEmptyState,
@@ -169,6 +170,45 @@ export default function HunterPage() {
       // a dash with the reason rather than a confident red GBP0.00.
       render: (r) => <ProfitCell row={r} />,
       sortValue: (r) => (hasRealProfit(r) ? (r.profit as number) : -1),
+    },
+    {
+      key: "stores",
+      header: "Stores",
+      align: "right",
+      // C11 — the count of real competitor sellers this scan observed. Shown
+      // as a count with its stamp rather than a "verified" badge alone,
+      // because one store and four look identical otherwise
+      // (REGRESSION-006).
+      render: (r) =>
+        r.ebay_stores?.length ? (
+          <span
+            className="whitespace-nowrap"
+            title={
+              r.ebay_stores_provenance?.reason ||
+              r.ebay_stores.map((s) => s.name).join(", ")
+            }
+          >
+            {r.ebay_stores.length}
+            {r.ebay_stores_provenance?.max_stores
+              ? ` / ${r.ebay_stores_provenance.max_stores}`
+              : ""}
+            {r.ebay_stores_provenance?.provenance === "unverified" && (
+              <span className="ml-1 text-text-dim" title="partial result">
+                ⚠️
+              </span>
+            )}
+          </span>
+        ) : (
+          <span
+            className="text-text-dim"
+            title={
+              r.ebay_stores_provenance?.reason || "No competitor stores found"
+            }
+          >
+            —
+          </span>
+        ),
+      sortValue: (r) => r.ebay_stores?.length ?? -1,
     },
     {
       key: "verdict",
@@ -366,6 +406,19 @@ export default function HunterPage() {
             keyFn={(r, i) => r.url || i}
             emptyMessage="No products found."
           />
+
+          {/* C11 — the full competitor list. Every row in a scan shares the
+              same observed sellers (they came off the one category page this
+              scan already fetched), so one card is shown rather than the same
+              four stores repeated per row. */}
+          {products[0]?.ebay_stores?.length ? (
+            <div className="mt-4">
+              <EbayStoresCard
+                stores={products[0].ebay_stores}
+                provenance={products[0].ebay_stores_provenance}
+              />
+            </div>
+          ) : null}
         </div>
       )}
 
