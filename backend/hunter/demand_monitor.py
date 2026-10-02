@@ -50,26 +50,76 @@ def _ensure_table() -> None:
         _ENSURED = True
 
 
+def _positive_or_none(value: Any) -> Optional[float]:
+    """A float when it is a real positive number, else None."""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    return f if f > 0 else None
+
+
+def _readable_or_none(value: Any) -> Optional[int]:
+    """An int when it is a real positive count, else None (never 0)."""
+    if not _readable_count(value):
+        return None
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _readable_count(value: Any) -> bool:
+    """Is this a real, positive sold-count?
+
+    Zero is excluded deliberately: the search page that returns "0 sold" is
+    the same page it returns when the request was refused, so a 0 is not
+    evidence of anything.
+    """
+    try:
+        return float(value) > 0
+    except (TypeError, ValueError):
+        return False
+
+
 def snapshot_query(
     query: str,
     sold_data: Any,
     source: str = "watchlist_monitor",
     captured_at: Optional[datetime] = None,
 ) -> DemandSnapshot:
-    """Record one real fetch for `query`."""
+    """Record one real fetch for `query`.
+
+    A count that is missing, zero or unreadable is stored as NULL, never as 0.
+    Zero is a claim - "nothing sold" - and writing one because a request was
+    refused or a band excluded everything would make the next run's slope read
+    as a collapse in demand. A row with no count says "we looked and got
+    nothing usable", which is the truth, and compute_trend refuses to treat it
+    as a data point.
+    """
     _ensure_table()
+    sold_30d = _readable_or_none(
+        getattr(sold_data, "sold_count_30d", None)
+        if getattr(sold_data, "sold_count_30d", None) is not None
+        else getattr(sold_data, "total_sold_30d", None)
+    )
+    sold_7d = _readable_or_none(
+        getattr(sold_data, "sold_count_7d", None)
+        if getattr(sold_data, "sold_count_7d", None) is not None
+        else getattr(sold_data, "total_sold_7d", None)
+    )
+    avg_price = _positive_or_none(
+        getattr(sold_data, "avg_sold_price", None)
+        if getattr(sold_data, "avg_sold_price", None) is not None
+        else getattr(sold_data, "price_avg", None)
+    )
     db = SessionLocal()
     try:
         row = DemandSnapshot(
             query=(query or "").strip(),
-            sold_30d=getattr(sold_data, "sold_count_30d", None)
-            or getattr(sold_data, "total_sold_30d", None),
-            sold_7d=getattr(sold_data, "sold_count_7d", None)
-            or getattr(sold_data, "total_sold_7d", None),
-            avg_price=(
-                getattr(sold_data, "avg_sold_price", None)
-                or getattr(sold_data, "price_avg", None)
-            ),
+            sold_30d=sold_30d,
+            sold_7d=sold_7d,
+            avg_price=avg_price,
             source=source,
             captured_at=captured_at or datetime.utcnow(),
         )
@@ -94,9 +144,13 @@ def fetch_and_record(
     able to invent it.
     """
     if scraper_factory is None:
-        from scrapers.ebay_sold import EbaySoldScraper
+        # EbayScraper (Browse API), NOT EbaySoldScraper (HTML). The HTML
+        # scraper gets a 403 from eBay in this environment, and a monitor
+        # wired to it recorded a confident 0 for every query on every run -
+        # collecting nothing while looking perfectly healthy.
+        from scrapers.ebay import EbayScraper
 
-        scraper_factory = EbaySoldScraper
+        scraper_factory = EbayScraper
     scraper = scraper_factory()
     sold = scraper.get_sold_data(query)
     return snapshot_query(query, sold, source=source, captured_at=captured_at)
@@ -185,7 +239,12 @@ def compute_trend(
         }
 
     first, last = pts[0], pts[-1]
-    if first.sold_30d is None or last.sold_30d is None:
+    # A zero endpoint is NOT a measurement. The Browse API answers a refused
+    # or empty result with the same empty page as a genuinely quiet product,
+    # so 0 cannot be told apart from "we could not look" - and treating it as
+    # real would turn one failed request into a confident "demand collapsed
+    # 40 units" trend. Only a positive count is a count (C1/C13).
+    if not _readable_count(first.sold_30d) or not _readable_count(last.sold_30d):
         return {
             "hot": False,
             "provenance": "unverified",

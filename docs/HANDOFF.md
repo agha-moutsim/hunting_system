@@ -29,15 +29,31 @@ is explicitly labelled as not verified.** A fabricated price costs real money.
 ## 1. Verification (run this before and after every change)
 
 ```powershell
-# Backend tests — baseline is 671
+# Backend tests — baseline is 827 (7 skipped are the opt-in live tests)
 $env:PYTHONIOENCODING='utf-8'
 python -m pytest tests/ -q --ignore=tests/test_phase3.py
 
 # Import smoke (catches circular imports / missing symbols fast)
-python -c "import sys; sys.path.insert(0,'backend'); import main, pipeline, analysis_pipeline, deep_search, api.analyze, api.bulk, api.deep_search, api.hunter, export.format, export.csv_export, hunter.supplier_lookup, engine.match; print('OK')"
+python -c "import sys; sys.path.insert(0,'backend'); import main, pipeline, analysis_pipeline, deep_search, api.analyze, api.bulk, api.deep_search, api.hunter, api.demand_monitor, export.format, export.csv_export, hunter.supplier_lookup, hunter.demand_monitor, engine.match; print('OK')"
 
-# Frontend typecheck — baseline exit 0 (run from frontend/)
-npx tsc --noEmit        # == npm run typecheck
+# Frontend typecheck — baseline exit 0. Run from the REPO ROOT:
+npm run typecheck       # == npm --prefix frontend run typecheck
+# (`npx tsc` from the root fails: typescript is not installed there.)
+```
+
+**Live tests (opt-in, spend real API quota against 5,000/day):**
+
+```powershell
+$env:EBAY_LIVE='1'
+python -m pytest tests/test_live_smoke.py -m live -q
+```
+
+**Re-capturing the real API fixtures** (only when a vendor changes shape):
+
+```powershell
+$env:SERPAPI_KEY = (Select-String -Path .env -Pattern "^SERPAPI_KEY=").Line -replace "^SERPAPI_KEY=",""
+python tests\capture_fixtures.py
+python -m pytest tests/test_real_payload_fixtures.py -q
 ```
 
 **Console note:** always set `$env:PYTHONIOENCODING='utf-8'` first. Printing
@@ -50,14 +66,12 @@ positional arg, so `next lint` errors with
 `Invalid project directory provided ... frontend\lint`. Pre-existing, not a
 regression. **`tsc --noEmit` is the frontend gate.**
 
-### Current state (verified just now)
+### Current state (verified 2026-10-03)
 
-- `671 passed, 33 warnings` ✅
-- `npx tsc --noEmit` → **exit 0** ✅
-- Backend import smoke → `OK` ✅
-- Pushed: `78a8852` (pHash) ← `8320a7f` (SerpApi) ← `2ed42c5` (P0–P5).
-  Working tree clean apart from `backend/data/custom_filters.json`, which the
-  running app rewrites — leave it out of code commits.
+- `827 passed, 7 skipped, 37 warnings` ✅
+- `npm run typecheck` → **exit 0** ✅
+- Live smoke tests against the real APIs → `7 passed` ✅
+- Pushed through `6fb2aa6`. See §4.5 for what landed since `78a8852`.
 
 ### Running the app
 
@@ -268,7 +282,78 @@ importable with no network stack (so `compute_match` stays pure). Only
 
 ---
 
-## 5. Where the C14 matcher is wired (all five)
+## 4.5 What landed after `78a8852` (do not redo these)
+
+Commits, in order: `3f83493` handoff → `55df554` Category Hunter fixes →
+`82b414f` competitor-store fix → `f0a19e5` windowed Hot Items + competitor
+count → `7b61037` Hot Items UI → `8290709` demand monitor → `6f71012` profit
+and competition honesty → `6fb2aa6` Phase 4 validation.
+
+### The demand monitor (why 7d Hot Items was always empty)
+
+`demand_data.sold_count_7d` is `None` on every path except the browser
+extension's purchase-history capture, so a single search can never have a
+real 7-day figure. `hunter/demand_monitor.py` appends one timestamped
+`DemandSnapshot` per tracked query per run, and derives a trend **only** from
+two or more observations spanning ≥24h — otherwise `unverified` with the
+reason and no number at all.
+
+- `POST /api/demand-monitor/run` — one Browse call per alert-enabled tracked
+  product. ~20 products every 6h ≈ 80 calls/day against the 5,000 budget.
+- `GET /api/demand-monitor/trend?query=` and `/series?query=`.
+
+**A trend is deliberately hard to get.** Four separate refusals, each correct:
+one point is not a slope; points <24h apart are not a slope; a series older
+than `max_age_days` (default 7) is stale, not current; and a **zero** endpoint
+is not a measurement — the Browse API returns the same empty page for a
+refused request as for a quiet product, so `0` is never treated as a count.
+
+### Six real defects found by validating rather than assuming
+
+| Defect                                            | Found by                      | Fix                                       |
+| ------------------------------------------------- | ----------------------------- | ----------------------------------------- |
+| Postage dropped from every verdict                | reading `engine/decisions.py` | threaded into `calculate_profit`          |
+| `£0.004` postage moved profit but printed `£0.00` | Hypothesis                    | known-ness decided on the displayed value |
+| Real New labels rejected                          | real eBay fixture             | not-New first, then a `new` prefix        |
+| Sold count could not name its source              | live smoke test               | `data_source` stamped on both sold paths  |
+| Stale trend answered as current                   | reading `compute_trend`       | staleness window using the unused `now`   |
+| Monitor recorded a false `0` for everything       | running the monitor live      | API scraper by default; 0 stored as NULL  |
+
+That last one is worth remembering: the monitor was wired to the **HTML**
+scraper, which eBay 403s, so every run stored a confident `sold_30d = 0` and
+the next run's slope would have read as a collapse in demand. Four such rows
+were deleted from the live table. Nothing looked wrong until the numbers were
+read directly.
+
+### Open decisions for the product owner
+
+1. **`New - Open Box`.** eBay's real label for a new item in an opened box.
+   `openbox` is in `_NOT_NEW_TOKENS`, so it is rejected. Changing that changes
+   what C10 admits — the user's rule, not a parsing bug. Pinned by
+   `tests/test_condition_gate_real_labels.py::test_new_open_box_is_still_rejected_and_that_is_a_decision_not_a_bug`,
+   which names the one-line change if the answer is "still new".
+2. **A `max competitors` threshold.** There is none in `config`, so the store
+   count is an **advisory** row that never gates a verdict. If a real
+   threshold is wanted, it belongs in `config.FILTERS` — inventing one here
+   would fail products on a rule nobody set.
+3. **Monitor cadence.** Defaults to every 6h in the docstring only; nothing
+   schedules it yet. `POST /api/demand-monitor/run` must be called by
+   something (Task Scheduler, cron, a manual trigger).
+
+### Still not done
+
+- `pipeline.py` (CLI) has no C11 store discovery of its own, so it passes no
+  competitor count and shows no Competition row — honest, but the CLI is the
+  one surface without stores.
+- `analysis_pipeline.py` still writes `match_score: None` into
+  `supplier_matches`, so the DB audit trail lacks the computed score. The
+  matcher computes it; persistence does not.
+- The historical `supplier_matches` table holds 89 rows with the legacy
+  constant `0.5`. Do not read it as current matcher evidence.
+- `FILTERS["brand_filter"] = "vero"` is dead config; C5 VeRO filtering is not
+  implemented.
+
+---
 
 | Consumer              | Gate function                       | Location                                                         |
 | --------------------- | ----------------------------------- | ---------------------------------------------------------------- |
