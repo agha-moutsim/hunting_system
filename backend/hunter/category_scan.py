@@ -76,6 +76,16 @@ class CategoryProduct:
     hot_reason: str = ""
     demand_pace_7d_per_week: Optional[float] = None
     demand_pace_30d_per_week: Optional[float] = None
+    # Windowed variants so the UI can toggle 7d / 30d without a re-fetch.
+    # The 7d numbers exist only when a real capture did.
+    hot_7d: bool = False
+    hot_7d_basis: str = ""
+    hot_7d_provenance: str = ""
+    hot_7d_reason: str = ""
+    hot_30d: bool = False
+    hot_30d_basis: str = ""
+    hot_30d_provenance: str = ""
+    hot_30d_reason: str = ""
     profit: float = 0.0
     margin: float = 0.0
     verdict: str = ""

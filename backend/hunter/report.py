@@ -59,11 +59,30 @@ def generate_report(
     # dict below carries the computed badge rather than a default. The badge
     # comes from the demand counts each row already has; it is never assigned
     # by hand, and a row we could not judge is stamped unverified.
-    from hunter.demand_hotness import apply_hotness
+    from hunter.demand_hotness import hotness_for_window
     from utils.filters import load_filters
 
     _active = load_filters()
-    apply_hotness(products, _active["demand_min_30d"], _active["demand_min_7d"])
+    window = "30d"  # default; the UI may request "7d"
+    # Stamp BOTH windows so the client can toggle without a re-fetch.
+    for product in products:
+        h30 = hotness_for_window(product.sold_30d, product.sold_7d, "30d",
+                                 _active["demand_min_30d"], _active["demand_min_7d"])
+        h7 = hotness_for_window(product.sold_30d, product.sold_7d, "7d",
+                                _active["demand_min_30d"], _active["demand_min_7d"])
+        product.hot = h30["hot"]
+        product.hot_basis = h30["basis"]
+        product.hot_provenance = h30["provenance"]
+        product.hot_reason = h30.get("reason", "")
+        product.demand_pace_7d_per_week = h7.get("pace_7d_per_week")
+        product.demand_pace_30d_per_week = h30.get("pace_30d_per_week")
+        product.hot_7d = bool(h7["hot"])
+        product.hot_7d_basis = h7["basis"]
+        product.hot_7d_provenance = h7["provenance"]
+        product.hot_7d_reason = h7.get("reason", "")
+        product.hot_30d = bool(h30["hot"])
+        product.hot_30d_basis = h30["basis"]
+        product.hot_30d_provenance = h30["provenance"]
 
     for product in products:
         result.products.append({
@@ -71,6 +90,14 @@ def generate_report(
             "hot_basis": getattr(product, "hot_basis", ""),
             "hot_provenance": getattr(product, "hot_provenance", ""),
             "hot_reason": getattr(product, "hot_reason", ""),
+            "hot_7d": bool(getattr(product, "hot_7d", False)),
+            "hot_7d_basis": getattr(product, "hot_7d_basis", ""),
+            "hot_7d_provenance": getattr(product, "hot_7d_provenance", ""),
+            "hot_7d_reason": getattr(product, "hot_7d_reason", ""),
+            "hot_30d": bool(getattr(product, "hot_30d", False)),
+            "hot_30d_basis": getattr(product, "hot_30d_basis", ""),
+            "hot_30d_provenance": getattr(product, "hot_30d_provenance", ""),
+            "hot_30d_reason": getattr(product, "hot_30d_reason", ""),
             "demand_pace_7d_per_week": getattr(product, "demand_pace_7d_per_week", None),
             "demand_pace_30d_per_week": getattr(product, "demand_pace_30d_per_week", None),
             "title": product.title,
@@ -101,6 +128,14 @@ def generate_report(
             "shipping_cost": getattr(product, "shipping_cost", 0.0),
             "shipping_raw": getattr(product, "shipping_raw", ""),
             "ebay_stores": product.ebay_stores,
+            # REGRESSION: profit verdicts looked identical whether 2 or 20
+            # sellers were in the category. The cap of 4 stops the number
+            # being a full market count, so it is reported as a floor:
+            # "at least N active sellers on eBay UK" - which is also the
+            # honest edge of what we know (C13).
+            "competitor_store_count": len(product.ebay_stores)
+            if isinstance(product.ebay_stores, list)
+            else 0,
         })
 
     # REGRESSION-005 - the Hunter was the only analysis endpoint with no

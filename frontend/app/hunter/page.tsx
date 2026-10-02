@@ -40,6 +40,10 @@ export default function HunterPage() {
   // became Electronics. The real category list is fetched and offered as a
   // picker, and anything typed is searched as typed.
   const [categories, setCategories] = useState<HunterCategory[]>([]);
+  // The window the user wants hot items for. The report stamps both, so
+  // switching never costs a request - only a 7d row with a real capture can
+  // ever read as "verified", which is the honest part of this toggle.
+  const [hotWindow, setHotWindow] = useState<"7d" | "30d">("30d");
 
   useEffect(() => {
     apiFetch<FiltersResponse>("/api/filters")
@@ -132,16 +136,33 @@ export default function HunterPage() {
     },
     {
       key: "hot",
-      header: "Trend",
-      render: (r) => (
-        <HotBadge
-          hot={r.hot}
-          basis={r.hot_basis}
-          provenance={r.hot_provenance}
-          reason={r.hot_reason}
-        />
-      ),
-      sortValue: (r) => (r.hot ? 1 : 0),
+      header: `Trend (${hotWindow === "7d" ? "7d" : "30d"})`,
+      render: (r) => {
+        const f =
+          hotWindow === "7d"
+            ? {
+                hot: r.hot_7d,
+                basis: r.hot_7d_basis,
+                provenance: r.hot_7d_provenance,
+                reason: r.hot_7d_reason,
+              }
+            : {
+                hot: r.hot,
+                basis: r.hot_basis,
+                provenance: r.hot_provenance,
+                reason: r.hot_reason,
+              };
+        return (
+          <HotBadge
+            hot={f.hot}
+            basis={f.basis}
+            provenance={f.provenance}
+            reason={f.reason}
+          />
+        );
+      },
+      sortValue: (r) =>
+        hotWindow === "7d" ? (r.hot_7d ? 1 : 0) : r.hot ? 1 : 0,
     },
     {
       key: "sold",
@@ -389,17 +410,55 @@ export default function HunterPage() {
               browse are different questions, and the user should know which
               one they got (REGRESSION-001). */}
           {(scan?.search || report) && (
-            <p className="text-xs text-text-secondary mb-2">
+            <div className="mb-2 text-xs text-text-secondary">
               {scan?.search
                 ? scan.search.mode === "category"
                   ? `Browsing the ${scan.search.label} category.`
                   : `Searching eBay for "${scan.search.text}".`
                 : null}
-            </p>
+              {report && (
+                <span className="ml-2">
+                  · {report.products.filter((p) => p.hot_30d).length} hot in 30d
+                  ·{" "}
+                  {
+                    report.products.filter(
+                      (p) => p.hot_7d && p.hot_7d_provenance === "verified"
+                    ).length
+                  }{" "}
+                  hot in 7d
+                </span>
+              )}
+            </div>
           )}
-          {/* TODO(P5 / C11): surface competitor eBay stores here — the
-              endpoints return `ebay_stores` and stamp them, but no per-row
-              expansion exists yet to show them. */}
+          {/* The 7d/30d toggle. The backend stamps both - a 7d badge is only
+              ever "verified" when a real purchase-history capture exists, which
+              is why the 7d view is often thinner. That is the honest answer,
+              not the feature being broken. */}
+          <div className="flex items-center gap-2 mb-2 text-xs text-text-secondary">
+            <span>Hot window:</span>
+            {(["7d", "30d"] as const).map((w) => (
+              <button
+                key={w}
+                type="button"
+                onClick={() => setHotWindow(w)}
+                className={`px-2 py-0.5 rounded border ${
+                  hotWindow === w
+                    ? "border-accent-blue text-text-primary bg-bg-surface"
+                    : "border-border text-text-dim"
+                }`}
+              >
+                {w}
+              </button>
+            ))}
+            {hotWindow === "7d" && (
+              <span className="text-text-dim">
+                {report?.products?.filter(
+                  (p) => p.hot_7d_provenance === "verified"
+                ).length ?? 0}{" "}
+                of {report?.products?.length ?? 0} rows have real 7-day data
+              </span>
+            )}
+          </div>
           <DataTable
             columns={columns}
             rows={products}

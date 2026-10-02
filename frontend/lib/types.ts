@@ -341,6 +341,19 @@ export interface CategoryProduct extends MatchAvailabilityFields {
   hot_reason?: string;
   demand_pace_7d_per_week?: number | null;
   demand_pace_30d_per_week?: number | null;
+  /**
+   * Windowed hot signals. A 7d hot decision uses ONLY a real 7d capture;
+   * when that capture is absent the field is "unverified" with a reason -
+   * never a 30d number dressed up as a week.
+   */
+  hot_7d?: boolean;
+  hot_7d_basis?: string;
+  hot_7d_provenance?: "verified" | "unverified";
+  hot_7d_reason?: string;
+  hot_30d?: boolean;
+  hot_30d_basis?: string;
+  hot_30d_provenance?: "verified" | "unverified";
+  hot_30d_reason?: string;
   /** C11 competitor stores observed in this row's category scan. */
   ebay_stores?: EbayStore[];
   ebay_stores_provenance?: ProvenanceInfo;

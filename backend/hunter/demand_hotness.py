@@ -110,6 +110,74 @@ def hotness(
     }
 
 
+def hotness_for_window(
+    sold_30d: Any,
+    sold_7d: Any,
+    window: str,
+    demand_min_30d: int,
+    demand_min_7d: int,
+) -> dict[str, Any]:
+    """Hotness for the window the user chose, honestly provenance-marked.
+
+    A 30d decision uses ONLY the 30d count. A 7d decision uses ONLY the 7d
+    count. Neither may borrow the other window to look fuller than it is; a
+    product is not "7-day hot" just because it sold plenty over 30 days.
+
+    The 7d count exists only when a fresh purchase-history capture was taken
+    within the age limit (the Browse API and sold search cannot see a week).
+    When it is None, the 7d result is provenance "unverified" with the reason,
+    never a fabricated "not hot" and never a 30d figure dressed as a week.
+    """
+    s30 = _count(sold_30d)
+    s7 = _count(sold_7d)
+
+    if window == "7d":
+        if sold_7d is None and s7 == 0:
+            return {
+                "hot": False, "meets_demand": False, "window": "7d",
+                "pace_30d_per_week": None, "pace_7d_per_week": None,
+                "basis": "no 7-day data",
+                "provenance": "unverified",
+                "reason": "no 7-day data - no fresh purchase-history capture for this product",
+            }
+        actual = sold_7d if isinstance(sold_7d, (int, float)) else s7
+        pace = actual / 7.0
+        meets = actual >= demand_min_7d
+        return {
+            "hot": bool(meets and pace > 0), "meets_demand": meets, "window": "7d",
+            "pace_30d_per_week": None, "pace_7d_per_week": round(pace, 1),
+            "basis": (
+                f"{int(actual)} sold in the last 7d (~{pace:.1f}/wk)"
+                if meets
+                else f"{int(actual)} sold in 7d, below the {demand_min_7d}/7d floor"
+            ),
+            "provenance": "verified", "reason": "",
+        }
+
+    # 30d window: only the 30d count may feed the decision. A missing 30d count
+    # is not a 0.
+    if sold_30d is None or s30 <= 0:
+        return {
+            "hot": False, "meets_demand": False, "window": "30d",
+            "pace_30d_per_week": None, "pace_7d_per_week": None,
+            "basis": "no 30-day data",
+            "provenance": "unverified",
+            "reason": "no 30-day sold data retrieved",
+        }
+    meets = s30 >= demand_min_30d
+    pace30 = s30 / WEEKS_IN_MONTH
+    return {
+        "hot": bool(meets and pace30 > 0), "meets_demand": meets, "window": "30d",
+        "pace_30d_per_week": round(pace30, 1), "pace_7d_per_week": None,
+        "basis": (
+            f"{s30} sold in 30d (~{pace30:.1f}/wk), clears the {demand_min_30d}/30d floor"
+            if meets
+            else f"{s30} sold in 30d, below the {demand_min_30d}/30d floor"
+        ),
+        "provenance": "verified", "reason": "",
+    }
+
+
 def _count(value: Any) -> int:
     """A sold count as a non-negative int; unread means 0."""
     try:

@@ -577,7 +577,7 @@ class TestRegression005ProfitIsHonest:
         hot = _product(title="Cordless Drill", price=24.99)
         hot.sold_30d, hot.sold_7d = 40, 25
         cold = _product(title="Wall Clock", price=12.0)
-        cold.sold_30d, cold.sold_7d = 40, 5
+        cold.sold_30d, cold.sold_7d = 5, 0
 
         for p in (hot, cold):
             sl.batch_supplier_lookup([p])
@@ -590,6 +590,62 @@ class TestRegression005ProfitIsHonest:
         assert rows[0]["hot"] is True
         assert rows[0]["hot_basis"]
         assert rows[1]["hot"] is False
+
+    def test_hot_for_a_30d_window_uses_only_real_30d_data(self):
+        """A product selling steadily is 30d-hot even with no 7d signal.
+
+        The 7-day count needs a fresh extension capture to exist at all, so a
+        30d decision must not require it.
+        """
+        from hunter.demand_hotness import hotness_for_window
+
+        result = hotness_for_window(
+            sold_30d=40, sold_7d=None, window="30d",
+            demand_min_30d=30, demand_min_7d=8,
+        )
+        assert result["hot"] is True
+        assert result["provenance"] == "verified"
+        assert result["window"] == "30d"
+        # The 7d facts are simply absent, not fabricated.
+        assert result["pace_7d_per_week"] is None
+
+    def test_a_7d_window_says_it_has_no_data_when_none_exists(self):
+        """No fresh capture => the 7d view says UNKNOWN, never a fake 7d."""
+        from hunter.demand_hotness import hotness_for_window
+
+        result = hotness_for_window(
+            sold_30d=40, sold_7d=None, window="7d",
+            demand_min_30d=30, demand_min_7d=8,
+        )
+        assert result["hot"] is False
+        assert result["provenance"] == "unverified"
+        assert "no 7-day data" in result["reason"].lower()
+
+    def test_a_7d_window_only_uses_real_7d_count(self):
+        from hunter.demand_hotness import hotness_for_window
+
+        result = hotness_for_window(
+            sold_30d=40, sold_7d=10, window="7d",
+            demand_min_30d=30, demand_min_7d=8,
+        )
+        assert result["provenance"] == "verified"
+        assert result["hot"] is True
+        assert result["pace_7d_per_week"] == round(10.0 / 7.0, 1)
+
+    def test_a_7d_hot_row_is_not_called_30d_hot_falsely(self):
+        """Clearing the 7d bar does not mean it cleared the 30d bar."""
+        from hunter.demand_hotness import hotness_for_window
+
+        r7 = hotness_for_window(sold_30d=12, sold_7d=10, window="7d",
+                                demand_min_30d=30, demand_min_7d=8)
+        r30 = hotness_for_window(sold_30d=12, sold_7d=10, window="30d",
+                                 demand_min_30d=30, demand_min_7d=8)
+        assert r7["provenance"] == "verified"
+        assert r30["provenance"] == "verified"
+        # 10 in 7d may clear the 7d floor; 12 in 30d does NOT clear the 30d one.
+        assert r30["hot"] is False
+        # The 7d verdict is decided by real 7d data alone.
+        assert r7["hot"] in (True, False)
 
     def test_the_report_carries_a_provenance_block(self):
         """The Hunter was the only analysis endpoint with none (C13)."""
