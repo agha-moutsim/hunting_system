@@ -60,21 +60,41 @@ def normalize_condition(condition: str | None) -> str:
     """Collapse eBay's many condition labels to a comparable token.
 
     'New with tags' -> 'new'. 'Seller Refurbished' -> 'refurbished'.
-    Empty / None -> '' (never 'new' — C10 fails closed).
+    Empty / None -> '' (never 'new' - C10 fails closed).
+
+    Real eBay labels, from a captured Browse response, are messier than the
+    documented ones: 'New other (see details)' and 'New condition' are both
+    genuinely New, and an exact whitelist rejected them - a silent false
+    negative that dropped real New listings from a New-only product. So the
+    not-New pass runs FIRST and wins on a substring anywhere in the label,
+    and only then does a leading 'new' count as New. That ordering is the
+    safety argument: no not-New label eBay uses begins with 'new', and a
+    label like 'Newly refurbished' still loses on the refurb marker.
     """
     if not condition:
         return ""
     cleaned = "".join(ch for ch in str(condition).lower() if ch.isalnum())
     if not cleaned:
         return ""
-    if cleaned in _NEW_TOKENS:
-        return "new"
+
+    # 1. Not-New wins outright, matched anywhere in the label. Substring
+    #    rather than prefix is what lets 'Newly refurbished' and 'New - for
+    #    parts' lose to their refurb/parts marker.
     for token in _NOT_NEW_TOKENS:
-        if cleaned == token or cleaned.startswith(token):
-            return "refurbished" if "refurb" in token else (
-                "used" if token in {"used", "preowned", "preownedowned",
-                                    "secondhand", "second-hand"} else token
-            )
+        if token in cleaned:
+            if "refurb" in token:
+                return "refurbished"
+            if token in {"used", "preowned", "preownedowned", "secondhand",
+                         "second-hand"}:
+                return "used"
+            return token
+
+    # 2. New: the documented labels, then anything eBay prefixes with 'new'.
+    if cleaned in _NEW_TOKENS or cleaned.startswith("new"):
+        return "new"
+
+    # 3. Anything else is unverified - returned as-is so it can never be
+    #    mistaken for 'new' (C1/C10).
     return cleaned
 
 

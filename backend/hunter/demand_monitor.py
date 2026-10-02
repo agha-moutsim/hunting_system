@@ -106,6 +106,7 @@ def compute_trend(
     snapshots: list[DemandSnapshot],
     now: Optional[datetime] = None,
     min_span_hours: float = 24.0,
+    max_age_days: float = 7.0,
 ) -> dict[str, Any]:
     """The trend for one query, only when the data can carry one.
 
@@ -114,13 +115,34 @@ def compute_trend(
         reason, and NO trend value (C1/C13). A single point cannot have a
         slope, and a slope is the only thing that makes "trending" more than
         "exists".
+      * a series whose newest observation is older than `max_age_days` =>
+        unverified and stale. A slope measured three months ago is not a
+        trend today, and a monitor that keeps answering after it stopped
+        being run is lying by omission.
       * otherwise: slope of sold_30d over the observed span, normalised to a
         7-day pace, with the two endpoints it compares shown so the user can
         audit the call.
+
+    `max_age_days` is the staleness window, adjustable because a caller who
+    samples weekly needs a weekly window and should say so rather than have a
+    default declare its own data stale.
     """
     now = now or datetime.utcnow()
     pts = [s for s in snapshots if s.captured_at is not None]
     pts.sort(key=lambda s: s.captured_at)
+
+    if not pts:
+        return {
+            "hot": False,
+            "provenance": "unverified",
+            "reason": "no monitor snapshots for this query yet",
+            "pace_7d": None,
+            "window_days": None,
+            "newest_age_days": None,
+            "points": 0,
+        }
+
+    newest_age_days = round((now - pts[-1].captured_at).total_seconds() / 86400.0, 2)
 
     if len(pts) < 2:
         return {
@@ -129,6 +151,7 @@ def compute_trend(
             "reason": f"only {len(pts)} monitor snapshot(s) - a trend needs at least two",
             "pace_7d": None,
             "window_days": None,
+            "newest_age_days": newest_age_days,
             "points": len(pts),
         }
 
@@ -143,6 +166,21 @@ def compute_trend(
             ),
             "pace_7d": None,
             "window_days": round(span_hours / 24.0, 2),
+            "newest_age_days": newest_age_days,
+            "points": len(pts),
+        }
+
+    if newest_age_days > max_age_days:
+        return {
+            "hot": False,
+            "provenance": "unverified",
+            "reason": (
+                f"stale: newest snapshot is {newest_age_days:.1f} days old "
+                f"(limit {max_age_days:g} days) - the monitor has not been run"
+            ),
+            "pace_7d": None,
+            "window_days": round(span_hours / 24.0, 2),
+            "newest_age_days": newest_age_days,
             "points": len(pts),
         }
 
@@ -154,6 +192,7 @@ def compute_trend(
             "reason": "one endpoint snapshot has no real 30d count",
             "pace_7d": None,
             "window_days": round(span_hours / 24.0, 2),
+            "newest_age_days": newest_age_days,
             "points": len(pts),
         }
 
@@ -171,6 +210,7 @@ def compute_trend(
         "pace_7d": round(pace_7d, 1),
         "delta_sold_30d": delta,
         "window_days": round(span_days, 2),
+        "newest_age_days": newest_age_days,
         "points": len(pts),
         "first": {
             "at": first.captured_at.isoformat(),

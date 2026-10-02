@@ -36,8 +36,13 @@ def calculate_profit(
         shipping = float(shipping_cost)
     except (TypeError, ValueError):
         shipping = 0.0
-    shipping_known = shipping > 0
-    shipping_cost = shipping if shipping_known else 0.0
+    # Known means known AS DISPLAYED: anything that rounds away to £0.00 is
+    # noise, not a postage reading. Deciding on the raw value let a £0.004
+    # reading through - subtracted from the profit, printed as £0.00, and
+    # still stamped shipping_known/profit_is_complete - which produced a
+    # profit a penny below the sum of its own printed parts.
+    shipping_known = round(shipping, 2) > 0
+    shipping_cost = round(shipping, 2) if shipping_known else 0.0
 
     profit = ebay_price - supplier_price - total_fees - shipping_cost
     margin = (profit / ebay_price * 100) if ebay_price > 0 else 0.0

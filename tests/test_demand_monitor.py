@@ -90,6 +90,62 @@ class TestComputeTrend:
         assert r["points"] == 0
 
 
+class TestStaleness:
+    """A slope from last March is not a trend today.
+
+    The monitor only earns its keep by being run; a series that stopped
+    being updated must not keep answering as if it were live. `now` is what
+    makes that checkable, and it is the parameter the trend maths itself
+    never needed.
+    """
+
+    def _fresh_pair(self):
+        return _series("q", [
+            (datetime(2026, 9, 23), 30, None),
+            (datetime(2026, 10, 2), 44, None),
+        ])
+
+    def test_a_recent_series_is_verified(self):
+        r = compute_trend(self._fresh_pair(), now=datetime(2026, 10, 3))
+
+        assert r["provenance"] == "verified"
+
+    def test_a_series_that_stopped_being_updated_is_unverified(self):
+        """Same two points, same slope - but observed a month ago."""
+        r = compute_trend(self._fresh_pair(), now=datetime(2026, 11, 20))
+
+        assert r["provenance"] == "unverified"
+        assert r["pace_7d"] is None
+        assert r["hot"] is False
+        assert "stale" in r["reason"].lower()
+
+    def test_staleness_names_how_old_the_newest_point_is(self):
+        r = compute_trend(self._fresh_pair(), now=datetime(2026, 11, 20))
+
+        assert r["newest_age_days"] is not None
+        assert r["newest_age_days"] > 40
+
+    def test_the_staleness_window_is_adjustable(self):
+        """A caller who samples weekly needs a weekly window, and must be
+        able to say so rather than have the default declare it stale."""
+        snaps = self._fresh_pair()
+        strict = compute_trend(snaps, now=datetime(2026, 10, 12))
+        lenient = compute_trend(
+            snaps, now=datetime(2026, 10, 12), max_age_days=30
+        )
+
+        assert strict["provenance"] == "unverified"
+        assert lenient["provenance"] == "verified"
+
+    def test_a_single_recent_point_is_still_just_one_point(self):
+        """Staleness must not become an excuse to invent a slope."""
+        snaps = _series("q", [(datetime(2026, 10, 2), 40, None)])
+        r = compute_trend(snaps, now=datetime(2026, 10, 3))
+
+        assert r["provenance"] == "unverified"
+        assert "at least two" in r["reason"]
+
+
 class TestDbModel:
     def test_demand_snapshot_model_imports_and_has_the_columns(self):
         from db.models import DemandSnapshot

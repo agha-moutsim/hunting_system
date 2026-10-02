@@ -1,0 +1,345 @@
+{
+  "href": "https://api.ebay.com/buy/browse/v1/item_summary/search?q=greenhouse+6ft&limit=10&offset=0",
+  "total": 461,
+  "limit": 10,
+  "offset": 0,
+  "itemSummaries": [
+    {
+      "itemId": "v1|147603167468|0",
+      "title": "Palram Canopia Harmony 8x6 Ft Grey Polycarbonate Apex Greenhouse Polycarbonate",
+      "leafCategoryIds": ["139939"],
+      "categories": [
+        {
+          "categoryId": "139939",
+          "categoryName": "Greenhouses & Cold Frames"
+        },
+        {
+          "categoryId": "159912",
+          "categoryName": "Garden & Patio"
+        },
+        {
+          "categoryId": "177017",
+          "categoryName": "Garden Structures & Shade"
+        }
+      ],
+      "image": {
+        "imageUrl": "https://i.ebayimg.com/images/g/LREAAeSwB-pquVJq/s-l225.jpg"
+      },
+      "price": {
+        "value": "465.70",
+        "currency": "GBP"
+      },
+      "itemHref": "https://api.ebay.com/buy/browse/v1/item/v1%7C147603167468%7C0",
+      "seller": {
+        "username": "10bellysdave",
+        "feedbackPercentage": "100.0",
+        "feedbackScore": 455,
+        "sellerAccountType": "INDIVIDUAL"
+      },
+      "condition": "New other (see details)",
+      "conditionId": "1500",
+      "thumbnailImages": [
+        {
+          "imageUrl": "https://i.ebayimg.com/images/g/LREAAeSwB-pquVJq/s-l1600.jpg"
+        }
+      ],
+      "shippingOptions": [
+        {
+          "shippingCostType": "FIXED",
+          "shippingCost": {
+            "value": "11.76",
+            "currency": "GBP"
+          }
+        }
+      ],
+      "buyingOptions": ["FIXED_PRICE"],
+      "epid": "1712750068",
+      "itemWebUrl": "https://www.ebay.co.uk/itm/147603167468?_skw=greenhouse+6ft&hash=item225dd598ec:g:LREAAeSwB-pquVJq",
+      "itemLocation": {
+        "postalCode": "S13***",
+        "country": "GB"
+      },
+      "additionalImages": [
+        {
+          "imageUrl": "https://i.ebayimg.com/images/g/MegAAeSwPSxquVJp/s-l225.jpg"
+        }
+      ],
+      "adultOnly": false,
+      "legacyItemId": "147603167468",
+      "availableCoupons": false,
+      "itemOriginDate": "2026-09-27T17:33:36.000Z",
+      "itemCreationDate": "2026-09-27T17:33:36.000Z",
+      "topRatedBuyingExperience": false,
+      "priorityListing": false,
+      "listingMarketplaceId": "EBAY_GB"
+    },
+    {
+      "itemId": "v1|267797799294|0",
+      "title": "Outsunny 6 x 6ft Walk-In Polycarbonate Greenhouse with Foundation Window Silver",
+      "leafCategoryIds": ["139939"],
+      "categories": [
+        {
+          "categoryId": "139939",
+          "categoryName": "Greenhouses & Cold Frames"
+        },
+        {
+          "categoryId": "159912",
+          "categoryName": "Garden & Patio"
+        },
+        {
+          "categoryId": "177017",
+          "categoryName": "Garden Structures & Shade"
+        }
+      ],
+      "image": {
+        "imageUrl": "https://i.ebayimg.com/images/g/lsgAAeSwShxqsQ8Y/s-l225.jpg"
+      },
+      "price": {
+        "value": "209.99",
+        "currency": "GBP"
+      },
+      "itemHref": "https://api.ebay.com/buy/browse/v1/item/v1%7C267797799294%7C0",
+      "seller": {
+        "username": "outsunny",
+        "feedbackPercentage": "99.6",
+        "feedbackScore": 301665,
+        "sellerAccountType": "BUSINESS"
+      },
+      "marketingPrice": {
+        "discountPercentage": "0"
+      },
+      "condition": "Certified - Refurbished",
+      "conditionId": "2000",
+      "thumbnailImages": [
+        {
+          "imageUrl": "https://i.ebayimg.com/images/g/lsgAAeSwShxqsQ8Y/s-l1600.jpg"
+        }
+      ],
+      "shippingOptions": [
+        {
+          "shippingCostType": "FIXED",
+          "shippingCost": {
+            "value": "0.00",
+            "currency": "GBP"
+          },
+          "minEstimatedDeliveryDate": "2026-10-04T23:00:00.000Z",
+          "maxEstimatedDeliveryDate": "2026-10-06T23:00:00.000Z"
+        }
+      ],
+      "buyingOptions": ["FIXED_PRICE"],
+      "itemWebUrl": "https://www.ebay.co.uk/itm/267797799294?_skw=greenhouse+6ft&hash=item3e59fe217e:g:lsgAAeSwShxqsQ8Y&amdata=enc%3AAQALAAAA8ACCtXRWQnOEpyOqnQQ8KGaFyoc2Z74cg1wH9H5Au59Aj4ce3rvnFATJJLLeDc9m4gBPE2Gt4bj0S4ijNz6yVrTG6z8fPKNOD8a8PUOnr74bu%2B0uwzcb3PCtZLbuDgy5w73yDK4d6gr0C1gyccz4kHL82mYTLfB5gcJMlM%2BOVo9M4v0TDoMsqhaphN8I0%2B5TBOXAGGPTA7CoNM%2FlmLgGrjQ8hYzYBuiG7UUw19fjzptOZo6F8InayL7gJe2C7urqXzRODKGycHaf%2BbfZeMaXFlGS6GY4llmhbllEtjl4SihguC%2FbQqUnBOoMOcrwCLdBkg%3D%3D",
+      "itemLocation": {
+        "postalCode": "UB6***",
+        "country": "GB"
+      },
+      "additionalImages": [
+        {
+          "imageUrl": "https://i.ebayimg.com/images/g/0wsAAeSw7ydqsQ8Z/s-l225.jpg"
+        },
+        {
+          "imageUrl": "https://i.ebayimg.com/images/g/scgAAeSwn35qsQ8Y/s-l225.jpg"
+        },
+        {
+          "imageUrl": "https://i.ebayimg.com/images/g/zy4AAeSwW2dqsQ8Z/s-l225.jpg"
+        },
+        {
+          "imageUrl": "https://i.ebayimg.com/images/g/o08AAeSwx6lqsQ8Z/s-l225.jpg"
+        },
+        {
+          "imageUrl": "https://i.ebayimg.com/images/g/lcUAAeSwax1qsQ8Y/s-l225.jpg"
+        },
+        {
+          "imageUrl": "https://i.ebayimg.com/images/g/sysAAeSw1XpqsQ8Z/s-l225.jpg"
+        },
+        {
+          "imageUrl": "https://i.ebayimg.com/images/g/utsAAeSwMXRqsQ8Z/s-l225.jpg"
+        },
+        {
+          "imageUrl": "https://i.ebayimg.com/images/g/iPoAAeSwFqxqsQ8Z/s-l225.jpg"
+        },
+        {
+          "imageUrl": "https://i.ebayimg.com/images/g/zI8AAeSwuXtqsQ8Z/s-l225.jpg"
+        },
+        {
+          "imageUrl": "https://i.ebayimg.com/images/g/0wkAAeSw7ydqsQ8Z/s-l225.jpg"
+        }
+      ],
+      "adultOnly": false,
+      "unitPricingMeasure": "Unit",
+      "unitPrice": {
+        "value": "209.99",
+        "currency": "GBP"
+      },
+      "legacyItemId": "267797799294",
+      "availableCoupons": true,
+      "itemOriginDate": "2026-09-28T09:46:45.000Z",
+      "itemCreationDate": "2026-09-28T09:46:45.000Z",
+      "topRatedBuyingExperience": false,
+      "priorityListing": true,
+      "listingMarketplaceId": "EBAY_GB"
+    },
+    {
+      "itemId": "v1|278419159316|0",
+      "title": "Outsunny 6x6ft Walk-In Polycarbonate Greenhouse Plant Grow Galvanized Aluminium",
+      "leafCategoryIds": ["139939"],
+      "categories": [
+        {
+          "categoryId": "139939",
+          "categoryName": "Greenhouses & Cold Frames"
+        },
+        {
+          "categoryId": "159912",
+          "categoryName": "Garden & Patio"
+        },
+        {
+          "categoryId": "177017",
+          "categoryName": "Garden Structures & Shade"
+        }
+      ],
+      "image": {
+        "imageUrl": "https://i.ebayimg.com/images/g/KboAAeSwNPJqrOT8/s-l225.jpg"
+      },
+      "price": {
+        "value": "233.99",
+        "currency": "GBP"
+      },
+      "itemHref": "https://api.ebay.com/buy/browse/v1/item/v1%7C278419159316%7C0",
+      "seller": {
+        "username": "outsunny",
+        "feedbackPercentage": "99.6",
+        "feedbackScore": 301665,
+        "sellerAccountType": "BUSINESS"
+      },
+      "condition": "Certified - Refurbished",
+      "conditionId": "2000",
+      "thumbnailImages": [
+        {
+          "imageUrl": "https://i.ebayimg.com/images/g/KboAAeSwNPJqrOT8/s-l1600.jpg"
+        }
+      ],
+      "shippingOptions": [
+        {
+          "shippingCostType": "FIXED",
+          "shippingCost": {
+            "value": "0.00",
+            "currency": "GBP"
+          },
+          "minEstimatedDeliveryDate": "2026-10-04T23:00:00.000Z",
+          "maxEstimatedDeliveryDate": "2026-10-06T23:00:00.000Z"
+        }
+      ],
+      "buyingOptions": ["FIXED_PRICE"],
+      "epid": "20059329129",
+      "itemWebUrl": "https://www.ebay.co.uk/itm/278419159316?_skw=greenhouse+6ft&hash=item40d3133914:g:KboAAeSwNPJqrOT8&amdata=enc%3AAQALAAAA8ACCtXRWQnOEpyOqnQQ8KGYo074IKJKMTsoL8q6ABIlchWoEwPf8ke%2BksrblBirGdA5ZCfpTmZOXsao6OgTC5WRJwnIqxRQd4Sb4s2dX6RKAWDuq5gUVBi4BC97oMRh%2BYFB%2Bw1dxggBrGs16JxNShtej4q7zsuCieqhMA4OErpHHlfSNGg4lys4pLheIrwP181Uo0Biybj4vDy6O3kNX3pwNFhrmzdTo7c0KmWyXGuGy1CWC%2BFBlD1df48XFP59bweRGJRue97wmBVcbzrwAjKdLogLdq4XQopI%2BbZbPdwuBCystUY9XN9%2BGsFnjvQxDHQ%3D%3D",
+      "itemLocation": {
+        "postalCode": "UB6***",
+        "country": "GB"
+      },
+      "additionalImages": [
+        {
+          "imageUrl": "https://i.ebayimg.com/images/g/GtAAAeSwS2xqrOT8/s-l225.jpg"
+        },
+        {
+          "imageUrl": "https://i.ebayimg.com/images/g/23gAAeSwt3xqrOT9/s-l225.jpg"
+        },
+        {
+          "imageUrl": "https://i.ebayimg.com/images/g/OSsAAeSwZsZqrOT9/s-l225.jpg"
+        },
+        {
+          "imageUrl": "https://i.ebayimg.com/images/g/RqoAAeSwm3xqrOT8/s-l225.jpg"
+        },
+        {
+          "imageUrl": "https://i.ebayimg.com/images/g/zc4AAeSwMqpqrOT9/s-l225.jpg"
+        },
+        {
+          "imageUrl": "https://i.ebayimg.com/images/g/DwMAAeSwy4NqrOT9/s-l225.jpg"
+        },
+        {
+          "imageUrl": "https://i.ebayimg.com/images/g/nj4AAeSwOZRqrOT9/s-l225.jpg"
+        },
+        {
+          "imageUrl": "https://i.ebayimg.com/images/g/YaMAAeSwErFqrOT8/s-l225.jpg"
+        },
+        {
+          "imageUrl": "https://i.ebayimg.com/images/g/hssAAeSwq8RqrOT9/s-l225.jpg"
+        },
+        {
+          "imageUrl": "https://i.ebayimg.com/images/g/FGUAAeSw-0FqrOT9/s-l225.jpg"
+        }
+      ],
+      "adultOnly": false,
+      "unitPricingMeasure": "Unit",
+      "unitPrice": {
+        "value": "233.99",
+        "currency": "GBP"
+      },
+      "legacyItemId": "278419159316",
+      "availableCoupons": false,
+      "itemOriginDate": "2026-09-29T05:03:27.000Z",
+      "itemCreationDate": "2026-09-29T05:03:27.000Z",
+      "topRatedBuyingExperience": false,
+      "priorityListing": true,
+      "listingMarketplaceId": "EBAY_GB"
+    },
+    {
+      "itemId": "v1|237057346818|0",
+      "title": "6ft Two Tier Greenhouse Staging",
+      "leafCategoryIds": ["139939"],
+      "categories": [
+        {
+          "categoryId": "139939",
+          "categoryName": "Greenhouses & Cold Frames"
+        },
+        {
+          "categoryId": "159912",
+          "categoryName": "Garden & Patio"
+        },
+        {
+          "categoryId": "177017",
+          "categoryName": "Garden Structures & Shade"
+        }
+      ],
+      "image": {
+        "imageUrl": "https://i.ebayimg.com/images/g/C5QAAeSwmfdqn~wm/s-l225.jpg"
+      },
+      "price": {
+        "value": "156.70",
+        "currency": "GBP"
+      },
+      "itemHref": "https://api.ebay.com/buy/browse/v1/item/v1%7C237057346818%7C0",
+      "seller": {
+        "username": "avenue4773",
+        "feedbackPercentage": "100.0",
+        "feedbackScore": 150,
+        "sellerAccountType": "INDIVIDUAL"
+      },
+      "condition": "New",
+      "conditionId": "1000",
+      "thumbnailImages": [
+        {
+          "imageUrl": "https://i.ebayimg.com/images/g/C5QAAeSwmfdqn~wm/s-l1600.jpg"
+        }
+      ],
+      "pickupOptions": [
+        {
+          "pickupLocationType": "ARRANGED_LOCATION"
+        }
+      ],
+      "buyingOptions": ["FIXED_PRICE", "BEST_OFFER"],
+      "itemWebUrl": "https://www.ebay.co.uk/itm/237057346818?_skw=greenhouse+6ft&hash=item3731b80d02:g:C5QAAeSwmfdqn~wm&amdata=enc%3AAQALAAAA8ACCtXRWQnOEpyOqnQQ8KGYQDn7hf5EJZyV2mQ1fDLEgDJZ0R%2BVZcttJkNeh5Bz%2BQEJeTXcZwXPZFM1yQVtV46f%2FtzmBe4fdym1639%2FAHK4OllMJa84b6zI7WumOhq0ED28yR9sE9t0lQvAXbTYvPPnvGo5iCkzFbP4qVvcTk14pdyPqfO4lbSaSXjjKKKVRBx2Oo5dpZApsSODDlmr%2BIHx6s19klTV8X1criROAtjwFTt5vDUHTVYRIiyAw1ZdpGBcj6gIsAltTpT%2BJGTPt%2FKatxPMX3WA28BFcJa80Or15t9kqruIbAlC8vvK2fYxkfA%3D%3D",
+      "itemLocation": {
+        "postalCode": "S61***",
+        "country": "GB"
+      },
+      "adultOnly": false,
+      "legacyItemId": "237057346818",
+      "availableCoupons": false,
+      "itemOriginDate": "2026-09-08T12:16:39.000Z",
+      "itemCreationDate": "2026-09-08T12:16:39.000Z",
+      "topRatedBuyingExperience": false,
+      "priorityListing": true,
+      "listingMarketplaceId": "EBAY_GB"
+    }
+  ],
+  "_fixture_note": "Real eBay Browse item_summary/search response for q='greenhouse 6ft', trimmed to the first item summaries. Captured by tests/capture_fixtures.py."
+}

@@ -39,6 +39,16 @@ _UNSET = _Unset()
 _UNRESTRICTED_BOUNDS = (0.0, 1_000_000.0)
 
 
+_SOLD_SOURCE_LABEL = (
+    "ebay_browse_sold_search: count of in-band New sold listings the search "
+    "returned; a search-page count, not a sales total"
+)
+# Deliberately free of the words "verified" and "exact". The label is shown
+# and, worse, may be string-matched by a renderer - a source string containing
+# "verified" can light a green badge on a figure that is only a count of
+# returned listings.
+
+
 def _api_filter(band_api: str) -> str:
     """Compose the Browse API filter: base + active condition (C10) + band.
 
@@ -418,7 +428,13 @@ class EbayScraper:
 
         items = data.get("itemSummaries", [])
         if not items:
-            return DemandData(verified=False)
+            # Even "nothing found" names the source it asked: a blank source
+            # cannot distinguish "we looked and there was none" from "we never
+            # asked" (C13).
+            return DemandData(
+                verified=False,
+                data_source=_SOLD_SOURCE_LABEL,
+            )
 
         now = datetime.now()
         sold_items = []
@@ -458,6 +474,7 @@ class EbayScraper:
             highest_sold_price=max(prices) if prices else None,
             verified=bool(sold_items),
             excluded_over_band=excluded,
+            data_source=_SOLD_SOURCE_LABEL,
         )
         # C11 — build the shared 4-store list from what this call observed.
         if seller_tally:
