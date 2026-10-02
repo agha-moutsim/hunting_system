@@ -103,6 +103,25 @@ class Verdict(Base):
     product = relationship("Product", back_populates="verdict")
 
 
+class DemandSnapshot(Base):
+    """One timestamped sold-count observation for a monitored query.
+
+    The watchlist monitor (hunter.demand_monitor) appends one row per query
+    per run. Two snapshots of the same query over a window give the only
+    honest 7-day trend; a single point cannot have a slope, and one that is
+    fabricated is the C13 violation this table exists to prevent.
+    """
+    __tablename__ = "demand_snapshots"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    query = Column(Text, nullable=False, index=True)
+    sold_30d = Column(Integer)
+    sold_7d = Column(Integer)
+    avg_price = Column(Float)
+    source = Column(String(64), default="watchlist_monitor")
+    captured_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
 class PurchaseCapture(Base):
     """One verified purchase-history capture posted by the browser extension (P5).
 
