@@ -31,10 +31,17 @@ _NEW_TOKENS = frozenset({"new", "brandnew", "newwithtags", "newwithbox", "newoth
 
 # Everything else is explicitly not-New. Listed so an unknown label can
 # never be silently treated as New by omission.
+#
+# 'openbox' was removed from this list on 2026-10-03 by product decision:
+# eBay's real label "New - Open Box" is unused new stock in imperfect
+# packaging, not a used or refurbished item, so rejecting it was dropping
+# real New listings. C10 exists to keep Used/Refurb out, and this label is
+# neither. A BARE "Open box" is still rejected - it does not assert that
+# anything is new, and the gate fails closed on labels it cannot place.
 _NOT_NEW_TOKENS = frozenset({
     "used", "preowned", "pre-owned", "preownedowned", "secondhand", "second-hand",
     "refurbished", "sellerrefurbished", "certifiedrefurbished", "excellentrefurbished",
-    "verygoodrefurbished", "goodrefurbished", "openbox", "open-box",
+    "verygoodrefurbished", "goodrefurbished",
     "forparts", "forpartsornotworking", "damaged", "unspecified", "unknown",
 })
 

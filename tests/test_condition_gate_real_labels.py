@@ -73,20 +73,27 @@ class TestRealNewLabelsAreAccepted:
         assert is_new("New (sealed)") is True
         assert is_new("New - 2024 model") is True
 
-    def test_new_open_box_is_still_rejected_and_that_is_a_decision_not_a_bug(self):
-        """OPEN QUESTION FOR THE PRODUCT OWNER - do not 'fix' this silently.
+    def test_new_open_box_is_new_by_product_decision(self):
+        """DECIDED 2026-10-03 by the product owner: "New - Open Box" counts as
+        New.
 
-        eBay's real label is 'New - Open Box': the item is new, the box was
-        opened. _NOT_NEW_TOKENS lists 'openbox' as not-New, so this gate
-        rejects it. That may be right (an opened box can have been handled or
-        returned) or wrong (it is still a new, unused item).
+        It is unused new stock in imperfect packaging, not a used or
+        refurbished item, so rejecting it was dropping real New listings from a
+        New-only product. C10 exists to keep Used/Refurb out; this label is
+        neither. 'openbox' was therefore removed from _NOT_NEW_TOKENS.
 
-        Reopening it changes what C10 admits, which is the user's rule and not
-        a parsing decision, so the current fail-closed behaviour is pinned here
-        deliberately. If the answer is "open box is still new", delete 'openbox'
-        from _NOT_NEW_TOKENS and flip this test - not the other way round.
+        The important half is what did NOT change: a bare "Open box" asserts
+        nothing about the item being new, so it is still rejected, and the
+        gate still fails closed on any label it cannot place. Re-add
+        'openbox' to _NOT_NEW_TOKENS to reverse this decision.
         """
-        assert is_new("New - Open Box") is False
+        assert is_new("New - Open Box") is True
+        assert normalize_condition("New - Open Box") == "new"
+
+    def test_a_bare_open_box_is_still_rejected(self):
+        """No 'new' claim, no pass - even after the decision above."""
+        assert is_new("Open box") is False
+        assert is_new("Open box (not new)") is False
 
 
 class TestNotNewStaysShut:
