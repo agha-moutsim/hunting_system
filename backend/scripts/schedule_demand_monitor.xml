@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <!--
+    Samples the demand monitor every 6 hours, whether or not the app is open.
+
+    WHY A SCHEDULED TASK: a 7-day trend is a measurement of the GAPS between
+    observations, so the monitor must run unattended. An in-process timer only
+    runs while uvicorn is up, and uvicorn is started by hand.
+
+    COST: one eBay Browse call per alert-enabled tracked product per run.
+    ~20 products every 6h is ~80 calls/day against a 5,000/day allowance.
+
+    ENCODING: Task Scheduler's XML reader requires genuine UTF-16, and fails
+    with "unable to switch the encoding" on a UTF-8 file. Convert before use:
+
+      $x = [xml](Get-Content backend\scripts\schedule_demand_monitor.xml -Raw)
+      $x.Save("$env:TEMP\dm_task.xml", 'UTF-16')
+      schtasks /create /tn "eBayHunter Demand Monitor" /xml "$env:TEMP\dm_task.xml" /f
+
+    The PowerShell cmdlets (Register-ScheduledTask / Import-ScheduledTask) are
+    NOT used: this machine has the ScheduledTasks module's manifest but not its
+    native DLL, so every cmdlet in that module is missing. schtasks.exe works.
+
+    XML is used rather than `schtasks /create /tr` because the CLI splits the
+    /tr value at the first space when the quoting does not survive the shell:
+    the repo lives under "C:\Users\Agha Moutsim\", and a CLI registration that
+    looks successful can end up running a file called "C:\Users\Agha" and fail
+    every run with 0x80070002. XML carries the path as an element, so it cannot
+    be split. (Verified here by hitting exactly that failure first.)
+
+    The task runs as the logged-on user with NO stored password. It therefore
+    does not run while you are logged out. Change <LogonType> to PasswordOnly
+    and Task Scheduler will ask for your Windows password, which it stores
+    encrypted - do not commit that variant.
+  -->
+  <RegistrationInfo>
+    <Description>Samples one real eBay sold-count per tracked product, so the 7-day Hot Items trend is built from real observations instead of staying unverified.</Description>
+    <URI>\ebay-hunter\demand-monitor</URI>
+  </RegistrationInfo>
+  <Triggers>
+    <CalendarTrigger>
+      <StartBoundary>2026-10-03T06:00:00</StartBoundary>
+      <Enabled>true</Enabled>
+      <ScheduleByDay>
+        <DaysInterval>1</DaysInterval>
+      </ScheduleByDay>
+      <!-- every 6 hours, repeating daily -->
+      <Repetition>
+        <Interval>PT6H</Interval>
+        <Duration>P1D</Duration>
+        <StopAtDurationEnd>false</StopAtDurationEnd>
+      </Repetition>
+    </CalendarTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>S-1-5-21-4027038600-626433640-3063675340-1002</UserId>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <!-- never stack two runs if one is still going -->
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <!-- if the machine was asleep or logged off at the scheduled time, run as
+         soon as it can: the gaps between samples are the measurement, so a
+         skipped run is a hole in the data -->
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <!-- a stuck run must not block the next one forever -->
+    <ExecutionTimeLimit>PT30M</ExecutionTimeLimit>
+    <Priority>7</Priority>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>C:\Users\Agha Moutsim\Desktop\ebay-hunter\backend\scripts\run_demand_monitor.cmd</Command>
+      <WorkingDirectory>C:\Users\Agha Moutsim\Desktop\ebay-hunter\backend</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>
