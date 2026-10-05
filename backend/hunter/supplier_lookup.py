@@ -203,6 +203,9 @@ async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
                     "supplier_type": supplier_type(name="AliExpress", url=hit.url),
                     "provenance": Provenance.VERIFIED.value,
                     "provenance_label": Provenance.VERIFIED.label,
+                    # C13 — this scraper has no API path, so the row is a
+                    # browser read; say so rather than passing as generic.
+                    "fetch_method": getattr(hit, "fetch_method", "") or "",
                     "source_url": hit.url,
                 }
         except (asyncio.TimeoutError, Exception):
@@ -241,6 +244,10 @@ async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
                     "supplier_type": supplier_type(name="Amazon UK", url=hit.url),
                     "provenance": Provenance.VERIFIED.value,
                     "provenance_label": Provenance.VERIFIED.label,
+                    # C13 — "api" when the signed Associates call returned it,
+                    # "browser" when the page read did; both are verified, but
+                    # the reader can tell which produced this row.
+                    "fetch_method": getattr(hit, "fetch_method", "") or "",
                     "source_url": hit.url,
                 }
         except (asyncio.TimeoutError, Exception):

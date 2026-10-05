@@ -3,6 +3,10 @@ AliExpress supplier scraper — Playwright scraping.
 RapidAPI search is disabled (P4): the available key has no search
 endpoint, so nothing here hits that host anymore.
 Prices converted USD -> GBP at 0.79.
+
+C13 — every row this scraper returns is tagged fetch_method="browser",
+because there is no API path left to produce one. It is still `verified`
+(a successfully parsed page), but a reader can tell how it was obtained.
 """
 
 import re
@@ -224,6 +228,9 @@ class AliExpressScraper(BaseScraper):
             store_name=store_name,
             condition="New",
             verified=True,
+            # C13 — no API path exists for this supplier; the page is the
+            # only source, so say so rather than leaving it unstated.
+            fetch_method="browser",
             in_stock=stock_state,
             stock_raw=stock_raw,
             availability_url=url if stock_raw else "",
@@ -317,6 +324,8 @@ class AliExpressScraper(BaseScraper):
             seller=seller,
             condition="New",
             verified=True,
+            # C13 — detail pages too: see the search-card construction.
+            fetch_method="browser",
             raw_html=html,
             in_stock=stock_state,
             stock_raw=stock_raw,

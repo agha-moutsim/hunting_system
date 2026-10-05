@@ -134,6 +134,22 @@ export default function SupplierCard({
               basis={supplier.match_basis}
               method={supplier.match_method}
             />
+            {/*
+              C13 — provenance says the row was read; `fetch_method` says HOW.
+              AliExpress and Amazon UK can only produce a row from a browser
+              page read when their credentialed API is unconfigured, and a
+              green "Verified" alone reads as though an API returned it.
+              Absent/unrecognized `fetch_method` renders nothing: no chip is
+              a claim of nothing, never a claim that it was an API.
+            */}
+            {supplier.fetch_method === "browser" && (
+              <Badge
+                tone="warn"
+                title="Read from the live product page in a browser rather than a credentialed API — this supplier's API is not configured for search. The page really was read; the method is less reliable than an API."
+              >
+                Browser page read
+              </Badge>
+            )}
           </div>
           <div className="text-sm text-white font-medium truncate">
             {supplier.title}

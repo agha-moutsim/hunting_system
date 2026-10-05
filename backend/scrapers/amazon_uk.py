@@ -151,6 +151,10 @@ class AmazonUKScraper(BaseScraper):
                     delivery_days_min=1 if is_prime else 3,
                     delivery_days_max=2 if is_prime else 7,
                     verified=True,
+                    # C13 — this path is the signed Associates API, which is
+                    # what "verified" usually implies; the page reads below
+                    # are tagged separately so the two never look alike.
+                    fetch_method="api",
                 ))
 
             return products
@@ -243,6 +247,9 @@ class AmazonUKScraper(BaseScraper):
             seller=seller,
             condition=condition,
             verified=True,
+            # C13 — PA API credentials are absent here, so this row could
+            # only come from the browser read above.
+            fetch_method="browser",
             in_stock=stock_state,
             stock_raw=stock_raw,
             availability_url=url if stock_raw else "",
@@ -361,6 +368,7 @@ class AmazonUKScraper(BaseScraper):
             seller=seller,
             condition=condition,
             verified=True,
+            fetch_method="browser",
             raw_html=html,
             in_stock=stock_state,
             stock_raw=stock_raw,

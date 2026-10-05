@@ -1016,6 +1016,10 @@ def deep_search_fast(query: str) -> DeepSearchResult:
             # verified, and it carries its own link as the receipt.
             "provenance": Provenance.VERIFIED.value,
             "provenance_label": Provenance.VERIFIED.label,
+            # C13 — verified AND how: an AliExpress/Amazon row can only be a
+            # browser read when the credentialed API is unconfigured, and the
+            # UI must not present that as indistinguishable from an API row.
+            "fetch_method": getattr(product, "fetch_method", "") or "",
             "source_url": product.url,
             "source_name": source_name,
             # P4 — availability exactly as the scraper read it. Blank/0 means

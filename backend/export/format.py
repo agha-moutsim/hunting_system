@@ -261,6 +261,9 @@ def format_to_schema(result: Any) -> dict:
             # C13 — provenance and its receipt travel with every row.
             "provenance": sup_prov_enum.value,
             "provenance_label": sup_prov_enum.label,
+            # C13 — and HOW it was obtained: "" when the row never said so,
+            # which is unknown rather than a claim that it was an API.
+            "fetch_method": supplier.get("fetch_method") or "",
             "source_url": supplier.get("source_url") or supplier.get("url", ""),
             "source_name": supplier.get("source_name", ""),
             "match_basis": supplier.get("match_basis", ""),

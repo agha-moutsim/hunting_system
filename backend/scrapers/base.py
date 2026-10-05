@@ -138,6 +138,17 @@ class ScrapedProduct:
     # engine.match.image_hash_for; never a made-up value, and absent means
     # the image could not be obtained so the score falls back to text only.
     image_hash: Optional[int] = None
+    # C13 — HOW this row was obtained, which matters for the suppliers whose
+    # credentialed API path fails closed: for them only a Playwright page
+    # read can produce a row at all, and a reader should be able to tell that
+    # apart from a row an API handed us.
+    #   "api"     a credentialed/signed API response
+    #   "browser" read off a live page in a Playwright browser
+    #   ""        not stated — absence is unknown, never assumed (C1).
+    # The row is still `verified` either way: C13 defines verified as "a real
+    # API response OR a successfully parsed page", and this says which of the
+    # two it was. Appended last so existing positional constructions hold.
+    fetch_method: str = ""
 
 
 @dataclass

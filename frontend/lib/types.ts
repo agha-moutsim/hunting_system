@@ -152,6 +152,12 @@ export interface ScrapedProduct extends MatchAvailabilityFields {
   verified?: boolean;
   provenance?: string;
   provenance_label?: string;
+  /**
+   * How the row was obtained (C13): "api" = a credentialed API response,
+   * "browser" = read off a live page by Playwright, ""/absent = not stated.
+   * Absent is unknown, never a claim that it came from an API.
+   */
+  fetch_method?: string;
   /** True when this price sits outside the active price range. */
   outside_band?: boolean;
 }
