@@ -532,6 +532,17 @@ async def run_analysis_pipeline(
     return results
 
 
+# C14 matcher's verdict -> the `confidence` vocabulary the supplier_matches
+# column already speaks (high / medium / low). Explicit, because an
+# unrecognised tier must stay unknown rather than be rounded into "low" and
+# read as a measured result (C1).
+_MATCH_TIER_TO_CONFIDENCE = {
+    "verified": "high",
+    "unverified": "low",
+    "no_match": "low",
+}
+
+
 def save_analysis_to_db(results: dict):
     """Persist analysis results to the database."""
     db: Session = SessionLocal()
@@ -558,15 +569,23 @@ def save_analysis_to_db(results: dict):
                 "supplier_price": s.price,
                 "delivery_days_min": s.delivery_days_min,
                 "delivery_days_max": s.delivery_days_max,
-                # C13 — these three used to be hard-coded constants
-                # ("dropship", "medium", 0.5) written as if they were
-                # measurements. Type is now derived from the real source
-                # URL; confidence and score are left NULL because no
-                # matcher has run at this point (P4 supplies one) and an
-                # unknown value must not be shown as a known one (C1).
+                # C13 — supplier_type is derived from the real source URL.
                 "supplier_type": supplier_type(name=s.source, url=s.url),
-                "confidence": None,
-                "match_score": None,
+                # The C14 matcher HAS run by now: _score_supplier wrote
+                # match_score and match_tier onto this row, and that score is
+                # what decided whether the row survived at all. Persisting
+                # None here - as this did until 2026-10-03 - meant the verdict
+                # on screen could never be audited from the database.
+                "confidence": _MATCH_TIER_TO_CONFIDENCE.get(
+                    getattr(s, "match_tier", "") or ""
+                ),
+                # A row the matcher never scored stays NULL. 0.0 is a real
+                # score in a 0..1 column and must not be used to mean
+                # "unscored" (C1).
+                "match_score": (
+                    s.match_score
+                    if (getattr(s, "match_tier", "") or "") else None
+                ),
                 # We read this row off a live scraper response — that IS
                 # the verification, so set it explicitly rather than
                 # inheriting the column default.
