@@ -87,7 +87,12 @@ FILTERS = {
     "margin_min": 25.0,         # Minimum profit margin percentage (on sale price)
 
     # Product filters
-    "brand_filter": "vero",     # VeRO-based brand check (CONSTRAINTS.md C5)
+    # NOTE: "brand_filter": "vero" was removed on 2026-10-03 by product
+    # decision. It had zero readers - the VeRO brand gate (CONSTRAINTS.md C5)
+    # is NOT implemented, and a key that claims a check nobody performs is
+    # worse than no key at all. See utils/vero.py and engine/decisions.py:
+    # an extracted brand is still reported as an unverified row rather than
+    # being quietly passed.
     "condition": "New",
     "buy_it_now": True,
     "uk_only": True,
