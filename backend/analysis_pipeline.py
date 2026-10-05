@@ -12,7 +12,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from config import MAX_SUPPLIERS
+from config import MAX_SUPPLIERS, OLLAMA_TIMEOUT_S
 from db.database import SessionLocal
 from db.queries import (
     save_product,
@@ -468,7 +468,7 @@ async def run_analysis_pipeline(
         try:
             llm_result = await asyncio.wait_for(
                 analyzer.analyze(product_dict, demand_dict, supplier_dicts),
-                timeout=45.0,
+                timeout=OLLAMA_TIMEOUT_S,
             )
         except asyncio.TimeoutError:
             logger.warning("LLM analysis timed out (45s) — using unverified defaults")

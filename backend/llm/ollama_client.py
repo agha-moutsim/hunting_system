@@ -9,7 +9,12 @@ from typing import Any
 
 import httpx
 
-from config import OLLAMA_BASE_URL, OLLAMA_MODEL, OLLAMA_TEMPERATURE
+from config import (
+    OLLAMA_BASE_URL,
+    OLLAMA_MODEL,
+    OLLAMA_TEMPERATURE,
+    OLLAMA_TIMEOUT_S,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +27,7 @@ class OllamaClient:
         base_url: str = OLLAMA_BASE_URL,
         model: str = OLLAMA_MODEL,
         temperature: float = OLLAMA_TEMPERATURE,
-        timeout: float = 45.0,
+        timeout: float = OLLAMA_TIMEOUT_S,
     ):
         self.base_url = base_url.rstrip("/")
         self.model = model

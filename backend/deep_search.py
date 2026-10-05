@@ -28,6 +28,12 @@ from engine.provenance import Provenance
 from engine.source_type import supplier_type as classify_source
 from scrapers.availability import parse_stock_text, parse_shipping_text
 
+# The Ollama URL and model are still read locally here (pre-existing), but the
+# timeout is NOT: it lives in config.OLLAMA_TIMEOUT_S so all four call sites
+# share one value, instead of the four separate `45.0` literals that had
+# drifted apart. See the note on that constant before changing it.
+from config import OLLAMA_TIMEOUT_S
+
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
 
@@ -189,7 +195,9 @@ class DeepSearchResult:
 # Ollama LLM
 # ---------------------------------------------------------------------------
 
-def _ollama_generate(prompt: str, system: str = "", timeout: float = 45.0) -> str:
+def _ollama_generate(
+    prompt: str, system: str = "", timeout: float = OLLAMA_TIMEOUT_S
+) -> str:
     """Send a prompt to the local Ollama API and return the generated text."""
     url = f"{OLLAMA_BASE_URL}/api/generate"
     payload = {
@@ -702,7 +710,9 @@ def deep_search_product(query: str) -> DeepSearchResult:
     )
 
     try:
-        raw_llm = _ollama_generate(user_prompt, system=_SYSTEM_PROMPT, timeout=45.0)
+        raw_llm = _ollama_generate(
+            user_prompt, system=_SYSTEM_PROMPT, timeout=OLLAMA_TIMEOUT_S
+        )
         result.raw_analysis = raw_llm
         parsed = _parse_llm_json(raw_llm)
     except RuntimeError as e:

@@ -37,6 +37,20 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
 OLLAMA_TEMPERATURE = 0.1
 
+# Raised from 45s on 2026-10-03 by product decision: at 45s the local model
+# was still finishing long analyses, and the timeout threw away the brand and
+# condition extraction that supplier matching depends on. Deep Search is
+# interactive, so waiting on the rare slow call beats losing the analysis.
+#
+# ONE constant for a reason: this value used to be written as a literal `45.0`
+# in four separate places (ollama_client, analysis_pipeline, deep_search's
+# wrapper and deep_search's call site), which is how the four drifted apart in
+# the first place. Override with OLLAMA_TIMEOUT_S in .env - no code edit.
+#
+# Note this is NOT the scraper timeout (SCRAPER_TIMEOUT_S below) and must not
+# be changed with it.
+OLLAMA_TIMEOUT_S = float(os.getenv("OLLAMA_TIMEOUT_S", "120"))
+
 # ============================================================
 # eBay UK
 # ============================================================
