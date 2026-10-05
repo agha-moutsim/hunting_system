@@ -32,6 +32,7 @@ from db.queries import (
 )
 from engine.decisions import DecisionEngine
 from engine.profit import calculate_profit
+from engine.stores import resolve_stores, store_provenance_block
 from llm.analyzer import ProductAnalyzer
 from scrapers.aliexpress import AliExpressScraper
 from scrapers.amazon_uk import AmazonUKScraper
@@ -159,6 +160,12 @@ class PipelineResult:
         self.product: dict[str, Any] = {}
         self.demand: dict[str, Any] = {}
         self.suppliers: dict[str, list[dict]] = {}
+        # C11 — competitor stores, present on every surface now. `[]` means
+        # "none found"; read ebay_stores_provenance for whether that is
+        # VERIFIED (four real stores) or UNVERIFIED (nothing, or a widened
+        # search that came up short).
+        self.ebay_stores: list[dict[str, Any]] = []
+        self.ebay_stores_provenance: dict[str, Any] = {}
         self.analysis: dict[str, Any] = {}
         self.verdict: dict[str, Any] = {}
         self.profit: dict[str, Any] = {}
@@ -171,6 +178,8 @@ class PipelineResult:
             "product": self.product,
             "demand": self.demand,
             "suppliers": self.suppliers,
+            "ebay_stores": self.ebay_stores,
+            "ebay_stores_provenance": self.ebay_stores_provenance,
             "analysis": self.analysis,
             "verdict": self.verdict,
             "profit": self.profit,
@@ -207,6 +216,11 @@ class Pipeline:
         product.image_hash = image_hash_for(getattr(product, "image_url", None))
         result.product = asdict(product)
         result.demand = asdict(demand) if demand else {}
+
+        # C11 — competitor stores, before the verdict so the count is available
+        # to the engine in step 4. Costs nothing extra when the sold response
+        # already carried the sellers.
+        self._attach_stores(demand, query, result)
 
         # ── Step 2: Search all suppliers in parallel ───────────────
         supplier_products = await self._search_suppliers(
@@ -263,6 +277,11 @@ class Pipeline:
         product.image_hash = image_hash_for(getattr(product, "image_url", None))
         result.product = asdict(product)
         result.demand = asdict(demand)
+
+        # C11 — same store discovery as the run() path. A manual run has no
+        # sold response to reuse, so this spends a request; it still degrades
+        # to [] + UNVERIFIED rather than failing the run.
+        self._attach_stores(demand, query, result)
 
         # Search suppliers
         supplier_products = await self._search_suppliers(
@@ -467,6 +486,24 @@ class Pipeline:
     # Steps 4 + 5 — Decision + profit
     # ================================================================
 
+    def _attach_stores(self, demand, query: str, result: PipelineResult) -> None:
+        """C11 — competitor stores, same shape as every other surface.
+
+        `resolve_stores` prefers data this run ALREADY holds (the sold query
+        populates demand.top_sellers), so the common case costs no extra
+        request. A network failure degrades to [] + UNVERIFIED and is NOT
+        recorded as a run error: stores are additive, and losing them must not
+        cost the product its verdict.
+        """
+        ladder: dict[str, Any] = {}
+        try:
+            stores = resolve_stores(demand=demand, query=query, provenance=ladder)
+        except Exception as e:  # noqa: BLE001 — additive, never load-bearing
+            logger.warning("Store discovery failed (non-fatal): %s", e)
+            stores = []
+        result.ebay_stores = stores
+        result.ebay_stores_provenance = store_provenance_block(stores, ladder)
+
     def _evaluate_and_profit(
         self,
         product,
@@ -489,10 +526,18 @@ class Pipeline:
 
         # Run decision engine
         try:
+            _store_prov = getattr(result, "ebay_stores_provenance", None) or {}
             verdict = self._decision.evaluate(
                 product=product,
                 demand=demand,
                 supplier_price=best_price,
+                # C11 — the real store count, as an ADVISORY row. Reported,
+                # never gated: there is no competitor threshold in config, and
+                # a short or widened store search is a floor, not a total.
+                competitor_store_count=_store_prov.get("store_count"),
+                competitor_stores_verified=(
+                    _store_prov.get("provenance") == "verified"
+                ),
             )
             result.verdict = {
                 "verdict": verdict.verdict,
@@ -505,6 +550,9 @@ class Pipeline:
                         "actual": f.actual,
                         "expected": f.expected,
                         "verified": f.verified,
+                        # Without this a JSON consumer cannot tell an
+                        # information row from a rule that decided the verdict.
+                        "advisory": f.advisory,
                     }
                     for f in verdict.filters
                 ],
