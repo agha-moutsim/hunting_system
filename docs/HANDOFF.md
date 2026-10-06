@@ -1,8 +1,13 @@
-# HANDOFF — ebay-hunter (generated 2026-10-01)
+# HANDOFF — ebay-hunter (generated 2026-10-01, refreshed 2026-10-06)
 
 **Read this first, then run the verification block in §1 before changing anything.**
 
 This file exists so a fresh session can resume without re-deriving anything.
+The 2026-10-06 refresh updated the baseline to `911`, closed §4.5's decision
+queue (all six answers now in the code), rewrote "Still not done" against what
+actually remains, and recorded the provenance-persistence work. Everything
+below §4.5 that predates that refresh describes commits that have since
+landed — trust the commit chain, not any "nothing committed" claim.
 A previous handoff lives at `%TEMP%\opencode\handoff-ebay-hunter-2026-09-29.md`
 (commit `cf6e094` message holds the original assumptions/deferred findings —
 do not duplicate them here).
@@ -29,7 +34,7 @@ is explicitly labelled as not verified.** A fabricated price costs real money.
 ## 1. Verification (run this before and after every change)
 
 ```powershell
-# Backend tests — baseline is 827 (7 skipped are the opt-in live tests)
+# Backend tests — baseline is 911 (7 skipped are the opt-in live tests)
 $env:PYTHONIOENCODING='utf-8'
 python -m pytest tests/ -q --ignore=tests/test_phase3.py
 
@@ -66,11 +71,13 @@ positional arg, so `next lint` errors with
 `Invalid project directory provided ... frontend\lint`. Pre-existing, not a
 regression. **`tsc --noEmit` is the frontend gate.**
 
-### Current state (verified 2026-10-03)
+### Current state (verified 2026-10-06)
 
-- `827 passed, 7 skipped, 37 warnings` ✅
+- `911 passed, 7 skipped, 63 warnings` ✅
 - `npm run typecheck` → **exit 0** ✅
 - Live smoke tests against the real APIs → `7 passed` ✅
+- HEAD `9a8a3bb` on `main`, pushed. Backend booting on `:8000`,
+  migration in `db.database` ran clean against the existing database.
 - Pushed through `6fb2aa6`. See §4.5 for what landed since `78a8852`.
 
 ### Running the app
@@ -287,7 +294,12 @@ importable with no network stack (so `compute_match` stays pure). Only
 Commits, in order: `3f83493` handoff → `55df554` Category Hunter fixes →
 `82b414f` competitor-store fix → `f0a19e5` windowed Hot Items + competitor
 count → `7b61037` Hot Items UI → `8290709` demand monitor → `6f71012` profit
-and competition honesty → `6fb2aa6` Phase 4 validation.
+and competition honesty → `6fb2aa6` Phase 4 validation → `a92b852` monitor
+wired to the API scraper → `2353cb8` `New - Open Box` accepted → `a972bc2`
+dead `brand_filter` removed → `ea46093` match score persisted → `382ff0a`
+CLI stores → `9fd2d8c` legacy 0.5 scores cleared → `4793c1f` Ollama timeout →
+`807edbb` monitor scheduled → `8a84540` browser rows labelled → `b67be89`
+Analyze supplier badge → `9a8a3bb` provenance persisted for History.
 
 ### The demand monitor (why 7d Hot Items was always empty)
 
@@ -325,33 +337,95 @@ the next run's slope would have read as a collapse in demand. Four such rows
 were deleted from the live table. Nothing looked wrong until the numbers were
 read directly.
 
-### Open decisions for the product owner
+### Provenance now survives storage (`9a8a3bb`)
 
-1. **`New - Open Box`.** eBay's real label for a new item in an opened box.
-   `openbox` is in `_NOT_NEW_TOKENS`, so it is rejected. Changing that changes
-   what C10 admits — the user's rule, not a parsing bug. Pinned by
-   `tests/test_condition_gate_real_labels.py::test_new_open_box_is_still_rejected_and_that_is_a_decision_not_a_bug`,
-   which names the one-line change if the answer is "still new".
-2. **A `max competitors` threshold.** There is none in `config`, so the store
-   count is an **advisory** row that never gates a verdict. If a real
-   threshold is wanted, it belongs in `config.FILTERS` — inventing one here
-   would fail products on a rule nobody set.
-3. **Monitor cadence.** Defaults to every 6h in the docstring only; nothing
-   schedules it yet. `POST /api/demand-monitor/run` must be called by
-   something (Task Scheduler, cron, a manual trigger).
+The live screen labelled every supplier row (C13: _the label is data_), but
+`supplier_matches` had no provenance columns — so History replayed a saved
+analysis with no label at all. A row marked on the way in lost its mark on
+the way out.
 
-### Still not done
+- **Columns:** `provenance`, `provenance_label`, `fetch_method` on
+  `SupplierMatch`; `fetch_method` is `"api"` / `"browser"` / `NULL`, and NULL
+  means the row never stated it — not that it came from an API.
+- **Migration:** `db.database.ensure_supplier_match_columns()`, called at
+  import so it runs before anything can SELECT the column, inspect-first so
+  it is a no-op after the first run. The existing table kept all 110 of its
+  rows.
+- **Write path:** `save_analysis_to_db` puts the three fields into the dict
+  `save_supplier_match_data` passes to `SupplierMatch(**data)`; empty strings
+  become `NULL` so an unmarked row cannot be read as a claim.
+- **Read path:** `api/history.py` emits them; `frontend/app/history/page.tsx`
+  maps them, collapsing `null` → `undefined` so `SupplierCard` renders no
+  badge rather than a false `verified`.
+- **Verified live**, not just in tests: a real `cordless drill` analysis
+  stored `verified / Verified / browser` for two AliExpress rows and
+  `/api/history/26` returned exactly those values. Rows saved before the
+  column existed return `provenance: null` and render no badge — absence is
+  never upgraded to a claim.
 
-- `pipeline.py` (CLI) has no C11 store discovery of its own, so it passes no
-  competitor count and shows no Competition row — honest, but the CLI is the
-  one surface without stores.
-- `analysis_pipeline.py` still writes `match_score: None` into
-  `supplier_matches`, so the DB audit trail lacks the computed score. The
-  matcher computes it; persistence does not.
-- The historical `supplier_matches` table holds 89 rows with the legacy
-  constant `0.5`. Do not read it as current matcher evidence.
-- `FILTERS["brand_filter"] = "vero"` is dead config; C5 VeRO filtering is not
-  implemented.
+`tests/test_history_provenance_persistence.py` (10 tests) covers the
+migration, the dict built at the call site, and the full round trip.
+
+### Decisions settled (no open product questions remain)
+
+All three questions this section used to pose are answered, and the answers
+are in the code. Do not re-litigate them:
+
+1. **`New - Open Box` — ACCEPTED as new** (`2353cb8`). eBay's real label for a
+   new item in an opened box. The decision is pinned by
+   `tests/test_condition_gate_real_labels.py::test_new_open_box_is_still_rejected_and_that_is_a_decision_not_a_bug`
+   — the test name is the record; changing C10 means renaming it.
+2. **`max competitors` threshold — STAYS ADVISORY, deliberately.** There is
+   none in `config`, so the store count never gates a verdict. The user chose
+   this: adding a threshold would fail products on a rule nobody set. No code
+   was written, by design.
+3. **Monitor cadence — 6h, scheduled** (`807edbb`). Windows Task Scheduler
+   runs `backend/scripts/run_demand_monitor.cmd` every 6h. Registered by
+   importing `schedule_demand_monitor.xml`, which must be written as UTF-16 —
+   `schtasks /xml` rejects the UTF-8 source and PowerShell 5.1 has no
+   `XmlDocument.Save(path, encoding)` overload, so convert with an
+   `XmlWriterSettings` + `UnicodeEncoding($false,$true)`.
+   The full exe path sits in one `<Command>` element because `schtasks /tr`
+   splits at the first space in `C:\Users\Agha Moutsim\...` and silently
+   produces `0x80070002`. The OS task is asserted by
+   `tests/test_demand_monitor_schedule.py`, which also requires its last run
+   to have returned 0.
+4. **Browser-read suppliers — KEPT, provenance labelled** (`8a84540`).
+   Playwright fallbacks stay; rows they produce are stamped `fetch_method`
+   `"browser"` and the card shows an amber **Browser page read** chip.
+   AliExpress rows are always `browser` (its API is disabled); Amazon is
+   `api` only on the PA-API path.
+5. **Analyze supplier rows carry the badge** (`b67be89`), via
+   `stamp_scraped_product` applied once in `analysis_pipeline.py` on the same
+   objects the API response and the DB save both read.
+6. **History replays provenance** (`9a8a3bb`) — see below.
+
+### Still not done / known limits
+
+Everything this section previously listed has landed — CLI stores
+(`382ff0a`), persisted `match_score` (`ea46093`), the legacy `0.5` rows
+cleared (`9fd2d8c`), dead `brand_filter` removed (`a972bc2`). What remains:
+
+- **No migration framework.** `Base.metadata.create_all` only creates missing
+  TABLES, so a column added to an existing model never reaches an existing
+  database. The one gap found this way is closed by
+  `db.database.ensure_supplier_match_columns()`, inspect-then-ALTER, run at
+  import. **The next column added needs the same treatment** — this is a
+  pattern now, not a one-off, and forgetting it reproduces the exact bug it
+  was written for.
+- **Two supplier sources return nothing on this machine**: the AliExpress
+  RapidAPI key has no search endpoint, and Amazon PA API credentials are
+  missing. Both fail closed with a logged reason, not a fake row.
+- **SerpApi times out intermittently** (`Read timed out` at 20s), which takes
+  SerpApi, B&Q and Toolstation down together; GoDropship returns
+  `ERR_EMPTY_RESPONSE`. On a bad run the supplier step can come back with few
+  or zero rows and the pipeline reports that honestly rather than padding.
+- **The C14 matcher rejects most generic-supplier rows**, by design. A live
+  run searching `cordless drill` fetched 22 rows and kept 2 — the rest scored
+  `0.35`/`no_match`. That is C14 working, not a scraper failure.
+- **GitHub PAT embedded in the remote URL — rotation still overdue.**
+- **`npm run lint` is broken** (Next 16, pre-existing); `tsc --noEmit` is the
+  frontend gate.
 
 ---
 
@@ -400,9 +474,9 @@ exceeded`, retry later; nothing was written.
 
 ---
 
-## 7. File map (working tree, nothing committed)
+## 7. File map (all committed — `git log --oneline` is the record)
 
-**New (untracked):**
+**New since the original handoff:**
 
 ```
 backend/api/provenance_block.py      shared provenance-block builder for all responses
@@ -439,7 +513,12 @@ hunter}.py`, `backend/export/{format,csv_export}.py`,
 `test_match.py` (187), `test_match_wiring.py` (67), `test_provenance.py` (87),
 `test_stores.py` (62), `test_store_wiring.py` (42),
 `test_serpapi_discovery.py` (32) and `test_phash_wiring.py` (30) are both
-zero network + pre-existing ~164 → **671 total**.
+zero network + pre-existing ~164 → **671 for those seven alone** (the whole
+suite is **911** — see §1). Added since: `test_demand_monitor.py`,
+`test_demand_monitor_schedule.py` (asserts the OS task, skips if absent),
+`test_fetch_method.py`, `test_analyze_provenance_stamp.py`,
+`test_history_provenance_persistence.py`, `test_match_score_persistence.py`,
+`test_range_storage.py`, `test_clear_legacy_match_scores.py`.
 
 ---
 
@@ -462,15 +541,18 @@ zero network + pre-existing ~164 → **671 total**.
 
 ## 9. Suggested first three moves in the new session
 
-1. **Verify:** run §1. Expect `671 passed`, `tsc` exit 0. If not, stop and
+1. **Verify:** run §1. Expect `911 passed`, `tsc` exit 0. If not, stop and
    diagnose — do not build on a broken baseline.
-2. **Nothing in P4 is outstanding** — condition gate, stores, provenance,
-   matcher, SerpApi discovery and pHash are all wired and tested (§4.2).
-   The only engineering work left is §4.3.
-3. **Ask the user** whether they want `docs/P3-changes.md` and
-   `docs/P4-changes.md` before writing any — docs are created on request only.
-   Then §4.3 P6 close-out (final summary / plan close-out).
+2. **The decision queue is empty.** All six product questions are settled and
+   recorded in §4.5 — do not re-open `New - Open Box`, the competitor
+   threshold, monitor cadence, Playwright labelling, the Analyze badge or
+   History provenance. P4 (condition gate, stores, provenance, matcher,
+   discovery, pHash) was already closed; the commit chain in §4.5 shows
+   everything since.
+3. **The real remaining work is environmental, not architectural:** rotate the
+   GitHub PAT out of the remote URL, and decide whether to fix the supplier
+   coverage gaps (AliExpress key with no search endpoint, Amazon PA API
+   credentials missing, intermittent SerpApi timeouts) — all three fail
+   closed today with a logged reason, so nothing is lying about them.
 
-There is also live smoke-test evidence in §4.2 worth re-running before any
-release: discovery and pHash both behave differently against the real APIs
-than against the fixtures.
+Change docs are created **on request only**; ask before writing any.
