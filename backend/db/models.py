@@ -67,6 +67,15 @@ class SupplierMatch(Base):
     confidence = Column(String(16))      # high, medium, low
     match_score = Column(Float)          # 0.0 to 1.0
     verified = Column(Boolean, default=True)
+    # C13 — provenance travels with the row into storage, or History replays
+    # supplier rows with no label at all while the live screen shows one.
+    # Added 2026-10-06 to a table that already existed, so db.database
+    # ALTERs it on startup — create_all only makes MISSING TABLES.
+    provenance = Column(String(32))
+    provenance_label = Column(String(64))
+    # C13 — "api" / "browser" / NULL. NULL means the row never stated it,
+    # which is unknown rather than a claim that an API produced it.
+    fetch_method = Column(String(16))
     created_at = Column(DateTime, default=datetime.utcnow)
 
     product = relationship("Product", back_populates="supplier_matches")

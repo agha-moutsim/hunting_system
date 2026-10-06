@@ -117,6 +117,14 @@ def product_detail(product_id: int):
                     "supplier_price": s.supplier_price,
                     "delivery_days_min": s.delivery_days_min,
                     "delivery_days_max": s.delivery_days_max,
+                    # C13 — replay what the live screen showed. Rows saved
+                    # before these columns existed return NULL, and a NULL
+                    # provenance renders no badge: absence is not a claim
+                    # that the row was verified.
+                    "provenance": s.provenance,
+                    "provenance_label": s.provenance_label,
+                    "fetch_method": s.fetch_method,
+                    "verified": s.verified,
                 }
                 for s in kept_suppliers
             ],

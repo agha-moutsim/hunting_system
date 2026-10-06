@@ -187,8 +187,14 @@ export default function HistoryPage() {
       url: s.supplier_url || "",
       delivery_days_min: s.delivery_days_min,
       delivery_days_max: s.delivery_days_max,
-      provenance: s.provenance,
-      provenance_label: s.provenance_label,
+      // C13 — replayed rows carry the same markers as live ones. `null` and
+      // absent both mean "the row never stated it", so they collapse to
+      // undefined here: either way SupplierCard renders no badge rather than
+      // a claim that the row was verified.
+      provenance: s.provenance ?? undefined,
+      provenance_label: s.provenance_label ?? undefined,
+      verified: s.verified ?? undefined,
+      fetch_method: s.fetch_method ?? undefined,
     }));
     const filters = parseFilters(d.verdict?.filter_results);
     return {

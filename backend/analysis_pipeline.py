@@ -595,6 +595,15 @@ def save_analysis_to_db(results: dict):
                     s.match_score
                     if (getattr(s, "match_tier", "") or "") else None
                 ),
+                # C13 — provenance and how the row was obtained, persisted so
+                # History replays a supplier row as fully as the live screen
+                # shows it. These are the same objects stamp_scraped_product
+                # stamped in run_analysis_pipeline before results were handed
+                # back, so the mark survives storage. NULL when the row never
+                # said — unknown, never a default.
+                "provenance": getattr(s, "provenance", "") or None,
+                "provenance_label": getattr(s, "provenance_label", "") or None,
+                "fetch_method": getattr(s, "fetch_method", "") or None,
                 # We read this row off a live scraper response — that IS
                 # the verification, so set it explicitly rather than
                 # inheriting the column default.

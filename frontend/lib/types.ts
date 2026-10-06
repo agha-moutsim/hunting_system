@@ -641,8 +641,12 @@ export interface ProductDetail {
     supplier_price?: number;
     delivery_days_min?: number;
     delivery_days_max?: number;
-    provenance?: string;
-    provenance_label?: string;
+    provenance?: string | null;
+    provenance_label?: string | null;
+    /** C13 — replayed alongside provenance; absent on pre-2026-10-06 rows. */
+    verified?: boolean | null;
+    /** C13 — "api" / "browser" / null when the row never stated it. */
+    fetch_method?: string | null;
     source_url?: string;
     source_name?: string;
     match_basis?: string;
