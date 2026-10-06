@@ -149,6 +149,16 @@ class ScrapedProduct:
     # API response OR a successfully parsed page", and this says which of the
     # two it was. Appended last so existing positional constructions hold.
     fetch_method: str = ""
+    # C13 — every factual value carries one of the four labels, and the label
+    # is DATA, not a UI decision. These were absent until 2026-10-06, which
+    # is why Analyze supplier rows rendered no provenance badge at all: the
+    # frontend only draws one when `provenance` is present (or verified is
+    # false), so a row that read a real page still showed nothing.
+    #   "" = not stamped yet. engine.provenance.stamp_scraped_product fills
+    #   it from `verified`; it is never defaulted to "verified" here, because
+    #   a constructor that has not read anything must not claim it did.
+    provenance: str = ""
+    provenance_label: str = ""
 
 
 @dataclass

@@ -28,6 +28,7 @@ from engine.price_gate import (
     filter_products, in_band, over_band_reason,
 )
 from engine.match import TIER_NO_MATCH, compute_match, image_hash_for
+from engine.provenance import stamp_scraped_product
 from engine.scorecard import format_scorecard
 from engine.source_type import supplier_type
 from engine.stores import resolve_stores, store_provenance_block
@@ -436,6 +437,14 @@ async def run_analysis_pipeline(
             key=lambda s: (-s.match_score, s.price or 0.0)
         )
         supplier_results = supplier_results[:MAX_SUPPLIERS]
+        # C13 — the label is data, and these rows reach the UI unlabelled
+        # without it: ScrapedProduct only carried the `verified` bool, so
+        # SupplierCard's `provenance` condition was always false and a row
+        # read off a real API rendered with no badge at all. Stamped here,
+        # once, on the same objects the API response and the DB save both
+        # read downstream.
+        for s in supplier_results:
+            stamp_scraped_product(s)
         results["supplier_matches"] = supplier_results
         _report(f"✓ Supplier search done: {len(supplier_results)} total matches")
 

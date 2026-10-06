@@ -191,3 +191,24 @@ def annotate(payload: dict, provenance: Provenance, source_url: str = "",
 def classify(verified_value: bool, value: Any = None, **kw) -> Fact:
     """Shim for older call sites holding a bare bool `verified` flag."""
     return verified(value, **kw) if verified_value else unverified(value, **kw)
+
+
+def stamp_scraped_product(row: Any) -> Any:
+    """Fill a ScrapedProduct's provenance from its `verified` flag (C13).
+
+    ScrapedProduct carried only `verified: bool` — no label — so every
+    consumer that drew a badge from `provenance` drew nothing at all, and a
+    row read off a real API or a parsed page reached the screen unlabelled.
+    The label is data, so it is derived here rather than in the frontend.
+
+    Never overwrites a stamp the row already carries: an explicit label from
+    the scraper that read it wins over this derivation.
+    """
+    if row is None:
+        return row
+    if getattr(row, "provenance", ""):
+        return row
+    prov = Provenance.VERIFIED if getattr(row, "verified", True) else Provenance.UNVERIFIED
+    row.provenance = prov.value
+    row.provenance_label = prov.label
+    return row

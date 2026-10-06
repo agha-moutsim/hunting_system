@@ -42,11 +42,17 @@ class TestTheFieldItself:
         """The whole point of the field: unknown must read as unknown."""
         assert _row().fetch_method == ""
 
-    def test_it_is_appended_last_so_old_positional_constructions_hold(self):
+    def test_it_is_appended_after_the_original_fields_not_inserted_into_them(
+        self,
+    ):
         """ScrapedProduct is constructed positionally across the codebase;
-        inserting in the middle would silently shift every argument."""
+        inserting a field before the existing ones silently shifts every
+        argument after it. Both fields added later sit at the tail, in the
+        order they were added, and `image_hash` — the last original field —
+        still comes before them."""
         names = [f.name for f in fields(ScrapedProduct)]
-        assert names[-1] == "fetch_method"
+        assert names[-3:] == ["fetch_method", "provenance", "provenance_label"]
+        assert names.index("image_hash") == len(names) - 4
         assert asdict(_row())["fetch_method"] == ""
 
     def test_only_the_two_documented_values_are_meaningful(self):
