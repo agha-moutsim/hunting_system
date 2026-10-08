@@ -13,6 +13,7 @@ import ProvenanceSelect from "@/components/ui/ProvenanceSelect";
 import EbayStoresCard from "@/components/EbayStoresCard";
 import { apiFetch, apiPost, downloadFile } from "@/lib/api";
 import { infoTitle } from "@/lib/provenance";
+import { headerStamps } from "@/lib/fieldProvenance";
 import {
   DeepSearchResult,
   FiltersResponse,
@@ -28,6 +29,10 @@ export default function DeepSearchPage() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<DeepSearchResult | null>(null);
   const [activeRange, setActiveRange] = useState<PriceRange | null>(null);
+
+  // C13 - every header number gets its stamp before it is rendered, so a
+  // value can never reach this screen bare (see lib/fieldProvenance).
+  const stamps = headerStamps(result?.provenance?.fields);
 
   useEffect(() => {
     apiFetch<FiltersResponse>("/api/filters")
@@ -153,10 +158,32 @@ export default function DeepSearchPage() {
                 <h2 className="text-lg font-bold text-text-primary">
                   {result.product_name}
                 </h2>
-                <p className="text-sm text-text-secondary mt-1">
-                  {result.product_category} · {result.ebay_items_sold_month} ·
-                  Sold 30d: {result.ebay_total_sold_30d ?? "⚠️ Unverified"} ·
-                  Sold 7d: {result.ebay_total_sold_7d ?? "⚠️ Unverified"}
+                <p className="text-sm text-text-secondary mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span>{result.product_category}</span>
+                  <span className="inline-flex items-center gap-1">
+                    {result.ebay_items_sold_month}
+                    <ProvenanceBadge
+                      provenance={stamps.ebay_items_sold_month.provenance}
+                      label={stamps.ebay_items_sold_month.label}
+                      title={infoTitle(stamps.ebay_items_sold_month)}
+                    />
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    Sold 30d: {result.ebay_total_sold_30d ?? "-"}
+                    <ProvenanceBadge
+                      provenance={stamps.ebay_total_sold_30d.provenance}
+                      label={stamps.ebay_total_sold_30d.label}
+                      title={infoTitle(stamps.ebay_total_sold_30d)}
+                    />
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    Sold 7d: {result.ebay_total_sold_7d ?? "-"}
+                    <ProvenanceBadge
+                      provenance={stamps.ebay_total_sold_7d.provenance}
+                      label={stamps.ebay_total_sold_7d.label}
+                      title={infoTitle(stamps.ebay_total_sold_7d)}
+                    />
+                  </span>
                 </p>
               </div>
               <div className="flex gap-2">
@@ -177,14 +204,17 @@ export default function DeepSearchPage() {
                 [
                   {
                     label: "eBay avg",
+                    prov: stamps.ebay_avg_price,
                     value: formatGBP(result.ebay_avg_price),
                   },
                   {
                     label: "Range",
+                    prov: stamps.ebay_price_min,
                     value: `${formatGBP(result.ebay_price_min)} – ${formatGBP(result.ebay_price_max)}`,
                   },
                   {
                     label: "Best supplier",
+                    prov: stamps.best_supplier_price,
                     value: formatGBP(result.best_supplier_price),
                   },
                   {

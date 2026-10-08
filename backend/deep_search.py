@@ -680,9 +680,41 @@ def _stamp_provenance(result: "DeepSearchResult") -> None:
         )
         result.set_fact_provenance("ebay_avg_price", Provenance.VERIFIED)
         result.set_fact_provenance("ebay_condition", Provenance.VERIFIED)
+        # B3 - `ebay_items_sold_month` is `{n} items` built from that same
+        # response (deep_search.py:776), not an estimate. It was stamped
+        # only on the no-data branch, so build_provenance_block reported
+        # "no data retrieved" for a number we were holding - the lie that
+        # makes good data look absent.
+        #
+        # Gated on the count itself rather than on this branch: the branch
+        # also opens when only top_sellers is non-empty, and in that case
+        # the LLM may have supplied the string (deep_search.py:882).
+        if result.ebay_total_sold_30d:
+            result.set_fact_provenance(
+                "ebay_items_sold_month", Provenance.VERIFIED,
+                source_name="eBay Browse API (conditions:{NEW})"
+            )
+            # Same response, same origin: min/max and the range string are
+            # sold_data's (deep_search.py:785-791), never the model's,
+            # whenever this branch has a count to show for them.
+            for _name in ("ebay_price_range", "ebay_price_min", "ebay_price_max"):
+                result.set_fact_provenance(
+                    _name, Provenance.VERIFIED,
+                    source_name="eBay Browse API (conditions:{NEW})"
+                )
+        # Null means eBay did not report it, which is not the same as "we
+        # never asked" - so it is stamped explicitly rather than left to
+        # fall back to "no data retrieved".
+        if result.ebay_total_sold_7d is not None:
+            result.set_fact_provenance(
+                "ebay_total_sold_7d", Provenance.VERIFIED,
+                source_name="eBay Browse API (conditions:{NEW})"
+            )
     else:
-        for name in ("ebay_total_sold_30d", "ebay_top_sellers", "ebay_avg_price",
-                     "ebay_price_range", "ebay_items_sold_month"):
+        for name in ("ebay_total_sold_30d", "ebay_total_sold_7d",
+                     "ebay_top_sellers", "ebay_avg_price",
+                     "ebay_price_range", "ebay_price_min", "ebay_price_max",
+                     "ebay_items_sold_month"):
             result.set_fact_provenance(name, Provenance.UNVERIFIED,
                                        reason="no eBay sold data retrieved")
     for sup in result.suppliers:
@@ -690,8 +722,15 @@ def _stamp_provenance(result: "DeepSearchResult") -> None:
     if result.suppliers:
         result.set_fact_provenance("suppliers", Provenance.VERIFIED,
                                    source_name="live product pages (fetched)")
+        # B3 - the best-supplier tile shows a price pulled off one of those
+        # verified rows (deep_search.py:975), so it carries their stamp
+        # rather than reaching the screen with none at all.
+        result.set_fact_provenance("best_supplier_price", Provenance.VERIFIED,
+                                   source_name="live product pages (fetched)")
     else:
         result.set_fact_provenance("suppliers", Provenance.UNVERIFIED,
+                                   reason="no supplier page could be confirmed")
+        result.set_fact_provenance("best_supplier_price", Provenance.UNVERIFIED,
                                    reason="no supplier page could be confirmed")
     for name in ("competition_level", "profit_potential", "delivery_info",
                  "notes", "product_category"):

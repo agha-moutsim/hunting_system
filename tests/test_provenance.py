@@ -272,6 +272,38 @@ class TestProvenanceStampingWithRealData:
                 assert entry.get("method") or entry.get("reason"), name
 
 
+class TestEveryNumberCarriesItsLabel:
+    """B3. C13 says the label travels with the number.
+
+    `ebay_items_sold_month` was stamped only on the NO-DATA branch. On the
+    branch where eBay did answer, the value is `{n} items` read straight
+    off the API (deep_search.py:776) but the field is never stamped, so
+    build_provenance_block falls back to "no data retrieved" for a number
+    we are holding - a lie in the direction that makes good data look
+    absent.
+    """
+
+    def test_monthly_sales_is_stamped_when_ebay_answered(self, full_deep_search):
+        assert full_deep_search.ebay_items_sold_month, "fixture must hold a value"
+        stamp = full_deep_search.field_provenance.get("ebay_items_sold_month")
+        assert stamp is not None, (
+            "unstamped fields report 'no data retrieved' while holding the value"
+        )
+        assert stamp.get("provenance") == Provenance.VERIFIED.value
+
+    def test_monthly_sales_is_stamped_unverified_when_ebay_had_nothing(
+        self, offline_deep_search
+    ):
+        """The LLM may have filled it in; it must never read as verified."""
+        stamp = offline_deep_search.field_provenance.get("ebay_items_sold_month", {})
+        assert stamp.get("provenance") == Provenance.UNVERIFIED.value
+
+    def test_avg_price_is_stamped_when_ebay_answered(self, full_deep_search):
+        stamp = full_deep_search.field_provenance.get("ebay_avg_price")
+        assert stamp is not None
+        assert stamp.get("provenance") == Provenance.VERIFIED.value
+
+
 class TestNoUnknownKwargsReachStampers:
     """Static guard: every kwarg passed to set_fact_provenance() and
     Fact-style helpers must exist on the definition. Catches this whole
