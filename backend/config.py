@@ -51,6 +51,22 @@ OLLAMA_TEMPERATURE = 0.1
 # be changed with it.
 OLLAMA_TIMEOUT_S = float(os.getenv("OLLAMA_TIMEOUT_S", "120"))
 
+# How long Ollama keeps the model in RAM after its last use, in seconds.
+# -1 means forever.
+#
+# Measured on this machine (2026-10-08): llama3.1:8b is 4.9 GB and takes
+# ~21.2s to load, then generates at ~8.6 tok/s. Ollama's default is to
+# unload five minutes after the last request, so any analysis after an
+# idle gap paid 21.2s before it could generate a single token — on a box
+# whose LLM already cannot finish inside the route budget. Keeping it
+# resident moves that cost to once per process instead of once per gap.
+#
+# Override with OLLAMA_KEEP_ALIVE in .env. One constant because the two
+# call sites (llm/ollama_client and deep_search._ollama_generate) do not
+# share a client and would otherwise drift.
+OLLAMA_KEEP_ALIVE = int(os.getenv("OLLAMA_KEEP_ALIVE", "-1"))
+
+
 # ============================================================
 # eBay UK
 # ============================================================

@@ -11,6 +11,7 @@ import httpx
 
 from config import (
     OLLAMA_BASE_URL,
+    OLLAMA_KEEP_ALIVE,
     OLLAMA_MODEL,
     OLLAMA_TEMPERATURE,
     OLLAMA_TIMEOUT_S,
@@ -28,11 +29,13 @@ class OllamaClient:
         model: str = OLLAMA_MODEL,
         temperature: float = OLLAMA_TEMPERATURE,
         timeout: float = OLLAMA_TIMEOUT_S,
+        keep_alive: int = OLLAMA_KEEP_ALIVE,
     ):
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.temperature = temperature
         self._timeout = timeout
+        self.keep_alive = keep_alive
         self._client: httpx.AsyncClient | None = None
 
     async def _ensure_client(self) -> httpx.AsyncClient:
@@ -57,6 +60,9 @@ class OllamaClient:
             "model": self.model,
             "prompt": prompt,
             "stream": False,
+            # -1 = keep the model in RAM. On this box loading it costs
+            # ~21s, which a call that then has ~55s of budget cannot spare.
+            "keep_alive": self.keep_alive,
             "options": {"temperature": self.temperature, "num_predict": 500},
         }
         if system:

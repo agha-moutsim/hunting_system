@@ -12,6 +12,7 @@ Interactive docs:
 import logging
 import os
 import sys
+from contextlib import asynccontextmanager
 
 # Ensure this directory is on sys.path so existing modules
 # (config, scrapers, db, ...) import exactly as before.
@@ -20,6 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from llm.prewarm import schedule_prewarm
 from api import (
     analyze,
     bulk,
@@ -39,10 +41,23 @@ from api import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("ebay-hunter")
 
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """B4 - warm the local model in the background at startup.
+
+    Not awaited: a cold or absent Ollama must not delay or break boot.
+    The first analysis pays the ~21s load if this does not land in time.
+    """
+    schedule_prewarm()
+    yield
+
+
 app = FastAPI(
     title="eBay Hunter API",
     description="Product sourcing intelligence for eBay UK resellers.",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 # CORS — Vercel frontend + local Next.js dev
