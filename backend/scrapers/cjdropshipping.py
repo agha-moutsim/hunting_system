@@ -4,6 +4,7 @@ CJ Dropshipping scraper — API first, falls back to Playwright scraping.
 
 import json
 import os
+import re
 from typing import Optional
 
 from bs4 import BeautifulSoup, Tag
@@ -11,6 +12,47 @@ from bs4 import BeautifulSoup, Tag
 from scrapers.base import BaseScraper, ScrapedProduct
 from config import SCRAPE_CONFIG
 from utils.redact import scrub
+
+
+# CJ returns `sellPrice` as ONE number for a simple SKU and as a variant
+# RANGE where the product has options: "119.61 -- 137.84". A bare float()
+# raised on the second form, the outer handler caught it, and a single bad
+# row reported "CJ API unavailable" — losing every row in the response.
+_PRICE_RANGE = re.compile(
+    r"(\d+(?:\.\d+)?)\s*(?:-{1,2}|–|—|~|\bto\b)\s*(\d+(?:\.\d+)?)"
+)
+_FIRST_NUMBER = re.compile(r"\d+(?:\.\d+)?")
+
+
+def _sell_price_usd(raw) -> float:
+    """CJ's `sellPrice` as a single USD figure.
+
+    A range takes its UPPER bound, mirroring availability's delivery-day
+    rule ("2-3 days" -> 3): for a cost figure the conservative end is the
+    one that cannot make a margin look better than it is, and C1 never
+    quotes the flattering number.
+
+    Anything unparseable returns 0.0 — 'we did not read a price', the same
+    answer google_shopping._parse_price gives. Callers must reject that
+    rather than price a supplier row at zero.
+    """
+    if isinstance(raw, (int, float)):
+        return float(raw)
+    if not isinstance(raw, str):
+        return 0.0
+    text = raw.replace(",", "").strip()
+    if not text:
+        return 0.0
+    match = _PRICE_RANGE.search(text)
+    if match:
+        return float(match.group(2))
+    try:
+        return float(text)
+    except ValueError:
+        # "$119.61", "USD 12.99" — a leading symbol is not a reason to
+        # declare the price unread.
+        digits = _FIRST_NUMBER.search(text)
+        return float(digits.group()) if digits else 0.0
 
 
 class CJDropshippingScraper(BaseScraper):
@@ -136,7 +178,16 @@ class CJDropshippingScraper(BaseScraper):
             products = []
             for item in data.get("data", {}).get("content", []):
                 for p in item.get("productList", []):
-                    price_usd = float(p.get("sellPrice", 0))
+                    price_usd = _sell_price_usd(p.get("sellPrice"))
+                    if price_usd <= 0:
+                        # No readable price means no cost figure (C1). A row
+                        # here would show £0.00 and poison every margin
+                        # computed from it — say so and move on.
+                        print(
+                            "[WARN] CJ: dropped a row with no readable price"
+                            f" ({scrub(p.get('sellPrice'))})"
+                        )
+                        continue
                     price_gbp = round(price_usd * 0.79, 2)  # USD to GBP
 
                     # Extract store details from API response
