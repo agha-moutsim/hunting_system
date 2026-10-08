@@ -70,3 +70,40 @@ export function bucketPrices(prices?: number[] | null): PriceBucket[] {
     };
   });
 }
+
+/**
+ * What the distribution chart should draw for one run's observations.
+ *
+ * Kept out of the component so the decision between plotting and saying
+ * "nothing to plot" can be asserted. Two points is the threshold: with
+ * one there is no shape, only a min and a max the tiles already show, and
+ * drawing a bar over an empty run would assert a market that was never
+ * observed.
+ */
+export type DistributionView =
+  | { kind: "empty"; message: string }
+  | {
+      kind: "chart";
+      observed: number[];
+      min: number;
+      max: number;
+      span: number;
+    };
+
+export function distributionView(prices?: number[] | null): DistributionView {
+  const observed = cleanPrices(prices);
+
+  if (observed.length < 2) {
+    return {
+      kind: "empty",
+      message:
+        observed.length === 0
+          ? "No per-sale prices were held for this run."
+          : "One sale observed — not enough to plot a distribution.",
+    };
+  }
+
+  const min = Math.min(...observed);
+  const max = Math.max(...observed);
+  return { kind: "chart", observed, min, max, span: max - min };
+}

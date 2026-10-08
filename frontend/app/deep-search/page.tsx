@@ -11,6 +11,7 @@ import RangeControl from "@/components/ui/RangeControl";
 import ProvenanceBadge from "@/components/ui/ProvenanceBadge";
 import ProvenanceSelect from "@/components/ui/ProvenanceSelect";
 import EbayStoresCard from "@/components/EbayStoresCard";
+import { SoldPriceDistribution } from "@/components/charts";
 import { ApiError, apiFetch, apiPost, downloadFile } from "@/lib/api";
 import { infoTitle } from "@/lib/provenance";
 import { headerStamps } from "@/lib/fieldProvenance";
@@ -313,6 +314,26 @@ export default function DeepSearchPage() {
                   </div>
                 </div>
               ))}
+            </div>
+
+            {/* Goal 4 — the observations behind the "eBay avg" and "Range"
+              tiles, plotted from the SAME list that produced them, so the
+              shape of the market is shown rather than asserted by three
+              numbers. Holds no per-sale prices and it says so instead of
+              drawing a bar over a gap. */}
+            <div className="mt-3 bg-bg-surface border border-border rounded-control p-4">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.05em] text-text-dim mb-2">
+                Sold price distribution
+              </div>
+              <SoldPriceDistribution
+                prices={result.sold_prices}
+                average={result.ebay_avg_price}
+                stamps={{
+                  count: stamps.sold_prices,
+                  avg: stamps.ebay_avg_price,
+                  range: stamps.ebay_price_min,
+                }}
+              />
             </div>
           </Card>
 

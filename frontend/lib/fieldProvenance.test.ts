@@ -57,6 +57,7 @@ describe("headerStamps", () => {
     ebay_price_min: { provenance: "verified", label: "Verified" },
     ebay_price_max: { provenance: "verified", label: "Verified" },
     best_supplier_price: { provenance: "verified", label: "Verified" },
+    sold_prices: { provenance: "verified", label: "Verified" },
   };
 
   it("returns a stamp for every number in the header", () => {
@@ -86,18 +87,25 @@ describe("headerStamps", () => {
 
   it("covers every number the deep-search header actually renders", () => {
     // The meta line shows monthly sales, sold 30d and sold 7d; the tile
-    // row shows eBay avg, Range (min-max) and Best supplier. A new header
-    // number added without a stamp here is a number shown bare.
-    expect(HEADER_FIELDS).toEqual(
-      expect.arrayContaining([
-        "ebay_items_sold_month",
-        "ebay_total_sold_30d",
-        "ebay_total_sold_7d",
-        "ebay_avg_price",
-        "ebay_price_min",
-        "ebay_price_max",
-        "best_supplier_price",
-      ])
-    );
+    // row shows eBay avg, Range (min-max) and Best supplier; the chart
+    // caption adds the observation count (sold_prices) and restates avg
+    // and the range. A new header number added without a stamp here is a
+    // number shown bare.
+    //
+    // Compared in both directions: arrayContaining would let a number
+    // reach the page with no entry at all, which is the whole failure
+    // this list exists to prevent.
+    const rendered = [
+      "ebay_items_sold_month",
+      "ebay_total_sold_30d",
+      "ebay_total_sold_7d",
+      "ebay_avg_price",
+      "ebay_price_min",
+      "ebay_price_max",
+      "best_supplier_price",
+      "sold_prices",
+    ];
+
+    expect([...HEADER_FIELDS].sort()).toEqual([...rendered].sort());
   });
 });

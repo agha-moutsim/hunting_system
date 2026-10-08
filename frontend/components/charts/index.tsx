@@ -16,7 +16,10 @@ import {
   Legend,
 } from "recharts";
 import { formatGBP } from "@/lib/format";
-import { bucketPrices, cleanPrices } from "@/lib/buckets";
+import { bucketPrices, distributionView } from "@/lib/buckets";
+import { infoTitle } from "@/lib/provenance";
+import type { ProvenanceInfo } from "@/lib/types";
+import ProvenanceBadge from "@/components/ui/ProvenanceBadge";
 
 const COLORS = [
   "#0D1CC4",
@@ -129,34 +132,60 @@ export function RevenueProfitChart({
  * Fewer than two observations means there is nothing to distribute: the
  * component says so instead of drawing a single bar that reads as a market.
  */
+/**
+ * The distribution of real sold prices for ONE product.
+ *
+ * Every bar is counted from `prices`, the exact list the eBay sold query
+ * returned, which is also what produced the min/avg/max tiles beside it. The
+ * caption recomputes the average from that same list rather than taking a
+ * second number from elsewhere, so the chart and the metric cannot disagree.
+ *
+ * Fewer than two observations means there is nothing to distribute: the
+ * component says so instead of drawing a single bar that reads as a market.
+ *
+ * `stamps` is optional, so a surface with no per-field provenance map renders
+ * the caption bare rather than wearing a badge invented for it. Deep Search
+ * supplies them because C13 says the label travels with the number.
+ */
 export function SoldPriceDistribution({
   prices,
   average,
+  stamps,
 }: {
   prices?: number[] | null;
   average?: number | null;
+  stamps?: {
+    count?: ProvenanceInfo;
+    avg?: ProvenanceInfo;
+    range?: ProvenanceInfo;
+  };
 }) {
-  const observed = cleanPrices(prices);
+  const view = distributionView(prices);
 
-  if (observed.length < 2) {
+  if (view.kind === "empty") {
     return (
       <div className="h-32 flex items-center justify-center text-sm text-text-dim text-center px-4">
-        {observed.length === 0
-          ? "No per-sale prices were held for this run."
-          : "One sale observed — not enough to plot a distribution."}
+        {view.message}
       </div>
     );
   }
 
-  const min = Math.min(...observed);
-  const max = Math.max(...observed);
+  const { observed, min, max, span } = view;
   const avg = average ?? observed.reduce((a, b) => a + b, 0) / observed.length;
-  const span = max - min;
 
   const data = bucketPrices(observed).map(({ range, count }) => ({
     range,
     count,
   }));
+
+  const badge = (stamp?: ProvenanceInfo) =>
+    stamp ? (
+      <ProvenanceBadge
+        provenance={stamp.provenance}
+        label={stamp.label}
+        title={infoTitle(stamp)}
+      />
+    ) : null;
 
   return (
     <div>
@@ -180,10 +209,22 @@ export function SoldPriceDistribution({
           <Bar dataKey="count" fill="#0D1CC4" radius={[4, 4, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
-      <p className="text-xs text-text-dim mt-1">
-        {observed.length} observed sale{observed.length === 1 ? "" : "s"} · avg{" "}
-        {formatGBP(avg)} · range {formatGBP(min)}–{formatGBP(max)}
-        {span === 0 && " · all sales at one price"}
+      <p className="text-xs text-text-dim mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1">
+        <span className="inline-flex items-center gap-1">
+          {observed.length} observed sale{observed.length === 1 ? "" : "s"}
+          {badge(stamps?.count)}
+        </span>
+        <span aria-hidden="true">·</span>
+        <span className="inline-flex items-center gap-1">
+          avg {formatGBP(avg)}
+          {badge(stamps?.avg)}
+        </span>
+        <span aria-hidden="true">·</span>
+        <span className="inline-flex items-center gap-1">
+          range {formatGBP(min)}–{formatGBP(max)}
+          {badge(stamps?.range)}
+        </span>
+        {span === 0 && <span>all sales at one price</span>}
       </p>
     </div>
   );

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { bucketPrices, cleanPrices, priceBucketCount } from "./buckets";
+import {
+  bucketPrices,
+  cleanPrices,
+  distributionView,
+  priceBucketCount,
+} from "./buckets";
 
 /**
  * A3 — the arithmetic behind the sold-price chart.
@@ -108,5 +113,51 @@ describe("priceBucketCount", () => {
 
   it("gives one bucket when there is no spread to divide", () => {
     expect(priceBucketCount(4, 0)).toBe(1);
+  });
+});
+
+describe("distributionView", () => {
+  it("plots when there are at least two observations", () => {
+    const view = distributionView([8.0, 9.99, 15.0]);
+
+    expect(view.kind).toBe("chart");
+    if (view.kind !== "chart") throw new Error("expected a chart");
+    expect(view.observed).toEqual([8.0, 9.99, 15.0]);
+    expect(view.min).toBe(8.0);
+    expect(view.max).toBe(15.0);
+    expect(view.span).toBe(7.0);
+  });
+
+  it("says so plainly when nothing was held for the run", () => {
+    // The Deep Search path drops sold_prices when it fetches no sold
+    // data. Rendering a bar chart over that would assert a market shape
+    // that was never observed.
+    for (const prices of [null, undefined, []]) {
+      const view = distributionView(prices);
+      expect(view.kind).toBe("empty");
+      if (view.kind !== "empty") continue;
+      expect(view.message).toMatch(/no per-sale prices/i);
+    }
+  });
+
+  it("refuses to draw a distribution from a single sale", () => {
+    const view = distributionView([9.99]);
+
+    expect(view.kind).toBe("empty");
+    if (view.kind !== "empty") return;
+    expect(view.message).toMatch(/not enough to plot/i);
+  });
+
+  it("does not plot junk entries that were never a sale", () => {
+    // One real observation plus nulls/zeros/NaN: still one, still empty.
+    // The list arrives from JSON, so its shape is not ours to trust.
+    const junk: unknown = [9.99, 0, null, Number.NaN, -4];
+
+    expect(distributionView(junk as number[]).kind).toBe("empty");
+  });
+
+  it("treats two observations as plottable", () => {
+    // The threshold is deliberate: two points define a range worth showing.
+    expect(distributionView([8, 15]).kind).toBe("chart");
   });
 });

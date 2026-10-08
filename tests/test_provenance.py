@@ -186,6 +186,9 @@ def offline_deep_search(monkeypatch):
         total_sold_7d = 0
         top_sellers = []
         price_min = price_max = price_avg = price_median = 0.0
+        # Real EbaySoldData always carries this (ebay_sold.py:69); the run
+        # reads it to plot the distribution, so the fake must declare it.
+        sold_prices: list = []
 
     monkeypatch.setattr(EbaySoldScraper, "get_sold_data",
                         lambda self, q: _EmptySold())
@@ -219,6 +222,11 @@ def full_deep_search(monkeypatch):
         price_max = 15.0
         price_avg = 11.9
         price_median = 11.5
+        # The rows behind those four numbers (ebay_sold.py:417 derives them
+        # from exactly this list). Chosen so the list reproduces them:
+        # min 8, max 15, mean 59.5/5 = 11.9, median 11.5. The run reads it
+        # to plot the distribution, so the fake must carry it.
+        sold_prices = [8.0, 11.5, 11.5, 13.5, 15.0]
 
     monkeypatch.setattr(EbaySoldScraper, "get_sold_data",
                         lambda self, q: _FullSold())

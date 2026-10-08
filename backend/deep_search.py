@@ -125,6 +125,11 @@ class DeepSearchResult:
     ebay_price_min: float = 0.0
     ebay_price_max: float = 0.0
     ebay_price_median: float = 0.0
+    # The observations behind the price summary - the same list that
+    # produced min/max/avg/median (ebay_sold.py:417-430) - kept so the
+    # distribution can be PLOTTED rather than asserted by three numbers.
+    # Written only from real sold-query rows, never from the model.
+    sold_prices: List[float] = field(default_factory=list)
     ebay_total_sold_30d: int = 0
     # None = unknown (no parseable sale dates) â€” never an estimate (C1/C4).
     ebay_total_sold_7d: Optional[int] = None
@@ -717,6 +722,25 @@ def _stamp_provenance(result: "DeepSearchResult") -> None:
                      "ebay_items_sold_month"):
             result.set_fact_provenance(name, Provenance.UNVERIFIED,
                                        reason="no eBay sold data retrieved")
+    # Goal 4 / C13 - the count beside the distribution chart is the number
+    # of OBSERVATIONS held (ebay_sold.py:417 drops non-positive prices),
+    # which is NOT total_sold_30d = len(items) (ebay_sold.py:430). It gets
+    # its own stamp instead of borrowing the 30-day count's, because a
+    # badge has to describe the number it sits beside.
+    #
+    # Only the two real-data transfer sites ever write this list, so a
+    # non-empty one is always an eBay row and never an estimate; the model
+    # path leaves it empty and lands here.
+    if result.sold_prices:
+        result.set_fact_provenance(
+            "sold_prices", Provenance.VERIFIED,
+            source_name="eBay Browse API (conditions:{NEW})"
+        )
+    else:
+        result.set_fact_provenance(
+            "sold_prices", Provenance.UNVERIFIED,
+            reason="no per-sale prices were held for this run"
+        )
     for sup in result.suppliers:
         sup.setdefault("provenance", Provenance.VERIFIED.value)
     if result.suppliers:
@@ -811,6 +835,10 @@ def deep_search_product(
             result.ebay_price_max = sold_data.price_max
             result.ebay_avg_price = sold_data.price_avg
             result.ebay_price_median = sold_data.price_median
+            # Goal 4 - the rows behind those summary numbers, kept so
+            # the distribution can be PLOTTED instead of asserted by a
+            # min/avg/max triple. Empty when nothing was observed.
+            result.sold_prices = list(sold_data.sold_prices or [])
             result.ebay_top_sellers = sold_data.top_sellers
             result.ebay_items_sold_month = f"{sold_data.total_sold_30d} items"
             result.ebay_price_range = f"Â£{sold_data.price_min:.2f} - Â£{sold_data.price_max:.2f} (avg Â£{sold_data.price_avg:.2f})"
@@ -1093,6 +1121,10 @@ def deep_search_fast(
             result.ebay_price_max = sold_data.price_max
             result.ebay_avg_price = sold_data.price_avg
             result.ebay_price_median = sold_data.price_median
+            # Goal 4 - the rows behind those summary numbers, kept so
+            # the distribution can be PLOTTED instead of asserted by a
+            # min/avg/max triple. Empty when nothing was observed.
+            result.sold_prices = list(sold_data.sold_prices or [])
             result.ebay_top_sellers = sold_data.top_sellers
             result.ebay_items_sold_month = f"{sold_data.total_sold_30d} items"
             result.ebay_price_range = f"Â£{sold_data.price_min:.2f} - Â£{sold_data.price_max:.2f} (avg Â£{sold_data.price_avg:.2f})"

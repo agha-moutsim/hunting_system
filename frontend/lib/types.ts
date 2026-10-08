@@ -270,6 +270,9 @@ export interface DeepSearchResult {
   ebay_price_min: number;
   ebay_price_max: number;
   ebay_price_median: number;
+  /** Per-sale prices behind the price summary. Empty when the run held
+   *  none — the chart draws its honest empty state, never a stand-in. */
+  sold_prices: number[];
   ebay_total_sold_30d: number;
   ebay_total_sold_7d: number | null; // null = unknown (never estimated)
   suppliers: SupplierInfo[];

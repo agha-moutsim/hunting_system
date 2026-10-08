@@ -16,8 +16,10 @@ import type { ProvenanceInfo } from "./types";
  */
 
 /** Every number the deep-search header renders: the three on the meta
- * line, plus the four tiles (Range spans min and max). Add one here when
- * you add one to the page, so it cannot ship unstamped. */
+ * line, the four tiles (Range spans min and max), and the two the
+ * distribution caption restates — its observation count, which is a
+ * different quantity from the 30-day count, plus avg and the range.
+ * Add one here when you add one to the page, so it cannot ship unstamped. */
 export const HEADER_FIELDS = [
   "ebay_items_sold_month",
   "ebay_total_sold_30d",
@@ -26,6 +28,7 @@ export const HEADER_FIELDS = [
   "ebay_price_min",
   "ebay_price_max",
   "best_supplier_price",
+  "sold_prices",
 ] as const;
 
 export type HeaderField = (typeof HEADER_FIELDS)[number];
