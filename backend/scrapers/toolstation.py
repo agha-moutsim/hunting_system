@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup
 from scrapers.availability import parse_shipping_text, serpapi_item_availability
 from scrapers.base import BaseScraper, DELIVERY_SELECTORS, STOCK_SELECTORS, ScrapedProduct
 from config import SCRAPE_CONFIG
+from utils.redact import scrub
 
 
 class ToolstationScraper(BaseScraper):
@@ -31,7 +32,7 @@ class ToolstationScraper(BaseScraper):
             html = await self.fetch(url)
             return self._parse_search_results(html)
         except Exception as e:
-            print(f"[WARN] Toolstation search failed for '{query}': {e}")
+            print(f"[WARN] Toolstation search failed for '{query}': {scrub(e)}")
             return []
 
     def _search_via_google_shopping(self, query: str) -> list[ScrapedProduct]:
@@ -83,7 +84,7 @@ class ToolstationScraper(BaseScraper):
             return products
 
         except Exception as e:
-            print(f"[INFO] Toolstation Google Shopping unavailable: {e}")
+            print(f"[INFO] Toolstation Google Shopping unavailable: {scrub(e)}")
             return []
 
     def _parse_search_results(self, html: str) -> list[ScrapedProduct]:
@@ -148,7 +149,7 @@ class ToolstationScraper(BaseScraper):
             html = await self.fetch(url)
             return self._parse_product_page(html, url)
         except Exception as e:
-            print(f"[WARN] Toolstation details failed for '{url}': {e}")
+            print(f"[WARN] Toolstation details failed for '{url}': {scrub(e)}")
             return ScrapedProduct(
                 source="toolstation",
                 title="",

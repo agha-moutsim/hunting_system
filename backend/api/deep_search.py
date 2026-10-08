@@ -18,15 +18,25 @@ FAST_TIMEOUT_S = 75.0
 
 @router.post("/deep-search")
 def deep_search(req: DeepSearchRequest):
-    """Full deep research: web search + Ollama LLM (bounded ~2 min)."""
+    """Full deep research: web search + Ollama LLM (bounded ~2 min).
+
+    A1.4 — the run gets FULL_TIMEOUT_S as ITS budget and publishes into a
+    sink as it goes. asyncio cannot cancel a thread, so without both of
+    those a route timeout would discard everything already fetched and
+    answer with an all-zero payload.
+    """
     from deep_search import deep_search_product
 
+    sink: dict = {}
     try:
         result = asyncio.run(
-            asyncio.wait_for(_to_thread(deep_search_product, req.query), timeout=FULL_TIMEOUT_S)
+            asyncio.wait_for(
+                _to_thread(deep_search_product, req.query, FULL_TIMEOUT_S, sink),
+                timeout=FULL_TIMEOUT_S,
+            )
         )
     except (TimeoutError, asyncio.TimeoutError):
-        return _timeout_result(req.query, FULL_TIMEOUT_S, full=True)
+        return _partial_or_timeout(req.query, FULL_TIMEOUT_S, sink, full=True)
     return _response(result)
 
 
@@ -35,12 +45,16 @@ def deep_search_fast(req: DeepSearchRequest):
     """Fast deep research: eBay sold + key supplier scrapes, NO LLM (~15-45s)."""
     from deep_search import deep_search_fast as _fast
 
+    sink: dict = {}
     try:
         result = asyncio.run(
-            asyncio.wait_for(_to_thread(_fast, req.query), timeout=FAST_TIMEOUT_S)
+            asyncio.wait_for(
+                _to_thread(_fast, req.query, FAST_TIMEOUT_S, sink),
+                timeout=FAST_TIMEOUT_S,
+            )
         )
     except (TimeoutError, asyncio.TimeoutError):
-        return _timeout_result(req.query, FAST_TIMEOUT_S, full=False)
+        return _partial_or_timeout(req.query, FAST_TIMEOUT_S, sink, full=False)
     return _response(result)
 
 
@@ -85,4 +99,44 @@ def _timeout_result(query: str, seconds: float, full: bool) -> dict:
     # C13 — nothing was fetched and nothing was computed, so every block
     # in the response reads unverified WITH why.
     payload["provenance"] = build_provenance_block(payload, reason=reason)
+    return payload
+
+
+def _partial_or_timeout(query: str, seconds: float, sink: dict | None,
+                        *, full: bool) -> dict:
+    """Answer a route timeout with whatever the run had already finished.
+
+    A1.4. ``deep_search_product`` publishes into ``sink`` between stages
+    precisely so this branch has something to hand back: the run cannot be
+    cancelled, so without the sink the route threw away a completed eBay
+    query, its stores and every verified supplier, and answered with an
+    all-zero object that looks like the product does not sell.
+
+    The run's own stamps are kept rather than a blanket reason: what WAS
+    fetched still reads verified (C13), and the timeout itself is reported
+    where a timeout belongs — in ``filters_passed`` and ``notes``. Stamping
+    fetched data "timed out" would trade one falsehood for another.
+    """
+    partial = (sink or {}).get("result")
+    if partial is None:
+        return _timeout_result(query, seconds, full)
+
+    if not partial.verdict:
+        partial.verdict = "PENDING"
+    late = (
+        f"Timed out after {int(seconds)}s — returning the work already done; "
+        "later stages did not run."
+    )
+    partial.notes = f"{partial.notes} {late}".strip()
+    partial.filters_passed.append({
+        "name": "Data",
+        "passed": False,
+        "actual": f"Timed out after {int(seconds)}s",
+        "expected": "Completed within budget",
+        "verified": False,
+    })
+    logger.warning("Deep search %s returned PARTIAL results after %.0fs (full=%s)",
+                   query, seconds, full)
+    payload = partial.to_dict()
+    payload["provenance"] = build_provenance_block(payload)
     return payload

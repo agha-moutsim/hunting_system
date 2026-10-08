@@ -80,6 +80,11 @@ def _store_response(stores: list) -> dict:
 
 
 class _FakeResponse:
+    # The real `_get_json` reads `status_code` BEFORE `raise_for_status()`
+    # (A4 — a 429 has to be inspected for the exhaustion message, which
+    # raise_for_status would discard). The double needs the same surface.
+    status_code = 200
+
     def __init__(self, payload):
         self._payload = payload
         self.text = ""

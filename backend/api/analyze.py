@@ -47,17 +47,29 @@ def analyze(req: AnalyzeRequest):
     filters["price_min"] = active["price_min"]
     filters["price_max"] = active["price_max"]
 
+    timing_sink: dict = {}
     try:
         raw = run_async(
             run_analysis_pipeline(
                 req.query,
                 is_url=req.is_url,
                 filters=filters,
+                timing_sink=timing_sink,
             ),
             timeout=PIPELINE_TIMEOUT_S,
         )
     except (TimeoutError, asyncio.TimeoutError):
         logger.error("Analysis pipeline exceeded %.0fs budget", PIPELINE_TIMEOUT_S)
+        # What the run reported before it was cancelled — normally written by
+        # the pipeline's `finally`. Empty only if it died before measuring
+        # anything, which is itself the honest answer.
+        timing = timing_sink.get("timing") or {}
+        budget = dict(timing_sink.get("budget") or {})
+        # The budget was blown by definition — that is why we are here.
+        budget["budget_s"] = PIPELINE_TIMEOUT_S
+        budget["overrun"] = True
+        budget.setdefault("total_s", None)
+        budget.setdefault("unaccounted_s", None)
         resp = {
             "ebay_product": None,
             "demand": None,
@@ -69,6 +81,13 @@ def analyze(req: AnalyzeRequest):
             # omitting the key (an absent list would read as "not applicable").
             "ebay_stores": [],
             "ebay_stores_provenance": unverified_stamp("analysis timed out"),
+            # Phase 0 — the run was cut off, so it never returned. Anything
+            # in `timing` was measured before the cancellation; an empty block
+            # means it died before it could measure. Either way we invent
+            # nothing — a fabricated per-step number is exactly the failure
+            # C13 exists to prevent.
+            "timing": _serialize(timing),
+            "budget": _serialize(budget),
             "errors": [
                 f"Analysis timed out after {int(PIPELINE_TIMEOUT_S)}s. "
                 "Supplier scrapers or the LLM hung — retry, or try Deep Search → Fast."
@@ -100,6 +119,9 @@ def analyze(req: AnalyzeRequest):
             # C13 — an unstamped block must still say WHY it reads unverified.
             or unverified_stamp("store discovery recorded no stamp")
         ),
+        # Phase 0 — where the seconds went, carried through untouched.
+        "timing": _serialize(raw.get("timing")) or {},
+        "budget": _serialize(raw.get("budget")) or {},
     }
     # C13 — the pinned top-level block: every section stamped, nothing assumed.
     resp["provenance"] = build_provenance_block(resp)

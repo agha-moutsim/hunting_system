@@ -107,8 +107,8 @@ export default function AnalyzePage() {
               <div className="skeleton h-10 rounded-lg" />
             </div>
             <p className="text-xs text-text-dim text-center">
-              eBay → demand → suppliers (2 at a time, 45s each cap) → LLM (45s
-              cap). Backend: <span className="font-mono">localhost:8000</span>
+              eBay → demand → 7 suppliers → verdict. Backend:{" "}
+              <span className="font-mono">localhost:8000</span>
             </p>
           </div>
         </Card>

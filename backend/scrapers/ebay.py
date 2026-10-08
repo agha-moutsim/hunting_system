@@ -472,6 +472,10 @@ class EbayScraper:
             avg_sold_price=sum(prices) / len(prices) if prices else None,
             lowest_sold_price=min(prices) if prices else None,
             highest_sold_price=max(prices) if prices else None,
+            # A3 - the observations behind the three figures above. Carried
+            # rather than re-derived so the chart plots exactly the same
+            # numbers the metrics show.
+            sold_prices=prices,
             verified=bool(sold_items),
             excluded_over_band=excluded,
             data_source=_SOLD_SOURCE_LABEL,

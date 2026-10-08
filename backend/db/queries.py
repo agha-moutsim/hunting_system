@@ -156,6 +156,12 @@ def save_demand_data(db: Session, product_id: int, demand: DemandDataDTO) -> Dem
         "highest_sold_price": demand.highest_sold_price,
         "verified": demand.verified,
     }
+    # A3 — the per-sale observations behind min/avg/max. Written whenever the
+    # DTO carries the field (it now always does), including as [], because a
+    # re-run that observed no sales must clear the previous run's chart
+    # rather than keep redrawing it.
+    if hasattr(demand, "sold_prices"):
+        data["sold_prices"] = list(demand.sold_prices or [])
     # P5: only written when the DTO carries a source string (e.g. the
     # "...+purchase_history" suffix set by analysis_pipeline) so the column
     # default keeps applying everywhere else.
@@ -200,6 +206,23 @@ def save_analysis_data(db: Session, product_id: int, analysis: dict) -> Analysis
     db.commit()
     db.refresh(row)
     return row
+
+
+def clear_analysis_data(db: Session, product_id: int) -> bool:
+    """Remove the AI verdict stored for a product.
+
+    Called when an analysis ran with NO AI behind it. `save_product` reuses
+    the Product row for the same eBay URL and `save_analysis_data` only
+    writes when it is called, so the row an earlier run left would be read
+    by History as this run's verdict — an AI output for an analysis that
+    produced none (C13). Returns True when a row was actually removed.
+    """
+    existing = db.query(Analysis).filter(Analysis.product_id == product_id).first()
+    if existing is None:
+        return False
+    db.delete(existing)
+    db.commit()
+    return True
 
 
 def save_verdict_data(db: Session, product_id: int, verdict: dict) -> Verdict:

@@ -45,6 +45,11 @@ class DemandData(Base):
     avg_sold_price = Column(Float)
     lowest_sold_price = Column(Float)
     highest_sold_price = Column(Float)
+    # A3 - the individual observed sale prices behind the three figures
+    # above, kept so History can redraw the chart for a run long past. A
+    # row written before this column existed reads NULL, which loads as
+    # "no observations held" and renders no chart rather than a zeroed one.
+    sold_prices = Column(JSON)
     data_source = Column(String(64), default="ebay_sold_listings")
     verified = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)

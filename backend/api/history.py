@@ -106,6 +106,12 @@ def product_detail(product_id: int):
                 "avg_sold_price": _stat(demand.avg_sold_price),
                 "lowest_sold_price": _stat(demand.lowest_sold_price),
                 "highest_sold_price": _stat(demand.highest_sold_price),
+                # A3 — the observations behind those figures, so replaying an
+                # old run redraws the same chart the live screen showed. A row
+                # saved before this column existed reads None and the chart
+                # simply does not render; it never falls back to invented
+                # points.
+                "sold_prices": list(demand.sold_prices or []),
                 "data_source": demand.data_source,
                 "verified": demand.verified,
             } if demand else None,

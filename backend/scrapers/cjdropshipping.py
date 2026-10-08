@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup, Tag
 
 from scrapers.base import BaseScraper, ScrapedProduct
 from config import SCRAPE_CONFIG
+from utils.redact import scrub
 
 
 class CJDropshippingScraper(BaseScraper):
@@ -31,7 +32,7 @@ class CJDropshippingScraper(BaseScraper):
             html = await self.fetch(url)
             return self._parse_search_results(html)
         except Exception as e:
-            print(f"[WARN] CJ Dropshipping search failed for '{query}': {e}")
+            print(f"[WARN] CJ Dropshipping search failed for '{query}': {scrub(e)}")
             return []
 
     def _search_via_api(self, query: str) -> list[ScrapedProduct]:
@@ -162,7 +163,7 @@ class CJDropshippingScraper(BaseScraper):
             return products
 
         except Exception as e:
-            print(f"[INFO] CJ API unavailable: {e}")
+            print(f"[INFO] CJ API unavailable: {scrub(e)}")
             return []
 
     async def get_details(self, url: str) -> ScrapedProduct:
@@ -172,7 +173,7 @@ class CJDropshippingScraper(BaseScraper):
             soup = self.parse(html)
             return self._extract_detail(soup, url)
         except Exception as e:
-            print(f"[WARN] CJ Dropshipping detail fetch failed for {url}: {e}")
+            print(f"[WARN] CJ Dropshipping detail fetch failed for {url}: {scrub(e)}")
             return ScrapedProduct(
                 source=self.SUPPLIER_ID,
                 title="",

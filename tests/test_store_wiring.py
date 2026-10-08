@@ -306,7 +306,8 @@ class TestAnalyzeEndpointSerialization:
 
         stores = stores_from_top_sellers(_top_sellers())
 
-        async def _pipeline(query, is_url=False, progress=None, filters=None):
+        async def _pipeline(query, is_url=False, progress=None, filters=None,
+                            timing_sink=None, **_):
             return self._raw(stores)
 
         monkeypatch.setattr(api_analyze, "run_analysis_pipeline", _pipeline)
@@ -361,7 +362,7 @@ def _stub_deep_search(monkeypatch, sold_data):
     monkeypatch.setattr(ds, "_fetch_page_text", lambda *a, **k: "")
     monkeypatch.setattr(ds, "_ollama_generate", lambda *a, **k: _LLM_JSON)
     monkeypatch.setattr(ds, "_verify_supplier_candidates",
-                        lambda query, cands: [])
+                        lambda query, cands, deadline=None: [])
     # The search loop sleeps between queries even with zero hits — no
     # reason to spend 2s per test on a stub.
     monkeypatch.setattr(ds.time, "sleep", lambda seconds: None)
@@ -470,6 +471,137 @@ class TestDeepSearchStores:
         else:
             assert result.ebay_stores == []
             assert result.ebay_stores_provenance["provenance"] == "unverified"
+
+
+# ---------------------------------------------------------------------------
+# C2. A1.4 — the run owns a budget below the route's, and hands back what it
+#          found instead of an all-zero payload
+# ---------------------------------------------------------------------------
+
+class TestTheRunOwnsABudgetBelowTheRoutes:
+    """deep_search_product runs on a worker thread that ``asyncio.wait_for``
+    ABANDONS — a thread cannot be cancelled. So an overrun does not merely
+    cost time, it throws away every page already fetched: the route answers
+    with an all-zero object and the run's real work is lost.
+
+    The fix is that the run holds a budget of its own, strictly below
+    ``FULL_TIMEOUT_S``, and every stage after the eBay query stops at it."""
+
+    def test_a_run_with_no_time_left_still_keeps_the_ebay_data(self, monkeypatch):
+        _stub_deep_search(monkeypatch, _sold_data(top=True))
+        sink: dict = {}
+
+        result = ds.deep_search_product("widget", budget_s=0.0, sink=sink)
+
+        # eBay comes first and unconditionally — it is the product. A run
+        # that expired on the very next stage must still return it.
+        assert result.ebay_total_sold_30d == 42
+        assert len(result.ebay_stores) == MAX_STORES
+        assert sink["result"] is result
+        # and it says so, rather than silently presenting a short run
+        assert "time budget" in result.notes
+
+    def test_the_model_is_never_given_the_whole_route_budget(self, monkeypatch):
+        from config import OLLAMA_TIMEOUT_S
+
+        _stub_deep_search(monkeypatch, _sold_data(top=True))
+        seen: dict = {}
+
+        def _model(prompt, system=None, timeout=None):
+            seen["timeout"] = timeout
+            return _LLM_JSON
+
+        monkeypatch.setattr(ds, "_ollama_generate", _model)
+
+        ds.deep_search_product("widget", budget_s=90.0)
+
+        assert 0 < seen["timeout"] < OLLAMA_TIMEOUT_S
+
+    def test_a_run_out_of_time_skips_the_model_instead_of_waiting(self, monkeypatch):
+        _stub_deep_search(monkeypatch, _sold_data(top=True))
+        calls: list = []
+        monkeypatch.setattr(
+            ds, "_ollama_generate",
+            lambda *a, **k: (calls.append(1), _LLM_JSON)[1],
+        )
+
+        result = ds.deep_search_product("widget", budget_s=0.0)
+
+        assert calls == []
+        assert result.ebay_total_sold_30d == 42
+
+    def test_the_sink_is_published_before_the_next_stage_can_hang(self, monkeypatch):
+        """The route only ever sees the sink if a stage writes it BEFORE a
+        later stage blocks — the write has to happen between stages, not at
+        the end (a run that never ends would publish nothing)."""
+        _stub_deep_search(monkeypatch, _sold_data(top=True))
+        sink: dict = {}
+        observed: list = []
+
+        def _watch(*a, **k):
+            observed.append(sink.get("result"))
+            return []
+
+        monkeypatch.setattr(ds, "_web_search", _watch)
+
+        ds.deep_search_product("widget", budget_s=90.0, sink=sink)
+
+        assert observed, "web search never ran"
+        assert observed[0] is not None
+        assert observed[0].ebay_total_sold_30d == 42
+
+
+class TestTheRouteAnswersWithWhatItFound:
+    def test_the_run_receives_the_route_budget_and_the_sink(self, monkeypatch):
+        import api.deep_search as api_ds
+        from api.schemas import DeepSearchRequest
+
+        seen: dict = {}
+
+        def _run(query, budget_s=None, sink=None):
+            seen["budget"] = budget_s
+            seen["sink"] = sink
+            if sink is not None:
+                sink["result"] = ds.DeepSearchResult(product_name=query)
+            raise TimeoutError("budget exhausted")
+
+        monkeypatch.setattr(ds, "deep_search_product", _run)
+        payload = api_ds.deep_search(DeepSearchRequest(query="widget"))
+
+        assert seen["budget"] == api_ds.FULL_TIMEOUT_S
+        assert isinstance(seen["sink"], dict)
+        # the sink, not the blank, is what came back
+        assert payload["filters_passed"][0]["actual"].startswith("Timed out")
+
+    def test_an_empty_sink_still_reads_as_a_plain_timeout(self, monkeypatch):
+        from api.deep_search import _partial_or_timeout
+
+        payload = _partial_or_timeout("widget", 120.0, {}, full=True)
+
+        assert payload["verdict"] == "PENDING"
+        assert payload["provenance"]["demand"]["provenance"] == "unverified"
+        assert payload["provenance"]["ebay_stores"]["provenance"] == "unverified"
+
+    def test_a_sink_holding_fetched_data_is_returned_not_discarded(self):
+        from api.deep_search import _partial_or_timeout
+        from deep_search import DeepSearchResult
+
+        r = DeepSearchResult(product_name="widget")
+        r.ebay_total_sold_30d = 42
+        r.ebay_stores = stores_from_top_sellers(_top_sellers())
+        # what the run stamped before the route cut it off
+        r.set_fact_provenance("ebay_total_sold_30d", Provenance.VERIFIED,
+                              source_name="eBay Browse API (conditions:{NEW})")
+
+        payload = _partial_or_timeout("widget", 120.0, {"result": r}, full=True)
+
+        assert payload["ebay_total_sold_30d"] == 42
+        assert len(payload["ebay_stores"]) == MAX_STORES
+        assert any("timed out" in f["actual"].lower()
+                   for f in payload["filters_passed"])
+        # C13 — fetched reads fetched: a partial run must not stamp what it
+        # DID retrieve as merely timed out.
+        assert payload["provenance"]["demand"]["provenance"] == "verified"
 
 
 # ---------------------------------------------------------------------------

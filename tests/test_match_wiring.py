@@ -385,7 +385,8 @@ def _stub_full_path(monkeypatch, verified_rows, llm_json=None):
     monkeypatch.setattr(ds, "_ollama_generate",
                         lambda *a, **k: llm_json or _llm_json())
     monkeypatch.setattr(ds, "_verify_supplier_candidates",
-                        lambda query, cands: [dict(r) for r in verified_rows])
+                        lambda query, cands, deadline=None:
+                        [dict(r) for r in verified_rows])
     monkeypatch.setattr(ds.time, "sleep", lambda seconds: None)
     monkeypatch.setattr(EbayScraper, "search", _Stub(result=[]))
 

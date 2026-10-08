@@ -35,6 +35,7 @@ from engine.source_type import supplier_type as classify_source
 from scrapers.availability import serpapi_item_availability
 from scrapers.base import ScrapedProduct
 from scrapers.google_shopping import _parse_price
+from utils.redact import scrub
 
 SERPAPI_BASE = "https://serpapi.com/search.json"
 
@@ -89,32 +90,65 @@ __all__ = [
 
 class _Budget:
     """Shared call budget. Every SerpApi request spends one, and once the
-    budget is gone discovery stops instead of spending more."""
+    budget is gone discovery stops instead of spending more.
+
+    `exhausted` is the other stop condition: the account itself is out of
+    searches for the month, so spending is pointless however many calls are
+    left. Once set, every later `spend()` fails — the remaining offers for a
+    supplier are skipped instead of each one paying for a 429."""
 
     def __init__(self, limit: int) -> None:
         self.left = limit
+        self.exhausted = False
 
     def spend(self) -> bool:
-        if self.left <= 0:
+        if self.exhausted or self.left <= 0:
             return False
         self.left -= 1
         return True
 
 
-def _get_json(params: dict, api_key: str) -> dict | None:
+def _get_json(params: dict, api_key: str, budget: "_Budget") -> dict | None:
     """One SerpApi request. None = the call failed (transport, non-JSON or a
     reported error), so the caller stops rather than burning the budget on a
     key or endpoint that is not answering."""
     params = {**params, "api_key": api_key}
     try:
         resp = requests.get(SERPAPI_BASE, params=params, timeout=_TIMEOUT)
+    except requests.RequestException as e:
+        # scrub(): `requests` puts the whole URL — api_key included — into
+        # its exception text, and this line lands in be.log (A4).
+        print(f"[WARN] SerpApi request failed ({params.get('engine')}): {scrub(e)}")
+        return None
+
+    # 429 is deliberately ambiguous: SerpApi documents it for BOTH "you are
+    # sending too fast" and "your account has run out of searches". Only the
+    # response body separates them, and `raise_for_status()` would discard it
+    # — so the exhausted case would be reported as a rate limit, and every
+    # remaining offer would retry into the same wall.
+    if resp.status_code == 429:
+        try:
+            message = str(resp.json().get("error") or "")
+        except ValueError:
+            message = ""
+        if "run out of searches" in message.lower():
+            budget.exhausted = True
+            print(
+                "[WARN] SerpApi: account has run out of searches - supplier "
+                "discovery is unavailable until the monthly quota resets"
+            )
+        else:
+            print(f"[WARN] SerpApi rate limited (429): {scrub(message) or 'too many requests'}")
+        return None
+
+    try:
         resp.raise_for_status()
         data = resp.json()
     except requests.RequestException as e:
-        print(f"[WARN] SerpApi request failed ({params.get('engine')}): {e}")
+        print(f"[WARN] SerpApi request failed ({params.get('engine')}): {scrub(e)}")
         return None
     except ValueError as e:
-        print(f"[WARN] SerpApi returned no JSON ({params.get('engine')}): {e}")
+        print(f"[WARN] SerpApi returned no JSON ({params.get('engine')}): {scrub(e)}")
         return None
 
     if not isinstance(data, dict):
@@ -136,6 +170,7 @@ def _search_shopping(query: str, api_key: str, budget: _Budget) -> list[dict] | 
         {"engine": "google_shopping", "q": query, "location": "United Kingdom",
          "gl": "uk", "hl": "en"},
         api_key,
+        budget,
     )
     if data is None:
         return None
@@ -182,6 +217,7 @@ def _resolve_store(item: dict, api_key: str, budget: _Budget) -> tuple[str, dict
     data = _get_json(
         {"engine": "google_immersive_product", "page_token": token},
         api_key,
+        budget,
     )
     if data is None:
         return None
@@ -317,6 +353,8 @@ def discover(query: str) -> list[ScrapedProduct]:
         """Resolve the next waiting offer for `slug`, if any survives."""
         bucket = waiting.get(slug) or []
         while bucket:
+            if budget.exhausted:
+                break  # out of searches: the rest of this bucket is unwinnable
             item = bucket.pop(0)
             resolved = _resolve_store(item, api_key, budget)
             if resolved is None:
@@ -334,7 +372,7 @@ def discover(query: str) -> list[ScrapedProduct]:
 
     # Stage 1 — give every supplier the generic pass already found a row.
     for slug in list(order):
-        if budget.left <= 0:
+        if budget.exhausted or budget.left <= 0:
             break
         _resolve_one(slug)
 
@@ -344,7 +382,7 @@ def discover(query: str) -> list[ScrapedProduct]:
     missing = [s for s in _SUPPLIERS if s not in rows]
     missing.sort(key=lambda s: _SUPPLIERS[s].get("type", "") != "dropship")
     for slug in missing:
-        if budget.left <= 0:
+        if budget.exhausted or budget.left <= 0:
             break
         targeted = _site_query(slug, query)
         if not targeted:
@@ -364,7 +402,7 @@ def discover(query: str) -> list[ScrapedProduct]:
 
     # Stage 3 — a second row per supplier, budget permitting.
     for slug in [s for s in order if s in rows]:
-        if budget.left <= 0:
+        if budget.exhausted or budget.left <= 0:
             break
         if len(rows[slug]) >= MAX_PER_SUPPLIER:
             continue

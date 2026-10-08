@@ -15,6 +15,8 @@ import {
   CartesianGrid,
   Legend,
 } from "recharts";
+import { formatGBP } from "@/lib/format";
+import { bucketPrices, cleanPrices } from "@/lib/buckets";
 
 const COLORS = [
   "#0D1CC4",
@@ -113,6 +115,77 @@ export function RevenueProfitChart({
         <Bar dataKey="profit" fill="#CBFD03" radius={[4, 4, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>
+  );
+}
+
+/**
+ * A3 — the distribution of real sold prices for ONE product.
+ *
+ * Every bar is counted from `prices`, the exact list the eBay sold query
+ * returned, which is also what produced the min/avg/max tiles above it. The
+ * caption recomputes the average from that same list rather than taking a
+ * second number from elsewhere, so the chart and the metric cannot disagree.
+ *
+ * Fewer than two observations means there is nothing to distribute: the
+ * component says so instead of drawing a single bar that reads as a market.
+ */
+export function SoldPriceDistribution({
+  prices,
+  average,
+}: {
+  prices?: number[] | null;
+  average?: number | null;
+}) {
+  const observed = cleanPrices(prices);
+
+  if (observed.length < 2) {
+    return (
+      <div className="h-32 flex items-center justify-center text-sm text-text-dim text-center px-4">
+        {observed.length === 0
+          ? "No per-sale prices were held for this run."
+          : "One sale observed — not enough to plot a distribution."}
+      </div>
+    );
+  }
+
+  const min = Math.min(...observed);
+  const max = Math.max(...observed);
+  const avg = average ?? observed.reduce((a, b) => a + b, 0) / observed.length;
+  const span = max - min;
+
+  const data = bucketPrices(observed).map(({ range, count }) => ({
+    range,
+    count,
+  }));
+
+  return (
+    <div>
+      <ResponsiveContainer width="100%" height={200}>
+        <BarChart
+          data={data}
+          margin={{ top: 8, right: 8, left: -12, bottom: 4 }}
+        >
+          <CartesianGrid
+            stroke="#4B525E"
+            strokeOpacity={0.3}
+            strokeDasharray="3 3"
+          />
+          <XAxis dataKey="range" stroke="#8A90A0" fontSize={11} />
+          <YAxis stroke="#8A90A0" fontSize={11} allowDecimals={false} />
+          <Tooltip
+            contentStyle={tooltipStyle}
+            formatter={(value: number | string) => [String(value), "Sales"]}
+            labelFormatter={(label: string | number) => `£${label}`}
+          />
+          <Bar dataKey="count" fill="#0D1CC4" radius={[4, 4, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+      <p className="text-xs text-text-dim mt-1">
+        {observed.length} observed sale{observed.length === 1 ? "" : "s"} · avg{" "}
+        {formatGBP(avg)} · range {formatGBP(min)}–{formatGBP(max)}
+        {span === 0 && " · all sales at one price"}
+      </p>
+    </div>
   );
 }
 

@@ -84,21 +84,44 @@ class TestNoCallSiteHardcodesItsOwn:
         default = inspect.signature(_ollama_generate).parameters["timeout"].default
         assert default == OLLAMA_TIMEOUT_S
 
-    def test_the_deep_search_call_site_passes_the_constant(self):
+    def test_the_deep_search_call_site_derives_its_budget_from_the_constant(self):
+        """A1.4 — the wait is capped by what is left of the run's own budget,
+        so the site passes `min(OLLAMA_TIMEOUT_S, remaining)` rather than the
+        constant itself. Two things still hold: nothing here may be a literal,
+        and the CEILING must still be the shared constant — otherwise the
+        model is handed the route's whole 120 s again and the overrun this
+        file exists to prevent comes straight back.
+        """
         source = (BACKEND / "deep_search.py").read_text(encoding="utf-8")
         code = re.sub(r"#.*", "", source)
         calls = re.findall(r"(?<!def )_ollama_generate\(([^)]*)\)", code, re.S)
         assert calls, "no _ollama_generate call found - did the call site change?"
         for args in calls:
-            assert "timeout=OLLAMA_TIMEOUT_S" in args, (
-                f"an Ollama call site does not use the constant: {args.strip()[:70]}"
+            assert "timeout=OLLAMA_TIMEOUT_S" not in args, (
+                "passing the constant outright gives the model the whole route "
+                "budget; cap it by what the run has left"
             )
+            assert re.search(r"timeout\s*=\s*[A-Za-z_]", args), (
+                f"an Ollama call site hardcodes its budget: {args.strip()[:70]}"
+            )
+        assert "min(OLLAMA_TIMEOUT_S" in code, (
+            "the capped budget is no longer derived from the shared constant"
+        )
 
-    def test_the_analysis_pipeline_call_site_passes_the_constant(self):
+    def test_the_analysis_pipeline_does_not_call_the_model(self):
+        """Phase A1 — the synchronous path stopped talking to Ollama.
+
+        The rule this replaced was narrower ("the wait uses the constant").
+        The honest form is stronger: there is no call here at all, so there
+        is no budget to police. `analyzer.analyze` is the model entry point;
+        a fifth call site appearing in this module would be the regression,
+        not merely the timeout it carried.
+        """
         source = (BACKEND / "analysis_pipeline.py").read_text(encoding="utf-8")
         code = re.sub(r"#.*", "", source)
-        assert "timeout=OLLAMA_TIMEOUT_S" in code, (
-            "analysis_pipeline's LLM wait does not use the shared constant"
+
+        assert "analyzer.analyze(" not in code, (
+            "analysis_pipeline calls the model on the synchronous path"
         )
 
     @pytest.mark.parametrize("relpath", OLLAMA_CALLERS)

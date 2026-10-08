@@ -182,6 +182,13 @@ class DemandData:
     # object already ran, so Analyze/URL-hunt get stores for free instead
     # of paying for a second request. Normalised by engine.stores.
     top_sellers: list = field(default_factory=list)
+    # A3 - every individual price the sold query returned, observed in order.
+    # The min/avg/max above are already derived from this list and used to be
+    # all that survived: the list itself was computed and thrown away, which
+    # is why no chart could ever be drawn from real data. Empty means "we
+    # hold no per-sale observations", never "no sales" - sold_count_30d is
+    # the count, and the two are reported together, never substituted.
+    sold_prices: list = field(default_factory=list)
 
 
 class BaseScraper(ABC):

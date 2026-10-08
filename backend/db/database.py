@@ -59,6 +59,39 @@ def ensure_supplier_match_columns() -> list[str]:
 ensure_supplier_match_columns()
 
 
+# A3 — same treatment for the sold-price observations. SQLite cannot add a
+# column that already exists, so this is inspected first and ALTERed only
+# when genuinely missing: a no-op on every run after the first.
+_DEMAND_DATA_ADDITIONS = (
+    ("sold_prices", "JSON"),
+)
+
+
+def ensure_demand_data_columns() -> list[str]:
+    """Bring `demand_data` up to the columns the model declares.
+
+    Returns the column names it added, so a caller can report the change
+    rather than performing it in silence.
+    """
+    inspector = inspect(engine)
+    if not inspector.has_table("demand_data"):
+        return []
+    existing = {c["name"] for c in inspector.get_columns("demand_data")}
+    added: list[str] = []
+    for name, ddl in _DEMAND_DATA_ADDITIONS:
+        if name in existing:
+            continue
+        with engine.begin() as conn:
+            conn.execute(
+                text(f"ALTER TABLE demand_data ADD COLUMN {name} {ddl}")
+            )
+        added.append(name)
+    return added
+
+
+ensure_demand_data_columns()
+
+
 def get_db():
     """Dependency for FastAPI routes."""
     db = SessionLocal()

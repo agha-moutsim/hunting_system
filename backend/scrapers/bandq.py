@@ -8,6 +8,7 @@ from urllib.parse import quote_plus
 
 from scrapers.availability import parse_shipping_text, serpapi_item_availability
 from scrapers.base import BaseScraper, DELIVERY_SELECTORS, STOCK_SELECTORS, ScrapedProduct
+from utils.redact import scrub
 
 
 class BandQScraper(BaseScraper):
@@ -32,7 +33,7 @@ class BandQScraper(BaseScraper):
             html = await self.fetch(search_url)
             return self._parse_search_results(html)
         except Exception as e:
-            print(f"[WARN] B&Q search failed for '{query}': {e}")
+            print(f"[WARN] B&Q search failed for '{query}': {scrub(e)}")
             return []
 
     def _search_via_google_shopping(self, query: str) -> list[ScrapedProduct]:
@@ -84,7 +85,7 @@ class BandQScraper(BaseScraper):
             return products
 
         except Exception as e:
-            print(f"[INFO] B&Q Google Shopping unavailable: {e}")
+            print(f"[INFO] B&Q Google Shopping unavailable: {scrub(e)}")
             return []
 
     def _parse_search_results(self, html: str) -> list[ScrapedProduct]:
@@ -107,7 +108,7 @@ class BandQScraper(BaseScraper):
                 if product and product.price > 0:
                     results.append(product)
             except Exception as e:
-                print(f"[WARN] B&Q failed to parse search card: {e}")
+                print(f"[WARN] B&Q failed to parse search card: {scrub(e)}")
                 continue
 
         return results
@@ -197,7 +198,7 @@ class BandQScraper(BaseScraper):
             html = await self.fetch(url)
             return self._parse_product_page(html, url)
         except Exception as e:
-            print(f"[WARN] B&Q details fetch failed for {url}: {e}")
+            print(f"[WARN] B&Q details fetch failed for {url}: {scrub(e)}")
             return ScrapedProduct(
                 source=self.SOURCE,
                 title="",

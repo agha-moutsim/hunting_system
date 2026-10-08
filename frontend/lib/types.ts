@@ -169,6 +169,13 @@ export interface DemandData {
   avg_sold_price?: number | null;
   lowest_sold_price?: number | null;
   highest_sold_price?: number | null;
+  /**
+   * Every individual price the sold query observed. The source of the
+   * min/avg/max above — carried rather than re-derived so the chart plots
+   * exactly the figures the metrics show. Absent/empty on rows saved before
+   * it existed: no chart, never a fabricated one.
+   */
+  sold_prices?: number[] | null;
   verified?: boolean;
   provenance?: string;
   provenance_label?: string;

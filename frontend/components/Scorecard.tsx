@@ -15,6 +15,7 @@ import ProvenanceBadge from "@/components/ui/ProvenanceBadge";
 import FilterChecks from "@/components/FilterChecks";
 import { fieldProvenance, infoTitle } from "@/lib/provenance";
 import { formatGBP, formatPercent } from "@/lib/format";
+import { SoldPriceDistribution } from "@/components/charts";
 import SupplierCard from "@/components/SupplierCard";
 
 function Metric({
@@ -233,36 +234,53 @@ export default function Scorecard({
           )}
         </SectionTitle>
         {demand && demand.sold_count_30d != null ? (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <Metric
-              label="Sold (30d)"
-              value={demand.sold_count_30d ?? 0}
-              prov={demandField("sold_count_30d")}
-            />
-            <Metric
-              label="Sold (7d)"
-              prov={demandField("sold_count_7d")}
-              value={
-                demand.sold_count_7d ?? (
-                  <span className="text-accent-amber">⚠️ Unverified</span>
-                )
-              }
-            />
-            <Metric
-              label="Avg Sold Price"
-              prov={demandField("avg_sold_price")}
-              value={
-                demand.avg_sold_price != null
-                  ? formatGBP(demand.avg_sold_price)
-                  : "⚠️ Unverified"
-              }
-            />
-            <Metric
-              label="Price Range"
-              prov={demandField("price_range", "lowest_sold_price")}
-              value={priceRange}
-            />
-          </div>
+          <>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <Metric
+                label="Sold (30d)"
+                value={demand.sold_count_30d ?? 0}
+                prov={demandField("sold_count_30d")}
+              />
+              <Metric
+                label="Sold (7d)"
+                prov={demandField("sold_count_7d")}
+                value={
+                  demand.sold_count_7d ?? (
+                    <span className="text-accent-amber">⚠️ Unverified</span>
+                  )
+                }
+              />
+              <Metric
+                label="Avg Sold Price"
+                prov={demandField("avg_sold_price")}
+                value={
+                  demand.avg_sold_price != null
+                    ? formatGBP(demand.avg_sold_price)
+                    : "⚠️ Unverified"
+                }
+              />
+              <Metric
+                label="Price Range"
+                prov={demandField("price_range", "lowest_sold_price")}
+                value={priceRange}
+              />
+            </div>
+            {/* A3 — the observations behind the four tiles above. Plotted from
+              the SAME list that produced them, so the shape of the market is
+              shown rather than asserted by a min/avg/max triple. Runs saved
+              before sold_prices existed render nothing here. */}
+            {demand.sold_prices && demand.sold_prices.length > 0 && (
+              <div className="mt-3 bg-bg-surface border border-border rounded-control p-4">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.05em] text-text-dim mb-2">
+                  Sold price distribution
+                </div>
+                <SoldPriceDistribution
+                  prices={demand.sold_prices}
+                  average={demand.avg_sold_price}
+                />
+              </div>
+            )}
+          </>
         ) : (
           <div className="bg-bg-surface border border-border rounded-control p-4 text-sm text-text-secondary">
             ⚠️ No demand data available — marked Unverified

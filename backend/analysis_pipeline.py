@@ -7,14 +7,16 @@ No Streamlit imports in this module.
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timedelta
 from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from config import MAX_SUPPLIERS, OLLAMA_TIMEOUT_S
+from config import MAX_SUPPLIERS
 from db.database import SessionLocal
 from db.queries import (
+    clear_analysis_data,
     save_product,
     save_demand_data,
     save_supplier_match_data,
@@ -32,6 +34,9 @@ from engine.provenance import stamp_scraped_product
 from engine.scorecard import format_scorecard
 from engine.source_type import supplier_type
 from engine.stores import resolve_stores, store_provenance_block
+# ProductAnalyzer is imported but not constructed here any more (Phase A1
+# removed the synchronous wait). The name is kept because it is the seam the
+# pipeline's own tests patch to prove no client is ever built on this path.
 from llm.analyzer import ProductAnalyzer, LLMAnalysis
 from scrapers.ebay import EbayScraper
 from scrapers.base import ScrapedProduct, DemandData as DemandDataDTO
@@ -67,6 +72,32 @@ _BROWSER_SEMAPHORE = asyncio.Semaphore(2)
 SCRAPER_TIMEOUT_S = 45.0
 # Overall pipeline budget (eBay + suppliers + LLM + verdict).
 PIPELINE_TIMEOUT_S = 150.0
+
+# Phase 0 — the steps a run must account for. Every one of them appears in
+# `results["timing"]` with its measured duration, whether it ran or was
+# skipped: a missing key would be a hole in the accounting rather than a
+# step that honestly spent nothing.
+PIPELINE_TIMING_STEPS = ("ebay", "demand", "suppliers", "llm")
+
+# Phase A1 — the suppliers STEP is bigger than the search the 90s guard
+# below covers. After that guard returns, the reference image is hashed and
+# every surviving row downloads its own (engine/match.py image_hash_for, a
+# 5s ceiling per distinct URL). That tail is what measured 101.2s of a 150s
+# budget while every guard inside the search reported it was behaving.
+#
+# So the step owns a budget, and a run decides ONCE whether image
+# verification is on — a C12 ranking that compared image-verified rows
+# against text-only rows would not be a ranking at all.
+SUPPLIER_SCORE_BUDGET_S = 15.0
+# The allowance used to make that up-front decision: rows x this is what
+# image verification is predicted to cost. It is an allowance, not a
+# measurement — the real ceiling is each download's own timeout, and a run
+# that spends longer than the budget says so instead of pretending otherwise.
+_IMAGE_COST_S = 1.0
+
+# Time held back at the tail for the verdict and scorecard. A step may not
+# spend it, or the pipeline ends exactly where it started: over budget.
+VERDICT_RESERVE_S = 2.0
 
 # ★ Freshness window (P5): a purchase-history capture is only trusted for the
 # 7-day figure if it was taken within this many hours — purchase history
@@ -263,8 +294,16 @@ async def run_analysis_pipeline(
     is_url: bool = False,
     progress=None,
     filters: dict | None = None,
+    timing_sink: dict | None = None,
 ) -> dict:
-    """Execute the full analysis: scrape eBay → suppliers → LLM → verdict."""
+    """Execute the full analysis: scrape eBay → suppliers → LLM → verdict.
+
+    `timing_sink` is an optional caller-owned dict. The caller keeps a
+    reference to it, so the accounting survives even when this coroutine is
+    cancelled by the pipeline budget — which is precisely the case the
+    timings exist to explain. Without it, a run that times out reports
+    nothing about where its seconds went.
+    """
 
     def _report(msg: str):
         if progress:
@@ -284,7 +323,34 @@ async def run_analysis_pipeline(
         # is the honest answer; an absent key would read as "not applicable".
         "ebay_stores": [],
         "ebay_stores_provenance": store_provenance_block([]),
+        # Phase 0 — where the seconds went, and what budget they came out of.
+        # An empty or partial timing block is a bug, not a quiet no-op: it is
+        # the only way a future timeout can be explained without a stopwatch.
+        "timing": {step: 0.0 for step in PIPELINE_TIMING_STEPS},
+        "budget": {
+            "total_s": 0.0,
+            "budget_s": PIPELINE_TIMEOUT_S,
+            "unaccounted_s": 0.0,
+            "overrun": False,
+        },
     }
+
+    # Step accounting. Each step closes the one before it, so the durations
+    # are contiguous and a step that never opens stays at 0.0 — the time is
+    # still attributed, just to the step that actually held it.
+    _open_step: Optional[str] = None
+    _started_at = time.monotonic()
+    _opened_at = _started_at
+    _deadline = _started_at + PIPELINE_TIMEOUT_S
+
+    def _open(step: str) -> None:
+        nonlocal _open_step, _opened_at
+        if _open_step is not None:
+            results["timing"][_open_step] = time.monotonic() - _opened_at
+        _open_step = step
+        _opened_at = time.monotonic()
+
+    _open("ebay")
 
     try:
         # Step 1: Get eBay product — price band gate (CONSTRAINTS_PRICING.md PR-2)
@@ -366,6 +432,7 @@ async def run_analysis_pipeline(
         _report(f"✓ Found: {ebay_product.title[:60]}")
 
         # Step 2: Get demand data
+        _open("demand")
         _report("Step 2/5 — Fetching demand data…")
         search_term = ebay_product.title if not is_url else query
         demand = ebay.get_sold_data(search_term)
@@ -400,6 +467,7 @@ async def run_analysis_pipeline(
             _report(f"– {note}")
 
         # Step 3: Search suppliers
+        _open("suppliers")
         _report("Step 3/5 — Searching 7 suppliers (max ~45s each, 2 at a time)…")
         try:
             supplier_results = await asyncio.wait_for(
@@ -421,13 +489,46 @@ async def run_analysis_pipeline(
         # DB, API response) sees the same computed number.
         # C14 — the reference image is hashed once here, not per row: it is
         # the eBay listing every supplier row is compared against.
-        ebay_image_hash = image_hash_for(getattr(ebay_product, "image_url", None))
+        #
+        # Phase A1 — this phase runs to a deadline of its own, because it
+        # sits AFTER the 90s search guard above and was the unbounded tail
+        # that took the step to 101.2s of a 150s budget. Whether image
+        # verification happens is decided ONCE, before the first row: a C12
+        # ranking that compared image-verified rows against text-only ones
+        # would not be a ranking at all.
+        _score_deadline = time.monotonic() + max(
+            0.0,
+            min(
+                SUPPLIER_SCORE_BUDGET_S,
+                _deadline - time.monotonic() - VERDICT_RESERVE_S,
+            ),
+        )
+        _images_on = (
+            time.monotonic() + (len(supplier_results) + 1) * _IMAGE_COST_S
+            <= _score_deadline
+        )
+        ebay_image_hash = (
+            image_hash_for(getattr(ebay_product, "image_url", None))
+            if _images_on
+            else None
+        )
         supplier_results = [
             s for s in supplier_results
             if _score_supplier(
                 s, ebay_product.title, ebay_product.price or 0.0, ebay_image_hash
             )
         ]
+        if not _images_on and supplier_results:
+            # C13 — a component that was not used must be reported as not
+            # used. The rows are real and scored on title and price; what
+            # they lost is the image signal, which the matcher already
+            # treats as absent evidence rather than a failed match.
+            results["errors"].append(
+                "⚠️ Image match skipped for this run (scoring budget) — "
+                f"{len(supplier_results)} row(s) scored on title and price "
+                "(Unverified)."
+            )
+            _report("– Image match skipped (scoring budget) — title and price only")
         # C12 — a ceiling, never a target. Rank by how confidently the matcher
         # identified the product, then by price, and keep at most 7. Sorting
         # also makes `supplier_results[0]` (used for best_supplier_price
@@ -448,57 +549,24 @@ async def run_analysis_pipeline(
         results["supplier_matches"] = supplier_results
         _report(f"✓ Supplier search done: {len(supplier_results)} total matches")
 
-        # Step 4: LLM analysis
-        _report("Step 4/5 — Running AI analysis (llama3.1)…")
-        supplier_dicts = [
-            {
-                "name": s.title[:60],
-                "price": s.price,
-                "delivery_days": s.delivery_days_max or "?",
-                "source": s.source,
-            }
-            for s in supplier_results[:MAX_SUPPLIERS]
-        ]
-        demand_dict = {
-            "sold_count_30d": demand.sold_count_30d,
-            "sold_count_7d": demand.sold_count_7d,
-            "avg_sold_price": demand.avg_sold_price,
-            "lowest_sold_price": demand.lowest_sold_price,
-            "highest_sold_price": demand.highest_sold_price,
-        }
-        product_dict = {
-            "title": ebay_product.title,
-            "price": ebay_product.price,
-            "condition": ebay_product.condition,
-            "seller": ebay_product.seller or "Unknown",
-        }
-
-        analyzer = ProductAnalyzer()
-        try:
-            llm_result = await asyncio.wait_for(
-                analyzer.analyze(product_dict, demand_dict, supplier_dicts),
-                timeout=OLLAMA_TIMEOUT_S,
-            )
-        except asyncio.TimeoutError:
-            logger.warning("LLM analysis timed out (45s) — using unverified defaults")
-            results["errors"].append(
-                "⚠️ AI analysis timed out — brand/demand marked Unverified."
-            )
-            from llm.analyzer import UNVERIFIED_DEFAULT
-            llm_result = UNVERIFIED_DEFAULT
-        finally:
-            try:
-                await analyzer.close()
-            except Exception:
-                pass
-        results["llm_analysis"] = llm_result
-        if llm_result:
-            _report(
-                f"✓ AI verdict: {llm_result.brand_verdict} brand, "
-                f"{llm_result.demand_assessment} demand → {llm_result.recommended_action}"
-            )
-        else:
-            _report("– AI analysis unavailable (Ollama offline)")
+        # Step 4: AI analysis — not run on the synchronous path.
+        #
+        # Measured on this machine the 8B model has nowhere to sit: the GPU
+        # is a GT 430 with 1 GB, so llama3.1:8b runs on the CPU and took
+        # 43.7s of a 150s budget. The verdict did not need it — engine/match
+        # and engine/source_type fix match_score/supplier_type/provenance
+        # without the LLM, and DecisionEngine.evaluate takes no LLM
+        # parameter. The brand it contributed only feeds the VeRO lookup.
+        #
+        # So no client is constructed and nothing is awaited: the AI comes
+        # back as null (the UI's null branch renders no AI section) and
+        # returns later as a background enrichment. An absent AI is reported
+        # as absent — the dataclass default that used to stand in for it
+        # read as a verdict nobody gave, and was persisted as one.
+        _open("llm")
+        llm_result: Optional[LLMAnalysis] = None
+        results["llm_analysis"] = None
+        _report("– AI analysis not run here (background enrichment)")
 
         # Step 5: Decision verdict
         _report("Step 5/5 — Applying business rules and profit calculation…")
@@ -536,6 +604,39 @@ async def run_analysis_pipeline(
         logger.exception("Analysis pipeline failed")
         results["errors"].append(str(e))
     finally:
+        # Phase 0 — close whichever step is still open and state the budget.
+        # This runs on every exit path (clean finish, early return, raised
+        # exception), so the accounting is never silently abandoned.
+        if _open_step is not None:
+            results["timing"][_open_step] = time.monotonic() - _opened_at
+        accounted = sum(results["timing"].values())
+        budget_s = PIPELINE_TIMEOUT_S
+        total_s = max(time.monotonic() - _started_at, accounted)
+        results["budget"] = {
+            "total_s": total_s,
+            "budget_s": budget_s,
+            "unaccounted_s": total_s - accounted,
+            "overrun": total_s > budget_s,
+        }
+        if results["budget"]["overrun"]:
+            logger.warning(
+                "Pipeline overran its %.0fs budget in %.1fs (steps: %s)",
+                budget_s,
+                total_s,
+                ", ".join(f"{k}={v:.1f}s" for k, v in results["timing"].items()),
+            )
+        else:
+            logger.info(
+                "Pipeline finished in %.1fs/%.0fs (steps: %s)",
+                total_s,
+                budget_s,
+                ", ".join(f"{k}={v:.1f}s" for k, v in results["timing"].items()),
+            )
+        # Copy into the caller's sink: `results` itself is discarded when we
+        # are cancelled, and this is the only handle the caller still holds.
+        if timing_sink is not None:
+            timing_sink["timing"] = dict(results["timing"])
+            timing_sink["budget"] = dict(results["budget"])
         ebay.close()
 
     return results
@@ -619,6 +720,12 @@ def save_analysis_to_db(results: dict):
                 "supplier_match_notes": llm.supplier_type_reasoning,
                 "llm_raw_response": llm.raw_response,
             })
+        else:
+            # Phase A1 — no AI ran on this path, so there is no AI verdict to
+            # store. Leaving the row an earlier run wrote would have History
+            # replaying someone else's AI output as this run's, with no flag
+            # saying it was not produced now.
+            clear_analysis_data(db, product_id)
 
         if verdict:
             save_verdict_data(db, product_id, {

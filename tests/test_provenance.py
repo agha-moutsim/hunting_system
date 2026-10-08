@@ -195,7 +195,7 @@ def offline_deep_search(monkeypatch):
                         lambda *a, **k: _HALLUCINATED_LLM)
     # Nothing the model proposed could be confirmed against a live page.
     monkeypatch.setattr(ds, "_verify_supplier_candidates",
-                        lambda query, cands: [])
+                        lambda query, cands, deadline=None: [])
     return ds.deep_search_product("widget")
 
 
@@ -226,7 +226,8 @@ def full_deep_search(monkeypatch):
     monkeypatch.setattr(ds, "_fetch_page_text", lambda *a, **k: "")
     monkeypatch.setattr(ds, "_ollama_generate",
                         lambda *a, **k: _HALLUCINATED_LLM)
-    monkeypatch.setattr(ds, "_verify_supplier_candidates", lambda query, cands: [
+    monkeypatch.setattr(ds, "_verify_supplier_candidates",
+                        lambda query, cands, deadline=None: [
         # C14 — a real row always carries the title read off its own page,
         # which is what the matcher scores against. The stub must too, or
         # the row has nothing to match on and gets dropped.
