@@ -1,51 +1,58 @@
 """
 Prompt templates for the eBay product sourcing LLM analyzer.
+
+Length is not cosmetic here. Measured on this machine (2026-10-08) with
+the payload this module builds: 97.5s end to end, of which 39.2s was
+prompt evaluation of 514 tokens and 57.5s was generating 203. Roughly
+half the prompt was our own boilerplate explaining the JSON shape, and
+the box this runs on generates at ~3.5 tok/s - so every sentence of that
+boilerplate costs real seconds.
+
+What was cut: the markdown headers, the repeated "one sentence" prose
+around each field, and the per-supplier verbosity.
+What was NOT cut, and must never be: the enums (they are the schema),
+the data (the model may not reason about what it cannot see), or the
+no-fabrication rule, which lives in SYSTEM_PROMPT.
 """
 
 SYSTEM_PROMPT = (
-    "You are an e-commerce product analysis engine. "
-    "You evaluate eBay products for dropshipping viability. "
-    "Always respond with valid JSON only — no markdown, no explanation outside the JSON. "
+    "You are an e-commerce product analysis engine evaluating eBay products "
+    "for dropshipping viability. "
+    "Respond with valid JSON only - no markdown, no explanation outside the JSON. "
     "You produce ANALYSIS and reasoning only: never invent a supplier name, a "
     "seller name, a price, a URL or a stock figure. Anything factual must come "
-    "from the supplied data below. When a value is absent from that data, "
-    "report it as unknown rather than estimating it."
+    "from the supplied data. When a value is absent from that data, report it "
+    "as unknown rather than estimating it."
 )
 
 ANALYSIS_PROMPT = """\
-Analyze this eBay product listing and supplier matches for dropshipping viability.
+Analyze this eBay listing and its supplier matches for dropshipping viability.
 
-## eBay Product
-Title: {title}
-Price: £{price}
-Condition: {condition}
-Seller: {seller}
+eBay listing
+  {title}
+  Price: GBP {price} | Condition: {condition} | Seller: {seller}
 
-## Demand Data
-Sold in last 30 days: {sold_30d}
-Sold in last 7 days: {sold_7d}
-Average sold price: £{avg_price}
-Price range: £{low_price} – £{high_price}
+Demand, last 30 days
+  sold {sold_30d} (7d {sold_7d}) | avg GBP {avg_price} | range GBP {low_price}-{high_price}
 
-## Supplier Matches (ranked by relevance)
-{supplier_block}
+Supplier matches{supplier_block}
 
-Respond with ONLY this JSON structure:
+Reply with ONLY this JSON, no markdown:
 {{
-  "brand_verdict": "generic" | "branded" | "ambiguous",
-  "brand_name": "<specific brand name mentioned in the title or specs, else empty string>",
+  "brand_verdict": "generic"|"branded"|"ambiguous",
+  "brand_name": "<brand named in the title, else empty string>",
   "brand_reasoning": "<one sentence>",
-  "demand_assessment": "strong" | "moderate" | "weak" | "spike",
+  "demand_assessment": "strong"|"moderate"|"weak"|"spike",
   "demand_reasoning": "<one sentence>",
   "best_supplier_match": {{
-    "name": "<the name of ONE supplier copied EXACTLY from the list above, or omit this object entirely if none fits>",
-    "confidence": <0.0 to 1.0>,
+    "name": "<ONE name copied EXACTLY from the list above, or omit this object entirely if none fits>",
+    "confidence": 0.0,
     "reasoning": "<one sentence>"
   }},
-  "supplier_type": "wholesaler" | "dropship" | "retailer" | "unknown",
+  "supplier_type": "wholesaler"|"dropship"|"retailer"|"unknown",
   "supplier_type_reasoning": "<one sentence>",
-  "recommended_action": "source" | "skip" | "investigate",
-  "risk_flags": ["<any concerns>"]
+  "recommended_action": "source"|"skip"|"investigate",
+  "risk_flags": ["<concern>"]
 }}
 """
 
@@ -53,17 +60,15 @@ Respond with ONLY this JSON structure:
 def format_supplier_block(suppliers: list[dict]) -> str:
     """Format supplier match dicts into the prompt block."""
     if not suppliers:
-        return "No supplier matches found."
+        return "\nNo supplier matches found."
 
     lines: list[str] = []
     for i, s in enumerate(suppliers, 1):
         lines.append(
-            f"{i}. {s.get('name', 'Unknown')} — "
-            f"£{s.get('price', '?')} | "
-            f"Delivery: {s.get('delivery_days', '?')} days | "
-            f"Source: {s.get('source', '?')}"
+            f"\n{i}. {s.get('name', 'Unknown')} | GBP {s.get('price', '?')} | "
+            f"{s.get('delivery_days', '?')}d | {s.get('source', '?')}"
         )
-    return "\n".join(lines)
+    return "".join(lines)
 
 
 def build_analysis_prompt(
@@ -77,7 +82,7 @@ def build_analysis_prompt(
     return ANALYSIS_PROMPT.format(
         title=product.get("title", "N/A"),
         price=product.get("price", "N/A"),
-        # C10/C13 — never default the condition. The scraped value is passed
+        # C10/C13 - never default the condition. The scraped value is passed
         # through verbatim; a missing one reads as "unknown", because a
         # silent "New" here would tell the model the gate already passed.
         condition=product.get("condition") or "unknown",

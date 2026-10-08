@@ -13,6 +13,7 @@ from config import (
     OLLAMA_BASE_URL,
     OLLAMA_KEEP_ALIVE,
     OLLAMA_MODEL,
+    OLLAMA_NUM_PREDICT,
     OLLAMA_TEMPERATURE,
     OLLAMA_TIMEOUT_S,
 )
@@ -63,7 +64,7 @@ class OllamaClient:
             # -1 = keep the model in RAM. On this box loading it costs
             # ~21s, which a call that then has ~55s of budget cannot spare.
             "keep_alive": self.keep_alive,
-            "options": {"temperature": self.temperature, "num_predict": 500},
+            "options": {"temperature": self.temperature, "num_predict": OLLAMA_NUM_PREDICT},
         }
         if system:
             payload["system"] = system

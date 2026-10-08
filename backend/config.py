@@ -66,6 +66,31 @@ OLLAMA_TIMEOUT_S = float(os.getenv("OLLAMA_TIMEOUT_S", "120"))
 # share a client and would otherwise drift.
 OLLAMA_KEEP_ALIVE = int(os.getenv("OLLAMA_KEEP_ALIVE", "-1"))
 
+# Maximum tokens the model may generate for one analysis.
+#
+# Measured on this machine (2026-10-08) with each path's real payload:
+#
+#   Analyze      203 tokens, 57.5s, done_reason=stop
+#   Deep Search  411 tokens, 149.7s, done_reason=stop
+#
+# so num_predict is NOT a speed setting on either happy path - the model
+# stops on its own. It is the ceiling on a runaway answer, and it is set
+# by the LARGER consumer: 350 would have truncated Deep Search's 411
+# mid-JSON, and a truncated JSON is not a slower answer, it is no answer
+# (the parser raises and the whole LLM stage is discarded).
+#
+# 500 gives Deep Search headroom over 411 while cutting its worst case
+# from ~291s (at the old literal 800) to ~185s. Analyze stops at 203 and
+# is unaffected.
+#
+# ONE constant because the two call sites (llm/ollama_client and
+# deep_search._ollama_generate) do not share a client, and they had
+# already drifted to 500 and 800 - the same failure that put a literal
+# 45.0 in four places before OLLAMA_TIMEOUT_S.
+OLLAMA_NUM_PREDICT = int(os.getenv("OLLAMA_NUM_PREDICT", "500"))
+
+
+
 
 # ============================================================
 # eBay UK

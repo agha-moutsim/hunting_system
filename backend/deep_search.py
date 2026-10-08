@@ -32,7 +32,7 @@ from scrapers.availability import parse_stock_text, parse_shipping_text
 # timeout is NOT: it lives in config.OLLAMA_TIMEOUT_S so all four call sites
 # share one value, instead of the four separate `45.0` literals that had
 # drifted apart. See the note on that constant before changing it.
-from config import OLLAMA_KEEP_ALIVE, OLLAMA_TIMEOUT_S
+from config import OLLAMA_KEEP_ALIVE, OLLAMA_NUM_PREDICT, OLLAMA_TIMEOUT_S
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
@@ -224,7 +224,7 @@ def _ollama_generate(
         # llm.OllamaClient, so it needs the same setting of its own.
         "keep_alive": OLLAMA_KEEP_ALIVE,
         "options": {
-            "num_predict": 800,
+            "num_predict": OLLAMA_NUM_PREDICT,
         },
     }
 
