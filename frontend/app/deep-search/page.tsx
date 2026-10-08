@@ -11,9 +11,16 @@ import RangeControl from "@/components/ui/RangeControl";
 import ProvenanceBadge from "@/components/ui/ProvenanceBadge";
 import ProvenanceSelect from "@/components/ui/ProvenanceSelect";
 import EbayStoresCard from "@/components/EbayStoresCard";
-import { apiFetch, apiPost, downloadFile } from "@/lib/api";
+import { ApiError, apiFetch, apiPost, downloadFile } from "@/lib/api";
 import { infoTitle } from "@/lib/provenance";
 import { headerStamps } from "@/lib/fieldProvenance";
+import {
+  DeepSearchJobResult,
+  JobStarted,
+  isTerminalJobStatus,
+  jobFailureMessage,
+  nextPollDelay,
+} from "@/lib/deepSearchJob";
 import {
   DeepSearchResult,
   FiltersResponse,
@@ -47,16 +54,64 @@ export default function DeepSearchPage() {
     setError(null);
     setResult(null);
     try {
-      const path =
-        mode === "full" ? "/api/deep-search" : "/api/deep-search/fast";
-      const data = await apiPost<DeepSearchResult>(path, {
-        query: query.trim(),
-      });
-      setResult(data);
+      if (mode === "full") {
+        // B1 — the request hands back a job id in milliseconds. The run,
+        // and the LLM verdict at the end of it, happens in the background:
+        // a full run costs 282s on this machine, which is why it used to
+        // time out on every attempt.
+        const started = await apiPost<JobStarted>("/api/deep-search", {
+          query: query.trim(),
+        });
+        await pollJob(started.job_id);
+      } else {
+        const data = await apiPost<DeepSearchResult>("/api/deep-search/fast", {
+          query: query.trim(),
+        });
+        setResult(data);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Deep search failed");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function pollJob(jobId: string): Promise<void> {
+    let attempts = 0;
+    for (;;) {
+      const delay = nextPollDelay(attempts);
+      if (delay === null) {
+        setError(
+          "The background job has not reported back — the backend may have restarted. Retry."
+        );
+        return;
+      }
+      await new Promise((r) => setTimeout(r, delay));
+
+      let body: DeepSearchJobResult;
+      try {
+        body = await apiFetch<DeepSearchJobResult>(
+          `/api/deep-search/jobs/${jobId}`
+        );
+      } catch (err) {
+        setError(
+          err instanceof ApiError && err.status === 404
+            ? "That search is no longer available — the backend restarted. Run it again."
+            : err instanceof Error
+              ? err.message
+              : "Lost contact with the search job."
+        );
+        return;
+      }
+
+      // Render what has arrived already: verified eBay and supplier data
+      // shows up stage by stage instead of waiting on the model.
+      setResult(body);
+      const failure = jobFailureMessage(body);
+      if (failure) setError(failure);
+
+      if (isTerminalJobStatus(body.job_status)) return;
+      attempts += 1;
     }
   }
 

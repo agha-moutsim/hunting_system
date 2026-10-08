@@ -1,9 +1,37 @@
-"""Deep search endpoints — full (LLM) and fast (no LLM)."""
+"""Deep search endpoints — full (background job) and fast (no LLM).
+
+B1 — the full route no longer owns the run.
+
+Measured on this box: a full run costs 282.4s (130.6s of prompt evaluation
+over 1611 tokens + 149.7s generating 411) while the route that carried it
+was allowed 120s. It therefore timed out on EVERY call — the LLM verdict
+never arrived, and the user waited two minutes to be told the run had been
+cut short. `_partial_or_timeout` handed back whatever the sink had caught
+by then, which is damage limitation, not a solution.
+
+So the request and the run are now separate things:
+
+  * POST creates a job and returns its id in milliseconds. Nothing can
+    race a connection that has already been answered.
+  * the run executes in the background with a budget sized for its own
+    measured cost, not for an HTTP connection.
+  * GET reports what the sink has published so far, carrying `job_status`
+    on every poll so the UI can say "still running", "failed" or
+    "timed out" instead of rendering an empty verdict (the C13 rule,
+    applied to a job).
+
+The registry is deliberately in-memory with a TTL: a restart losing an
+in-flight job is honest — the poll then 404s and the UI stops. A database
+table would promise persistence we would then have to honour.
+"""
 
 import asyncio
 import logging
+import threading
+import time
+import uuid
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from api.schemas import DeepSearchRequest
 from api.provenance_block import build_provenance_block, unverified_stamp
@@ -11,38 +39,96 @@ from api.provenance_block import build_provenance_block, unverified_stamp
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# Budgets so the UI never hangs indefinitely
+# The synchronous route budgets. FAST still owns one — it has no LLM and
+# finishes inside it. FULL is retained only as the floor the background
+# budget must exceed: it is the budget the full path held before B1, which
+# is precisely the budget that was too small.
 FULL_TIMEOUT_S = 120.0
 FAST_TIMEOUT_S = 75.0
 
+# B1 — what a background run is allowed to take. The measured full run is
+# 282.4s, so 300s gives it its real cost plus margin. A job has no
+# connection to protect, so there is no reason to cut the model off mid
+# verdict the way the route used to.
+JOB_BUDGET_S = 300.0
+
+# Jobs are remembered for this long after creation, then forgotten. Must
+# stay above JOB_BUDGET_S or an overrun would be swept before its timeout
+# could be reported.
+JOB_TTL_S = 600.0
+
+# id -> {"id", "query", "sink", "created", "status", "result"?, "job_error"?}
+_JOBS: dict[str, dict] = {}
+_LOCK = threading.RLock()
+
 
 @router.post("/deep-search")
-def deep_search(req: DeepSearchRequest):
-    """Full deep research: web search + Ollama LLM (bounded ~2 min).
+def deep_search(req: DeepSearchRequest) -> dict:
+    """Start a full deep research job and hand back its id at once.
 
-    A1.4 — the run gets FULL_TIMEOUT_S as ITS budget and publishes into a
-    sink as it goes. asyncio cannot cancel a thread, so without both of
-    those a route timeout would discard everything already fetched and
-    answer with an all-zero payload.
+    Returns immediately with `job_id` + `status`. The run itself — eBay
+    query, supplier scrapes, then the LLM verdict — happens on a worker
+    thread. Poll GET /deep-search/jobs/{job_id} for progress.
     """
-    from deep_search import deep_search_product
+    job = _create_job(req.query)
+    # Captured before the worker exists: read after _spawn_job this would
+    # be a race, reporting whichever state the thread had reached by the
+    # time the response was built. POST describes the creation, not the
+    # outcome - the poll reports the outcome.
+    status = job["status"]
+    _spawn_job(job)
+    logger.info("Deep search job %s started for %r", job["id"], req.query)
+    return {"job_id": job["id"], "status": status, "query": job["query"]}
 
-    sink: dict = {}
-    try:
-        result = asyncio.run(
-            asyncio.wait_for(
-                _to_thread(deep_search_product, req.query, FULL_TIMEOUT_S, sink),
-                timeout=FULL_TIMEOUT_S,
+
+@router.get("/deep-search/jobs/{job_id}")
+def deep_search_job(job_id: str) -> dict:
+    """Report a job's current state — partial results included.
+
+    The payload is always shaped like a DeepSearchResult, whether the run
+    has finished or has barely begun, so the caller can render whatever it
+    has without guarding every field.
+    """
+    _prune_jobs()
+    with _LOCK:
+        job = _JOBS.get(job_id)
+        if job is None:
+            raise HTTPException(
+                404,
+                "Job not found — it either never existed or has expired.",
             )
-        )
-    except (TimeoutError, asyncio.TimeoutError):
-        return _partial_or_timeout(req.query, FULL_TIMEOUT_S, sink, full=True)
-    return _response(result)
+        status = job["status"]
+        query = job["query"]
+        job_error = job.get("job_error")
+        sink_result = job["sink"].get("result")
+
+        if status == "running" and time.monotonic() - job["created"] > JOB_BUDGET_S:
+            # The thread cannot be cancelled, so this only decides what we
+            # TELL the caller. It stays timed_out even if the worker limps
+            # home afterwards: the answer it is waiting for has already
+            # been declared late.
+            status = "timed_out"
+            job["status"] = "timed_out"
+            job["job_error"] = (
+                f"Background run did not finish within {int(JOB_BUDGET_S)}s"
+            )
+            job_error = job["job_error"]
+
+        payload = _payload_for(status, query, sink_result, job_error)
+        payload["job_id"] = job_id
+        payload["job_status"] = status
+        if job_error:
+            payload["job_error"] = job_error
+        return payload
 
 
 @router.post("/deep-search/fast")
 def deep_search_fast(req: DeepSearchRequest):
-    """Fast deep research: eBay sold + key supplier scrapes, NO LLM (~15-45s)."""
+    """Fast deep research: eBay sold + key supplier scrapes, NO LLM (~15-45s).
+
+    Still synchronous: with the model out of the picture it finishes inside
+    FAST_TIMEOUT_S, so there is no job to poll for.
+    """
     from deep_search import deep_search_fast as _fast
 
     sink: dict = {}
@@ -56,6 +142,99 @@ def deep_search_fast(req: DeepSearchRequest):
     except (TimeoutError, asyncio.TimeoutError):
         return _partial_or_timeout(req.query, FAST_TIMEOUT_S, sink, full=False)
     return _response(result)
+
+
+def _create_job(query: str) -> dict:
+    with _LOCK:
+        _prune_jobs_locked()
+        job = {
+            "id": uuid.uuid4().hex,
+            "query": query,
+            "sink": {},
+            "created": time.monotonic(),
+            "status": "running",
+        }
+        _JOBS[job["id"]] = job
+        return job
+
+
+def _spawn_job(job: dict) -> None:
+    threading.Thread(
+        target=_execute_job,
+        args=(job,),
+        name=f"deep-search-{job['id'][:8]}",
+        daemon=True,
+    ).start()
+
+
+def _execute_job(job: dict) -> None:
+    """Run the search for a job and record how it ended. Never raises.
+
+    A thread has no caller to raise into — an unhandled exception here
+    would print a traceback and leave the job "running" forever, so the
+    failure has to be written into the job where the poll can read it.
+    """
+    from deep_search import deep_search_product
+
+    try:
+        result = deep_search_product(job["query"], JOB_BUDGET_S, job["sink"])
+    except Exception as exc:  # noqa: BLE001 - the job record is the report
+        logger.exception("Deep search job %s failed", job["id"])
+        job["status"] = "failed"
+        job["job_error"] = str(exc) or exc.__class__.__name__
+        return
+
+    job["result"] = result
+    if job["status"] == "running":
+        job["status"] = "complete"
+
+
+def _prune_jobs() -> None:
+    with _LOCK:
+        _prune_jobs_locked()
+
+
+def _prune_jobs_locked() -> None:
+    cutoff = time.monotonic() - JOB_TTL_S
+    for job_id in [k for k, v in _JOBS.items() if v["created"] < cutoff]:
+        del _JOBS[job_id]
+
+
+def _payload_for(status: str, query: str, sink_result, job_error: str | None) -> dict:
+    """Build the poll payload for one job status.
+
+    An overrun answers with the run's own work via `_partial_or_timeout`,
+    because the sink already holds everything the run finished fetching —
+    throwing it away to say "timed out" is the exact failure B1 exists to
+    stop.
+    """
+    if status == "timed_out":
+        return _partial_or_timeout(
+            query, JOB_BUDGET_S, {"result": sink_result} if sink_result else {},
+            full=True,
+        )
+
+    from deep_search import DeepSearchResult
+
+    if sink_result is None:
+        blank = DeepSearchResult(product_name=query)
+        blank.verdict = "PENDING"
+        if status == "failed":
+            blank.notes = f"Background job failed: {job_error}"
+        elif status == "running":
+            blank.notes = "Background job still running — poll again shortly."
+        else:
+            blank.notes = "Background job finished without a result."
+        payload = blank.to_dict()
+        reason = f"background job {status}"
+        if job_error:
+            reason = f"{reason}: {job_error}"
+        payload["provenance"] = build_provenance_block(payload, reason=reason)
+        return payload
+
+    payload = sink_result.to_dict()
+    payload["provenance"] = build_provenance_block(payload)
+    return payload
 
 
 def _response(result) -> dict:
@@ -104,17 +283,18 @@ def _timeout_result(query: str, seconds: float, full: bool) -> dict:
 
 def _partial_or_timeout(query: str, seconds: float, sink: dict | None,
                         *, full: bool) -> dict:
-    """Answer a route timeout with whatever the run had already finished.
+    """Answer with whatever the run had already finished.
 
-    A1.4. ``deep_search_product`` publishes into ``sink`` between stages
+    A1.4 — and, after B1, what an overrunning background job answers with
+    as well. `deep_search_product` publishes into ``sink`` between stages
     precisely so this branch has something to hand back: the run cannot be
-    cancelled, so without the sink the route threw away a completed eBay
-    query, its stores and every verified supplier, and answered with an
-    all-zero object that looks like the product does not sell.
+    cancelled, so without the sink the fetch of a completed eBay query, its
+    stores and every verified supplier would be discarded and the answer
+    would be an all-zero object that looks like the product does not sell.
 
     The run's own stamps are kept rather than a blanket reason: what WAS
-    fetched still reads verified (C13), and the timeout itself is reported
-    where a timeout belongs — in ``filters_passed`` and ``notes``. Stamping
+    fetched still reads verified (C13), and the overrun itself is reported
+    where an overrun belongs — in ``filters_passed`` and ``notes``. Stamping
     fetched data "timed out" would trade one falsehood for another.
     """
     partial = (sink or {}).get("result")

@@ -2,12 +2,15 @@
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-/** Default per-endpoint timeouts (ms). Long ops can override. */
+/** Default per-endpoint timeouts (ms). Long ops can override.
+ *  Matched by longest prefix first (`startsWith`), so the more specific
+ *  path must be listed before the one that contains it. */
 const DEFAULT_TIMEOUT_MS = 60_000;
 const TIMEOUT_OVERRIDES: Record<string, number> = {
-  "/api/analyze": 180_000,
-  "/api/deep-search": 240_000,
+  "/api/deep-search/jobs/": 15_000, // one poll; must fail fast, not hang
   "/api/deep-search/fast": 90_000,
+  "/api/deep-search": 15_000, // B1: hands back a job id in milliseconds
+  "/api/analyze": 180_000,
   "/api/bulk": 180_000,
   "/api/hunter/scan": 90_000,
   "/api/hunter/lookup": 120_000,

@@ -552,7 +552,15 @@ class TestTheRunOwnsABudgetBelowTheRoutes:
 
 
 class TestTheRouteAnswersWithWhatItFound:
-    def test_the_run_receives_the_route_budget_and_the_sink(self, monkeypatch):
+    def test_the_worker_hands_the_run_the_budget_and_a_sink(self, monkeypatch):
+        """B1 moved the run out of the request, so the budget and the sink
+        now travel through the job worker instead of through the route.
+
+        What must not change is the point of the original test: the run is
+        given a budget AND a sink, and a run that blows its budget leaves
+        its fetched data in that sink for the poll to return, instead of
+        the caller receiving a blank object that reads like the product
+        does not sell."""
         import api.deep_search as api_ds
         from api.schemas import DeepSearchRequest
 
@@ -562,16 +570,27 @@ class TestTheRouteAnswersWithWhatItFound:
             seen["budget"] = budget_s
             seen["sink"] = sink
             if sink is not None:
-                sink["result"] = ds.DeepSearchResult(product_name=query)
+                # something a blank payload could never carry
+                sink["result"] = ds.DeepSearchResult(
+                    product_name=query, ebay_total_sold_30d=42
+                )
             raise TimeoutError("budget exhausted")
 
         monkeypatch.setattr(ds, "deep_search_product", _run)
-        payload = api_ds.deep_search(DeepSearchRequest(query="widget"))
+        job = api_ds.deep_search(DeepSearchRequest(query="widget"))
+        api_ds._execute_job(api_ds._JOBS[job["job_id"]])
 
-        assert seen["budget"] == api_ds.FULL_TIMEOUT_S
+        assert seen["budget"] == api_ds.JOB_BUDGET_S
         assert isinstance(seen["sink"], dict)
+        # the thread has no caller to raise into, so the failure is
+        # written into the job where the poll reads it
+        assert api_ds._JOBS[job["job_id"]]["status"] == "failed"
+        assert "budget exhausted" in api_ds._JOBS[job["job_id"]]["job_error"]
+
+        payload = api_ds.deep_search_job(job["job_id"])
         # the sink, not the blank, is what came back
-        assert payload["filters_passed"][0]["actual"].startswith("Timed out")
+        assert payload["ebay_total_sold_30d"] == 42
+        assert payload["job_status"] == "failed"
 
     def test_an_empty_sink_still_reads_as_a_plain_timeout(self, monkeypatch):
         from api.deep_search import _partial_or_timeout
@@ -930,9 +949,11 @@ class TestDeepSearchTimeoutResponse:
     """C11 — the deep-search endpoints surface the store key even when the
     budget expires; C13 — an unstamped empty block is never 'verified'."""
 
-    @pytest.mark.parametrize("endpoint", ["deep_search", "deep_search_fast"])
+    @pytest.mark.parametrize("endpoint", ["deep_search_fast"])
     def test_timeout_keeps_the_store_key_and_never_claims_verified(
             self, monkeypatch, endpoint):
+        """Fast is still synchronous, so its budget still expires at the
+        route. The full path moved to a job — see the test below."""
         import api.deep_search as api_ds
         from api.schemas import DeepSearchRequest
 
@@ -942,6 +963,41 @@ class TestDeepSearchTimeoutResponse:
         monkeypatch.setattr(api_ds, "_to_thread", _hang)
         resp = getattr(api_ds, endpoint)(DeepSearchRequest(query="widget"))
 
+        assert resp["ebay_stores"] == []
+        assert resp["ebay_stores_provenance"].get("provenance") != (
+            Provenance.VERIFIED.value)
+
+    def test_an_overrunning_job_still_surfaces_the_store_key(
+            self, monkeypatch):
+        """B1 — the full path no longer times out at the route; it times
+        out at the poll. The guarantee it must keep is identical: the
+        store key is present, and an empty block never reads verified."""
+        import threading
+        import time
+
+        import api.deep_search as api_ds
+        from api.schemas import DeepSearchRequest
+
+        started, release = threading.Event(), threading.Event()
+
+        def _hang(query, budget_s=None, sink=None):
+            started.set()
+            release.wait(5)
+            return ds.DeepSearchResult(product_name=query)
+
+        monkeypatch.setattr(ds, "deep_search_product", _hang)
+        job = api_ds.deep_search(DeepSearchRequest(query="widget"))
+        assert started.wait(2), "worker never started"
+
+        # the job is now past every budget it will ever be given
+        monkeypatch.setattr(api_ds, "JOB_BUDGET_S", 0.0)
+        time.sleep(0.01)
+        try:
+            resp = api_ds.deep_search_job(job["job_id"])
+        finally:
+            release.set()
+
+        assert resp["job_status"] == "timed_out"
         assert resp["ebay_stores"] == []
         assert resp["ebay_stores_provenance"].get("provenance") != (
             Provenance.VERIFIED.value)
