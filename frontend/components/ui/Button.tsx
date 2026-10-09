@@ -27,7 +27,7 @@ export default function Button({
 } & ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
     <button
-      className={`px-4 py-2 rounded-control text-sm font-semibold disabled:opacity-60 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-lime ${styles[variant]} ${className}`}
+      className={`px-4 py-2 rounded-control text-sm font-semibold disabled:opacity-60 disabled:cursor-not-allowed focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-lime ${styles[variant]} ${className}`}
       {...props}
     >
       {children}

@@ -157,7 +157,7 @@ export default function HistoryPage() {
       render: (r) => (
         <Button
           variant="ghost"
-          className="!px-2 !py-1 text-xs"
+          className="px-2! py-1! text-xs"
           onClick={() => openDetail(r.id)}
         >
           Open
@@ -244,7 +244,7 @@ export default function HistoryPage() {
           <select
             value={verdict}
             onChange={(e) => setVerdict(e.target.value)}
-            className="bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-blue"
+            className="bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-hidden focus:border-accent-blue"
           >
             <option value="All">All verdicts</option>
             <option value="pass">PASS</option>

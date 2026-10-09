@@ -30,7 +30,7 @@ function Metric({
   return (
     <div className="bg-bg-surface border border-border rounded-control p-3">
       <div className="flex flex-wrap items-center justify-between gap-1 mb-1">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.05em] text-text-dim">
+        <div className="text-[11px] font-semibold uppercase tracking-wider text-text-dim">
           {label}
         </div>
         {prov && (
@@ -186,7 +186,7 @@ export default function Scorecard({
                   key={i}
                   className="bg-bg-surface border border-border rounded-control p-3"
                 >
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.05em] text-text-dim mb-1">
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-text-dim mb-1">
                     {s.source}
                   </div>
                   <div className="text-lg font-bold text-white font-mono tabular-nums">
@@ -271,7 +271,7 @@ export default function Scorecard({
               before sold_prices existed render nothing here. */}
             {demand.sold_prices && demand.sold_prices.length > 0 && (
               <div className="mt-3 bg-bg-surface border border-border rounded-control p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.05em] text-text-dim mb-2">
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-text-dim mb-2">
                   Sold price distribution
                 </div>
                 <SoldPriceDistribution

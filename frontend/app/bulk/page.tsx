@@ -109,7 +109,7 @@ export default function BulkPage() {
             placeholder={
               "wireless earbuds\nphone case\nkitchen organizer\n…one query per line"
             }
-            className="w-full bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder-text-dim focus:outline-none focus:border-accent-blue min-h-[120px]"
+            className="w-full bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder-text-dim focus:outline-hidden focus:border-accent-blue min-h-[120px]"
             disabled={loading}
           />
           <div className="flex flex-wrap items-center gap-3">

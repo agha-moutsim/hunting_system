@@ -60,11 +60,15 @@ export default function DashboardPage() {
     try {
       const [k, rev, pro, c, m, tp, s] = await Promise.all([
         apiFetch<Kpis>(`/api/dashboard/kpis?days=${days}`),
-        apiFetch<TrendChart>(`/api/dashboard/charts/revenue-trend?days=${days}`),
+        apiFetch<TrendChart>(
+          `/api/dashboard/charts/revenue-trend?days=${days}`
+        ),
         apiFetch<TrendChart>(`/api/dashboard/charts/profit-trend?days=${days}`),
         apiFetch<CategoryBreakdown>("/api/dashboard/charts/categories"),
         apiFetch<MonthlyComparison>("/api/dashboard/charts/monthly"),
-        apiFetch<{ products: TopItem[] }>("/api/dashboard/top-products?limit=5"),
+        apiFetch<{ products: TopItem[] }>(
+          "/api/dashboard/top-products?limit=5"
+        ),
         apiFetch<{ sales: Sale[] }>("/api/sales?limit=100"),
       ]);
       setKpis(k);
@@ -179,7 +183,9 @@ export default function DashboardPage() {
       header: "Profit",
       align: "right",
       render: (r) => (
-        <span className={r.profit >= 0 ? "text-accent-green" : "text-accent-red"}>
+        <span
+          className={r.profit >= 0 ? "text-accent-green" : "text-accent-red"}
+        >
           {formatGBP(r.profit)} ({formatPercent(r.margin_percent)})
         </span>
       ),
@@ -192,7 +198,7 @@ export default function DashboardPage() {
       render: (r) => (
         <Button
           variant="danger"
-          className="!px-2 !py-1 text-xs"
+          className="px-2! py-1! text-xs"
           onClick={() => setConfirmId(r.id)}
         >
           Delete
@@ -214,16 +220,26 @@ export default function DashboardPage() {
           <select
             value={days}
             onChange={(e) => setDays(parseInt(e.target.value))}
-            className="bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-blue"
+            className="bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-hidden focus:border-accent-blue"
           >
             <option value={7}>Last 7 days</option>
             <option value={30}>Last 30 days</option>
             <option value={90}>Last 90 days</option>
           </select>
-          <Button variant="secondary" onClick={() => downloadFile("/api/export/csv?type=sales", "sales.csv")}>
+          <Button
+            variant="secondary"
+            onClick={() =>
+              downloadFile("/api/export/csv?type=sales", "sales.csv")
+            }
+          >
             Export CSV
           </Button>
-          <Button variant="secondary" onClick={() => downloadFile("/api/export/json?type=sales", "sales.json")}>
+          <Button
+            variant="secondary"
+            onClick={() =>
+              downloadFile("/api/export/json?type=sales", "sales.json")
+            }
+          >
             Export JSON
           </Button>
           <Button onClick={() => setShowForm(!showForm)}>
@@ -240,7 +256,10 @@ export default function DashboardPage() {
 
       {showForm && (
         <Card title="Log a sale">
-          <form onSubmit={logSale} className="grid sm:grid-cols-2 lg:grid-cols-6 gap-3">
+          <form
+            onSubmit={logSale}
+            className="grid sm:grid-cols-2 lg:grid-cols-6 gap-3"
+          >
             <div className="lg:col-span-2">
               <Label>Product name</Label>
               <Input
@@ -315,7 +334,10 @@ export default function DashboardPage() {
       {loading ? (
         <Card>
           <Spinner label="Loading dashboard…" />
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-4" aria-hidden>
+          <div
+            className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-4"
+            aria-hidden
+          >
             <div className="skeleton h-20 rounded-xl" />
             <div className="skeleton h-20 rounded-xl" />
             <div className="skeleton h-20 rounded-xl" />
@@ -335,7 +357,9 @@ export default function DashboardPage() {
                   : undefined
               }
               deltaGood={
-                kpis?.growth_revenue != null ? kpis.growth_revenue >= 0 : undefined
+                kpis?.growth_revenue != null
+                  ? kpis.growth_revenue >= 0
+                  : undefined
               }
             />
             <KpiCard
@@ -347,7 +371,9 @@ export default function DashboardPage() {
                   : undefined
               }
               deltaGood={
-                kpis?.growth_profit != null ? kpis.growth_profit >= 0 : undefined
+                kpis?.growth_profit != null
+                  ? kpis.growth_profit >= 0
+                  : undefined
               }
             />
             <KpiCard
@@ -363,16 +389,10 @@ export default function DashboardPage() {
 
           <div className="grid lg:grid-cols-2 gap-4">
             <Card title={`Revenue trend (${days}d)`}>
-              <TrendLine
-                data={toPoints(revenue)}
-                color="#0D1CC4"
-              />
+              <TrendLine data={toPoints(revenue)} color="#0D1CC4" />
             </Card>
             <Card title={`Profit trend (${days}d)`}>
-              <TrendLine
-                data={toPoints(profit)}
-                color="#CBFD03"
-              />
+              <TrendLine data={toPoints(profit)} color="#CBFD03" />
             </Card>
           </div>
 
@@ -437,7 +457,9 @@ export default function DashboardPage() {
                   <span className="text-text-primary">Last {days} days</span>
                 </div>
                 {kpis?.error && (
-                  <div className="text-accent-amber text-xs">⚠️ {kpis.error}</div>
+                  <div className="text-accent-amber text-xs">
+                    ⚠️ {kpis.error}
+                  </div>
                 )}
               </div>
             </Card>

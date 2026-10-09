@@ -67,7 +67,7 @@ export default function AnalyzePage() {
         </p>
       </div>
 
-      <Card className="bg-gradient-to-br from-bg-secondary to-bg-primary">
+      <Card className="bg-linear-to-br from-bg-secondary to-bg-primary">
         <form onSubmit={onSubmit} className="flex flex-col sm:flex-row gap-3">
           <div className="flex-1">
             <Input

@@ -261,7 +261,7 @@ export default function WatchlistPage() {
       render: (r) => (
         <Button
           variant="danger"
-          className="!px-2 !py-1 text-xs"
+          className="px-2! py-1! text-xs"
           onClick={() => setConfirm({ kind: "watch", id: r.id })}
         >
           Delete
@@ -339,7 +339,7 @@ export default function WatchlistPage() {
         !r.is_read ? (
           <Button
             variant="ghost"
-            className="!px-2 !py-1 text-xs"
+            className="px-2! py-1! text-xs"
             onClick={() => markRead(r.id)}
           >
             Mark read
@@ -535,7 +535,7 @@ export default function WatchlistPage() {
                   </div>
                   <Button
                     variant="danger"
-                    className="!px-2 !py-1 text-xs"
+                    className="px-2! py-1! text-xs"
                     onClick={() => setConfirm({ kind: "search", id: s.id })}
                   >
                     ✕
@@ -552,7 +552,7 @@ export default function WatchlistPage() {
                 </div>
                 <Button
                   variant="secondary"
-                  className="w-full !py-1.5 text-xs"
+                  className="w-full py-1.5! text-xs"
                   onClick={() => runSearch(s.id)}
                   disabled={busy != null}
                 >

@@ -65,7 +65,7 @@ export default function EbayStoresCard({
             >
               <span className="truncate">{s.name || "—"}</span>
               {s.url_derived && (
-                <span className="text-[10px] font-semibold uppercase tracking-[0.05em] text-text-dim border border-border rounded px-1 shrink-0">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-text-dim border border-border rounded-sm px-1 shrink-0">
                   derived
                 </span>
               )}

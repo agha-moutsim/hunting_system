@@ -1,6 +1,67 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+@theme {
+  --color-bg-primary: #27233f;
+  --color-bg-secondary: #312c4d;
+  --color-bg-surface: #3b3560;
+  --color-bg-hover: #4a4470;
+  --color-bg-sidebar: #211e35;
+
+  --color-border: #4b525e;
+  --color-border-strong: #5e6575;
+  --color-border-focus: #0d1cc4;
+
+  --color-text-primary: #ffffff;
+  --color-text-secondary: #b7bbc6;
+  --color-text-dim: #8a90a0;
+
+  --color-accent-blue: #0d1cc4;
+  --color-accent-blue-dark: #0b17a8;
+  --color-accent-red: #ff5c5c;
+  --color-accent-green: #cbfd03;
+  --color-accent-green-soft: #bec97d;
+  --color-accent-amber: #ffc857;
+  --color-accent-purple: #8b5cf6;
+
+  --color-brand-blue: #0d1cc4;
+  --color-brand-blue-dark: #0b17a8;
+  --color-brand-lime: #cbfd03;
+  --color-brand-lime-soft: #bec97d;
+  --color-brand-dark: #27233f;
+  --color-brand-gray: #4b525e;
+
+  --font-sans: var(--font-jakarta), system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, monospace;
+
+  --radius-control: 6px;
+  --radius-card: 10px;
+
+  --shadow-card:
+    0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(13, 28, 196, 0.08);
+  --shadow-elev:
+    0 4px 6px rgba(0, 0, 0, 0.35), 0 12px 32px rgba(13, 28, 196, 0.12);
+  --shadow-focus: 0 0 0 2px #27233f, 0 0 0 4px #cbfd03;
+
+  --default-transition-duration: 150ms;
+}
+
+/*
+  The default border color has changed to `currentcolor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+}
 
 :root {
   --blue: #0d1cc4;
@@ -66,12 +127,7 @@ body {
 
 /* Skeleton loading */
 .skeleton {
-  background: linear-gradient(
-    90deg,
-    #3b3560 25%,
-    #4b525e 50%,
-    #3b3560 75%
-  );
+  background: linear-gradient(90deg, #3b3560 25%, #4b525e 50%, #3b3560 75%);
   background-size: 200% 100%;
   animation: skeleton-loading 1.5s infinite;
   border-radius: 8px;
@@ -88,8 +144,12 @@ body {
 
 /* Buttons */
 button {
-  transition: background-color 150ms ease-out, color 150ms ease-out,
-    border-color 150ms ease-out, transform 120ms ease-out, opacity 150ms ease-out;
+  transition:
+    background-color 150ms ease-out,
+    color 150ms ease-out,
+    border-color 150ms ease-out,
+    transform 120ms ease-out,
+    opacity 150ms ease-out;
 }
 
 button:active:not(:disabled) {

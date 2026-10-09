@@ -203,7 +203,7 @@ export default function TrackerPage() {
         <div className="flex justify-end gap-2">
           <Button
             variant="secondary"
-            className="!px-2 !py-1 text-xs"
+            className="px-2! py-1! text-xs"
             onClick={() => checkPrice(r.id)}
             disabled={checkingId === r.id}
           >
@@ -211,14 +211,14 @@ export default function TrackerPage() {
           </Button>
           <Button
             variant="ghost"
-            className="!px-2 !py-1 text-xs"
+            className="px-2! py-1! text-xs"
             onClick={() => showHistory(r)}
           >
             History
           </Button>
           <Button
             variant="danger"
-            className="!px-2 !py-1 text-xs"
+            className="px-2! py-1! text-xs"
             onClick={() => setConfirmId(r.id)}
           >
             Delete

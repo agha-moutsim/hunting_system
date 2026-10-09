@@ -158,7 +158,7 @@ export default function DeepSearchPage() {
                 value={mode}
                 onChange={(e) => setMode(e.target.value as "fast" | "full")}
                 disabled={loading}
-                className="bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-blue"
+                className="bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-hidden focus:border-accent-blue"
               >
                 <option value="fast">Fast (~15s, no LLM)</option>
                 <option value="full">Full (LLM, minutes)</option>
@@ -322,7 +322,7 @@ export default function DeepSearchPage() {
               numbers. Holds no per-sale prices and it says so instead of
               drawing a bar over a gap. */}
             <div className="mt-3 bg-bg-surface border border-border rounded-control p-4">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.05em] text-text-dim mb-2">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-text-dim mb-2">
                 Sold price distribution
               </div>
               <SoldPriceDistribution

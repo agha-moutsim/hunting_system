@@ -22,14 +22,62 @@ const NAV: {
   group: string;
   Icon: NavIcon;
 }[] = [
-  { href: "/analyze", label: "Analyze", key: "1", group: "Research", Icon: IconAnalyze },
-  { href: "/deep-search", label: "Deep Search", key: "2", group: "Research", Icon: IconDeepDive },
-  { href: "/bulk", label: "Bulk Analysis", key: "3", group: "Research", Icon: IconBulk },
-  { href: "/hunter", label: "Category Hunter", key: "4", group: "Research", Icon: IconCategories },
-  { href: "/tracker", label: "Price Tracker", key: "5", group: "Track", Icon: IconPricing },
-  { href: "/watchlist", label: "Watchlist", key: "6", group: "Track", Icon: IconWishlist },
-  { href: "/dashboard", label: "Dashboard", key: "7", group: "Review", Icon: IconDashboard },
-  { href: "/history", label: "History", key: "8", group: "Review", Icon: IconHistory },
+  {
+    href: "/analyze",
+    label: "Analyze",
+    key: "1",
+    group: "Research",
+    Icon: IconAnalyze,
+  },
+  {
+    href: "/deep-search",
+    label: "Deep Search",
+    key: "2",
+    group: "Research",
+    Icon: IconDeepDive,
+  },
+  {
+    href: "/bulk",
+    label: "Bulk Analysis",
+    key: "3",
+    group: "Research",
+    Icon: IconBulk,
+  },
+  {
+    href: "/hunter",
+    label: "Category Hunter",
+    key: "4",
+    group: "Research",
+    Icon: IconCategories,
+  },
+  {
+    href: "/tracker",
+    label: "Price Tracker",
+    key: "5",
+    group: "Track",
+    Icon: IconPricing,
+  },
+  {
+    href: "/watchlist",
+    label: "Watchlist",
+    key: "6",
+    group: "Track",
+    Icon: IconWishlist,
+  },
+  {
+    href: "/dashboard",
+    label: "Dashboard",
+    key: "7",
+    group: "Review",
+    Icon: IconDashboard,
+  },
+  {
+    href: "/history",
+    label: "History",
+    key: "8",
+    group: "Review",
+    Icon: IconHistory,
+  },
 ];
 
 function Brand() {
@@ -95,7 +143,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-screen">
       <button
-        className="fixed top-3 left-3 z-50 md:hidden bg-bg-surface border border-border rounded-control px-3 py-2 text-text-secondary hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-lime"
+        className="fixed top-3 left-3 z-50 md:hidden bg-bg-surface border border-border rounded-control px-3 py-2 text-text-secondary hover:text-white focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-brand-lime"
         onClick={() => setSidebarOpen(!sidebarOpen)}
         aria-label="Toggle menu"
       >
@@ -148,7 +196,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                         className={`w-5 h-5 shrink-0 ${active ? "text-brand-lime" : ""}`}
                       />
                       <span className="flex-1">{item.label}</span>
-                      <kbd className="hidden lg:inline text-[10px] text-text-dim border border-border rounded px-1 font-mono">
+                      <kbd className="hidden lg:inline text-[10px] text-text-dim border border-border rounded-sm px-1 font-mono">
                         ^{item.key}
                       </kbd>
                     </Link>
