@@ -26,6 +26,7 @@ analysis.
 from __future__ import annotations
 
 from typing import Any, Iterable, Optional
+from urllib.parse import urlparse
 
 from config import EBAY_UK_BASE, STORE_COUNT
 
@@ -98,11 +99,22 @@ def store_url_from_observed_slug(slug: str) -> str:
 
 
 def is_observed_store_url(url: Any) -> bool:
-    """True only for a real ``/str/`` href read off an eBay page."""
+    """True only for an https ``/str/`` href on eBay's own host.
+
+    The host check is load-bearing: a hostile or scraped-elsewhere value such
+    as ``https://evil.example/str/x`` has the right shape but is not something
+    eBay served us, so it must never be presented as an observed storefront.
+    """
     text = str(url or "").strip()
-    if not text.lower().startswith(("http://", "https://")):
+    if not text.lower().startswith("https://"):
         return False
-    return "/str/" in text
+    if "/str/" not in text:
+        return False
+    try:
+        host = urlparse(text).hostname or ""
+    except ValueError:
+        return False
+    return host == "ebay.co.uk" or host.endswith(".ebay.co.uk")
 
 
 # ---------------------------------------------------------------------------
@@ -293,11 +305,21 @@ def stores_from_top_sellers(top_sellers: Iterable[dict],
         if not isinstance(s, dict):
             continue
         name = s.get("name") or s.get("seller") or ""
-        count = int(s.get("sold_count") or 0)
+        # A malformed row must be skipped, never raised (C11) — a scraper
+        # dict with sold_count="x" is dropped rather than crashing discovery.
+        try:
+            count = int(s.get("sold_count") or 0)
+        except (TypeError, ValueError):
+            continue
         avg = s.get("avg_price")
-        if avg is None:
-            total = float(s.get("total_price") or 0.0)
-            avg = total / count if count else 0.0
+        try:
+            if avg is None:
+                total = float(s.get("total_price") or 0.0)
+                avg = total / count if count else 0.0
+            else:
+                avg = float(avg)
+        except (TypeError, ValueError):
+            continue
         clean = normalise_username(name)
         seen_url = s.get("store_url") or ""
         if clean and clean not in observed and is_observed_store_url(seen_url):
