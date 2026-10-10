@@ -35,3 +35,6 @@ Thumbs.db
 
 # Node (root tooling: husky + lint-staged + prettier)
 node_modules/
+
+# runtime logs written by start.ps1
+.logs/

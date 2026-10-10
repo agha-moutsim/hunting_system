@@ -4,7 +4,10 @@
   "scripts": {
     "prepare": "husky",
     "typecheck": "npm --prefix frontend run typecheck",
-    "test": "python -m pytest tests/ -q --ignore=tests/test_phase3.py"
+    "test": "python -m pytest tests/ -q --ignore=tests/test_phase3.py",
+    "start": "powershell -ExecutionPolicy Bypass -File ./start.ps1",
+    "stop": "powershell -ExecutionPolicy Bypass -File ./stop.ps1",
+    "check": "powershell -ExecutionPolicy Bypass -File ./check.ps1"
   },
   "devDependencies": {
     "husky": "^9.1.7",
