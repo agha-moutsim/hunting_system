@@ -10,8 +10,13 @@ Two rules from the spec that shape every function here:
   * ``sold_count`` is **listings observed in the search window (cap 50)** —
     it is NOT eBay's sold count. It travels with a human label
     (``sold_count_label``) so no consumer can silently promote it.
-  * the store URL is **derived** as ``ebay.co.uk/str/{username}``, never
-    observed on the page. Every row therefore carries ``url_derived: True``.
+  * a ``/str/`` storefront URL is emitted **only when that exact href was
+    read off an eBay page** (REGRESSION-007). It used to be derived from the
+    username, which conflated two different eBay identifiers and produced
+    dead "Store not found" links wearing a ``verified`` stamp. A seller we
+    have a username for but never saw a storefront link for gets the
+    canonical ``/usr/`` profile instead, marked ``url_kind="seller_profile"``
+    and stamped unverified with the reason attached.
 
 Discovery is designed to cost **no extra network calls**: the sold-listing
 and demand queries already return seller usernames, and callers were simply
@@ -749,30 +754,58 @@ def store_provenance_block(stores: Optional[list], ladder: Optional[dict] = None
     found = bool(stores)
     short = bool(found) and len(stores) < MAX_STORES
 
-    prov = Provenance.VERIFIED if (found and not short) else Provenance.UNVERIFIED
+    # REGRESSION-007: the block may never be stamped stronger than the rows it
+    # describes. A live Phase 7 run showed the block reading `verified` while
+    # every row beneath it read `unverified` — four real SELLERS, but not one
+    # confirmed STOREFRONT. Counting sellers is not confirming shops, so a
+    # block with no confirmed storefront is unverified whatever the count.
+    unconfirmed = found and any(
+        r.get("provenance") != Provenance.VERIFIED.value for r in stores
+    )
+
+    prov = (Provenance.VERIFIED
+            if (found and not short and not unconfirmed)
+            else Provenance.UNVERIFIED)
     entry: dict[str, Any] = {"provenance": prov.value, "label": prov.label}
 
     if found:
-        entry["source_name"] = SOURCE_NAME
-        entry["method"] = (
-            f"aggregated seller.username from eBay sold-listing search; "
-            f"top {len(stores)} by observed count, cap {OBSERVED_WINDOW}"
+        confirmed = sum(
+            1 for r in stores if r.get("provenance") == Provenance.VERIFIED.value
         )
+        entry["confirmed_storefronts"] = confirmed
         entry["store_count"] = len(stores)
         entry["max_stores"] = MAX_STORES
+        if confirmed:
+            entry["source_name"] = SOURCE_NAME
+            entry["method"] = (
+                f"aggregated seller.username from eBay sold-listing search; "
+                f"top {len(stores)} by observed count, cap {OBSERVED_WINDOW}"
+            )
+        else:
+            entry["reason"] = (
+                f"{len(stores)} eBay seller account(s) were identified, but no "
+                f"storefront link was confirmed on the listing pages — these "
+                f"link to seller profiles, which are not shops"
+            )
     else:
         entry["store_count"] = 0
         entry["max_stores"] = MAX_STORES
+        entry["confirmed_storefronts"] = 0
         entry["reason"] = (ladder or {}).get(
             "reason", "no seller usernames returned by the eBay search"
         )
 
     if short:
-        entry["reason"] = (
+        # Both facts matter and neither replaces the other: a thin block AND
+        # an unconfirmed storefront are different problems, so the reasons
+        # are joined rather than one overwriting the other.
+        thin_reason = (
             f"only {len(stores)} of {MAX_STORES} competitor stores were "
             f"identified - eBay returned very few listings for this product, "
             f"so this is a thin competitor picture rather than a full one"
         )
+        prior = entry.get("reason", "").strip()
+        entry["reason"] = f"{prior} {thin_reason}".strip() if prior else thin_reason
 
     # A widened search is never a confirmed head-to-head set (C13).
     if ladder:

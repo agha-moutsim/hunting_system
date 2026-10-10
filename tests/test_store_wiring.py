@@ -131,10 +131,17 @@ class _FallbackProbe:
 
 
 def _top_sellers(n=6):
-    """Exactly the dict shape ``DemandData.top_sellers`` carries — six
-    stores so the C11 cap of 4 has something to cut."""
+    """Exactly the dict shape ``DemandData.top_sellers`` carries - six
+    stores so the C11 cap of 4 has something to cut.
+
+    REGRESSION-007: each carries the ``store_url`` the scraper reads off the
+    listing page, so these represent sellers who genuinely HAVE a storefront.
+    That keeps the "a full block is verified" path under test; the
+    no-storefront-seen path is covered in test_store_identity.py.
+    """
     return [
-        {"name": f"store_{i:02d}", "sold_count": n - i, "avg_price": 9.99}
+        {"name": f"store_{i:02d}", "sold_count": n - i, "avg_price": 9.99,
+         "store_url": f"{EBAY_UK_BASE}/str/store_{i:02d}"}
         for i in range(n)
     ]
 
@@ -157,11 +164,15 @@ def _ebay_product():
 
 
 def _sold_items(n=6):
+    # REGRESSION-007: ``store_url`` is the storefront href the scraper reads
+    # off the listing page. Present here so these rows represent sellers who
+    # genuinely have a shop; the "username only" path is covered separately.
     return [
         EbaySoldItem(
             title="Generic widget", price=9.99,
             url=f"https://www.ebay.co.uk/itm/{i}", seller=f"store_{i:02d}",
             seller_url="", sold_date="", condition="New",
+            store_url=f"{EBAY_UK_BASE}/str/store_{i:02d}",
         )
         for i in range(n)
     ]

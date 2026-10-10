@@ -28,6 +28,7 @@ from config import EBAY_UK_BASE
 from engine.stores import (
     build_stores,
     seller_profile_url,
+    store_provenance_block,
     store_url_from_observed_slug,
     stores_from_items,
 )
@@ -219,3 +220,50 @@ class TestScraperKeepsWhatItWasGiven:
         assert items[0].seller == ""
         assert items[0].seller_url == ""
         assert items[0].store_url == ""
+
+
+# ---------------------------------------------------------------------------
+# The block stamp must not contradict the rows beneath it
+# ---------------------------------------------------------------------------
+
+class TestBlockStampAgreesWithItsRows:
+    """REGRESSION-007, second half.
+
+    A live Phase 7 run showed the block stamped `verified` while every row
+    under it read `unverified`. The count was real, but "verified" implied the
+    storefronts were confirmed, which they were not. The block may never be
+    stronger than the rows it describes.
+    """
+
+    def _rows(self, observed: bool):
+        return stores_from_items([
+            _item("alpha", store_url=f"{EBAY_UK_BASE}/str/Alpha" if observed else ""),
+        ] * 4 if not observed else [
+            _item(n, store_url=f"{EBAY_UK_BASE}/str/{n}")
+            for n in ("a1", "b2", "c3", "d4")
+        ])
+
+    def test_block_is_unverified_when_no_storefront_is_confirmed(self):
+        rows = stores_from_items([_item("alpha")])
+        block = store_provenance_block(rows)
+        assert block["provenance"] == "unverified"
+        assert "storefront" in block["reason"].lower()
+
+    def test_block_may_be_verified_only_when_every_row_is_a_confirmed_store(self):
+        rows = stores_from_items([
+            _item(n, store_url=f"{EBAY_UK_BASE}/str/{n}")
+            for n in ("a1", "b2", "c3", "d4")
+        ])
+        block = store_provenance_block(rows)
+        assert all(r["provenance"] == "verified" for r in rows)
+        assert block["provenance"] == "verified"
+
+    def test_block_is_never_stronger_than_its_weakest_row(self):
+        mixed = stores_from_items([
+            _item("a1", store_url=f"{EBAY_UK_BASE}/str/a1"),
+            _item("b2", store_url=f"{EBAY_UK_BASE}/str/b2"),
+            _item("c3"),
+            _item("d4"),
+        ])
+        block = store_provenance_block(mixed)
+        assert block["provenance"] == "unverified"

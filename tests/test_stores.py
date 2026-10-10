@@ -594,12 +594,28 @@ class TestStoreProvenanceBlock:
         # REGRESSION-006: a SHORT block is no longer "verified". C11 asks for
         # up to MAX_STORES, and one store stamped Verified reads exactly like
         # a healthy result - which is what the user reported seeing.
-        block = store_provenance_block(
-            [{"name": f"store_{i}"} for i in range(MAX_STORES)])
+        # REGRESSION-007: a full block is verified only when every row is a
+        # confirmed storefront; see the companion test below.
+        block = store_provenance_block([
+            {"name": f"store_{i}", "url": f"{EBAY_UK_BASE}/str/store_{i}",
+             "provenance": Provenance.VERIFIED.value}
+            for i in range(MAX_STORES)
+        ])
         assert block["provenance"] == Provenance.VERIFIED.value
         assert block["source_name"]
         assert block["method"]
         assert "observed" in block["method"]
+
+    def test_a_full_block_with_no_confirmed_storefront_is_not_verified(self):
+        # REGRESSION-007: four real SELLER accounts with no storefront seen
+        # is not four confirmed STORES. The block may not claim otherwise.
+        block = store_provenance_block([
+            {"name": f"store_{i}", "provenance": Provenance.UNVERIFIED.value}
+            for i in range(MAX_STORES)
+        ])
+        assert block["provenance"] == Provenance.UNVERIFIED.value
+        assert block["confirmed_storefronts"] == 0
+        assert "storefront" in block["reason"].lower()
 
     def test_a_short_block_says_how_short_it_is(self):
         block = store_provenance_block([{"name": "only_store"}])
