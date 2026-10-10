@@ -43,7 +43,8 @@ export default function EbayStoresCard({
 
   return (
     <Card
-      title={`eBay Stores (${stores.length}${
+      className="bg-bg-secondary"
+      title={`Competitor stores (${stores.length}${
         provenance?.max_stores ? ` of ${provenance.max_stores}` : ""
       })`}
     >
@@ -53,7 +54,7 @@ export default function EbayStoresCard({
           return (
             <div
               key={`${s.name || "store"}-${i}`}
-              className="flex flex-wrap items-center justify-between gap-3 bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm"
+              className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-card border border-border/40 bg-bg-surface/40 px-4 py-3 transition-colors duration-200 hover:border-border/70 hover:bg-bg-surface/70"
             >
               {link ? (
                 <a
@@ -61,15 +62,15 @@ export default function EbayStoresCard({
                   target="_blank"
                   rel="noopener noreferrer"
                   title={link.explanation}
-                  className="flex items-center gap-2 min-w-0 text-text-primary hover:text-accent-blue"
+                  className="group flex min-w-0 items-center gap-2.5 rounded-control text-text-primary transition-colors duration-200 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand-lime"
                 >
-                  <span className="truncate">{s.name || "—"}</span>
+                  <span className="truncate font-medium">{s.name || "—"}</span>
                   <span
                     data-store-link-kind={link.kind}
-                    className={`text-[10px] font-semibold uppercase tracking-wider border rounded-sm px-1 shrink-0 ${
+                    className={`shrink-0 rounded-sm border px-1.5 py-px text-[10px] font-semibold uppercase tracking-[0.08em] ${
                       link.isConfirmedStorefront
-                        ? "text-brand-lime border-brand-lime/40"
-                        : "text-text-dim border-border"
+                        ? "border-brand-lime/40 bg-brand-lime/10 text-brand-lime"
+                        : "border-border bg-bg-surface text-text-dim"
                     }`}
                   >
                     {link.kindLabel}
@@ -78,19 +79,22 @@ export default function EbayStoresCard({
               ) : (
                 // No link we can stand behind — show the name, never a dead
                 // href="#" (REGRESSION-007).
-                <span className="flex items-center gap-2 min-w-0 text-text-secondary">
+                <span className="flex min-w-0 items-center gap-2.5 text-text-secondary">
                   <span className="truncate">{s.name || "—"}</span>
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-text-dim border border-border rounded-sm px-1 shrink-0">
+                  <span className="shrink-0 rounded-sm border border-border bg-bg-surface px-1.5 py-px text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim">
                     no link
                   </span>
                 </span>
               )}
-              <div className="flex items-center gap-3 whitespace-nowrap">
+
+              <div className="flex items-center gap-3 whitespace-nowrap font-mono text-[13px] tabular-nums">
                 <span className="text-text-secondary">
                   {s.sold_count ?? "—"}{" "}
-                  {s.sold_count_label || "observed listings"} ·{" "}
-                  {formatGBP(s.avg_price)}
+                  <span className="text-text-dim">
+                    {s.sold_count_label || "observed listings"}
+                  </span>
                 </span>
+                <span className="text-white">{formatGBP(s.avg_price)}</span>
                 <ProvenanceBadge
                   provenance={s.provenance}
                   label={s.provenance_label}

@@ -9,7 +9,6 @@ import {
   VerdictData,
 } from "@/lib/types";
 import Badge from "@/components/ui/Badge";
-import Card from "@/components/ui/Card";
 import OutsideBandBadge from "@/components/ui/OutsideBandBadge";
 import ProvenanceBadge from "@/components/ui/ProvenanceBadge";
 import FilterChecks from "@/components/FilterChecks";
@@ -18,21 +17,41 @@ import { formatGBP, formatPercent } from "@/lib/format";
 import { SoldPriceDistribution } from "@/components/charts";
 import SupplierCard from "@/components/SupplierCard";
 
+/**
+ * Product results dashboard.
+ *
+ * Presentation only — every value, label and API contract is unchanged. The
+ * goal is hierarchy: a reader should reach "should I buy this?" in one
+ * glance, then the evidence behind it, then the raw AI text if they want it.
+ *
+ * Two rules carry through from C13: an unmeasured value says so rather than
+ * showing a dash that reads as zero, and the provenance badge always travels
+ * with the number it qualifies.
+ */
+
 function Metric({
   label,
   value,
   prov,
+  emphasis = false,
 }: {
   label: string;
   value: React.ReactNode;
   prov?: ProvenanceInfo;
+  emphasis?: boolean;
 }) {
   return (
-    <div className="bg-bg-surface border border-border rounded-control p-3">
-      <div className="flex flex-wrap items-center justify-between gap-1 mb-1">
-        <div className="text-[11px] font-semibold uppercase tracking-wider text-text-dim">
+    <div
+      className={`rounded-card border px-4 py-3 transition-colors duration-200 ${
+        emphasis
+          ? "bg-bg-surface border-border/70 shadow-card"
+          : "bg-bg-surface/40 border-border/40 hover:border-border/70 hover:bg-bg-surface/70"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-dim">
           {label}
-        </div>
+        </span>
         {prov && (
           <ProvenanceBadge
             provenance={prov.provenance}
@@ -41,19 +60,36 @@ function Metric({
           />
         )}
       </div>
-      <div className="text-lg font-bold text-white font-mono tabular-nums">
+      <div className="mt-2 font-mono text-lg font-semibold tabular-nums tracking-tight text-white">
         {value}
       </div>
     </div>
   );
 }
 
-function SectionTitle({ children }: { children: React.ReactNode }) {
+function SectionTitle({
+  children,
+  hint,
+}: {
+  children: React.ReactNode;
+  hint?: string;
+}) {
   return (
-    <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
-      <span className="w-1.5 h-1.5 rounded-full bg-brand-lime shrink-0" />
-      {children}
-    </h3>
+    <div className="mb-4 flex items-baseline gap-3">
+      <h3 className="flex items-center gap-2.5 text-sm font-semibold tracking-tight text-white">
+        <span
+          aria-hidden
+          className="h-3.5 w-[3px] shrink-0 rounded-full bg-brand-lime"
+        />
+        {children}
+      </h3>
+      {hint && (
+        <span className="truncate text-[11px] uppercase tracking-[0.08em] text-text-dim">
+          {hint}
+        </span>
+      )}
+      <span aria-hidden className="h-px flex-1 bg-border/40" />
+    </div>
   );
 }
 
@@ -80,13 +116,15 @@ function LlmLine({
           ? "pending"
           : "info");
   return (
-    <div className="mb-3">
-      <div className="flex items-center gap-2 text-sm">
-        <span className="text-text-secondary font-medium">{label}:</span>
+    <div className="flex flex-col gap-1.5 rounded-card border border-border/40 bg-bg-surface/40 px-4 py-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-dim">
+          {label}
+        </span>
         <Badge tone={tone}>{value}</Badge>
       </div>
       {reasoning && (
-        <p className="text-xs text-text-dim mt-1 leading-relaxed">
+        <p className="text-[13px] leading-relaxed text-text-secondary">
           {reasoning}
         </p>
       )}
@@ -129,87 +167,174 @@ export default function Scorecard({
   const demandField = (name: string, ...aliases: string[]) =>
     fieldProvenance(provenance?.fields, name, ...aliases);
 
+  const profit = verdict?.profit ?? null;
+  const margin = verdict?.margin ?? null;
+
   return (
-    <div className="space-y-6">
-      <Card>
-        <div className="flex flex-col sm:flex-row gap-5">
+    <div className="space-y-8">
+      {/* ---------------------------------------------------------------- */}
+      {/* Hero — what the product is and what it costs                  */}
+      {/* ---------------------------------------------------------------- */}
+      <section className="overflow-hidden rounded-panel border border-border/60 bg-bg-secondary shadow-panel">
+        <div className="flex flex-col gap-6 p-5 sm:flex-row md:p-6">
           {ebayProduct.image_url && (
-            <img
-              src={ebayProduct.image_url}
-              alt=""
-              className="w-full sm:w-40 h-40 object-contain bg-white rounded-control p-2"
-            />
+            <div className="w-full shrink-0 sm:w-44">
+              <div className="overflow-hidden rounded-card border border-border/50 bg-bg-primary/60">
+                <img
+                  src={ebayProduct.image_url}
+                  alt={ebayProduct.title || "Product image"}
+                  className="aspect-square w-full object-contain p-3"
+                />
+              </div>
+            </div>
           )}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-start justify-between gap-3 mb-3">
-              <h2 className="text-lg font-bold text-white leading-snug">
+
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <h2 className="max-w-2xl text-balance text-xl font-semibold leading-snug tracking-tight text-white sm:text-2xl">
                 {ebayProduct.title}
               </h2>
               <Badge tone={v}>{v.toUpperCase()}</Badge>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+
+            <div className="mt-6 grid gap-3 sm:grid-cols-3">
               <Metric
-                label="Listed Price"
+                label="Listed price"
+                emphasis
                 value={
-                  <span className="inline-flex flex-wrap items-center gap-1.5">
+                  <span className="inline-flex flex-wrap items-center gap-2">
                     {formatGBP(ebayProduct.price)}
                     {ebayProduct.outside_band && <OutsideBandBadge />}
                   </span>
                 }
               />
-              <Metric label="Condition" value={ebayProduct.condition || "—"} />
-              <Metric label="Seller" value={ebayProduct.seller || "—"} />
+              <Metric
+                label="Condition"
+                value={ebayProduct.condition || "Not stated"}
+              />
+              <Metric
+                label="Seller"
+                value={ebayProduct.seller || "Not stated"}
+              />
             </div>
+
             {ebayProduct.url && (
               <a
                 href={ebayProduct.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 text-sm text-brand-lime font-medium hover:underline"
+                className="group mt-5 inline-flex items-center gap-1.5 rounded-control text-sm font-medium text-brand-lime underline-offset-4 transition-colors duration-200 hover:text-white hover:underline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand-lime"
               >
-                View on eBay →
+                View this listing on eBay
+                <span
+                  aria-hidden
+                  className="transition-transform duration-200 group-hover:translate-x-0.5"
+                >
+                  →
+                </span>
               </a>
             )}
           </div>
         </div>
-      </Card>
+      </section>
 
+      {/* ---------------------------------------------------------------- */}
+      {/* Decision — the numbers a buyer acts on                        */}
+      {/* ---------------------------------------------------------------- */}
+      {verdict && (
+        <section>
+          <SectionTitle hint="net of fees and shipping">Decision</SectionTitle>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Metric
+              label="Net profit"
+              emphasis
+              prov={provenance?.profit_analysis}
+              value={
+                profit == null ? (
+                  <span className="text-text-dim">—</span>
+                ) : (
+                  <span
+                    className={
+                      profit > 0 ? "text-brand-lime" : "text-accent-red"
+                    }
+                  >
+                    {formatGBP(profit)}
+                  </span>
+                )
+              }
+            />
+            <Metric
+              label="Margin"
+              emphasis
+              prov={provenance?.profit_analysis}
+              value={
+                margin == null ? (
+                  <span className="text-text-dim">—</span>
+                ) : (
+                  formatPercent(margin)
+                )
+              }
+            />
+            <Metric
+              label="Assessment"
+              emphasis
+              value={<Badge tone={v}>{v.toUpperCase()}</Badge>}
+            />
+          </div>
+          <div className="mt-4 space-y-2">
+            <FilterChecks filters={verdict.filters || []} />
+          </div>
+        </section>
+      )}
+
+      {/* ---------------------------------------------------------------- */}
+      {/* Price comparison                                                */}
+      {/* ---------------------------------------------------------------- */}
       {suppliers.length > 0 && (
-        <div>
-          <SectionTitle>Price Comparison</SectionTitle>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-            <Metric label="eBay Price" value={formatGBP(ebayProduct.price)} />
-            {suppliers.slice(0, 5).map((s, i) => {
+        <section>
+          <SectionTitle hint="what you pay vs what you sell">
+            Price comparison
+          </SectionTitle>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+            <Metric
+              label="eBay price"
+              emphasis
+              value={formatGBP(ebayProduct.price)}
+            />
+            {suppliers.slice(0, 4).map((s, i) => {
               const delta = ebayProduct.price - s.price;
               return (
-                <div
+                <Metric
                   key={i}
-                  className="bg-bg-surface border border-border rounded-control p-3"
-                >
-                  <div className="text-[11px] font-semibold uppercase tracking-wider text-text-dim mb-1">
-                    {s.source}
-                  </div>
-                  <div className="text-lg font-bold text-white font-mono tabular-nums">
-                    {formatGBP(s.price)}
-                  </div>
-                  <div
-                    className={`text-xs mt-1 font-medium font-mono tabular-nums ${
-                      delta > 0 ? "text-brand-lime" : "text-accent-red"
-                    }`}
-                  >
-                    {delta > 0 ? "+" : ""}
-                    {formatGBP(delta)}
-                  </div>
-                </div>
+                  label={s.source}
+                  value={
+                    <span className="flex flex-col gap-1">
+                      <span>{formatGBP(s.price)}</span>
+                      <span
+                        className={`text-xs font-medium ${
+                          delta > 0 ? "text-brand-lime" : "text-accent-red"
+                        }`}
+                      >
+                        {delta > 0 ? "+" : ""}
+                        {formatGBP(delta)}
+                      </span>
+                    </span>
+                  }
+                />
               );
             })}
           </div>
-        </div>
+        </section>
       )}
 
+      {/* ---------------------------------------------------------------- */}
+      {/* Supplier detail                                                */}
+      {/* ---------------------------------------------------------------- */}
       {suppliers.length > 0 && (
-        <div>
-          <SectionTitle>Supplier Matches ({suppliers.length})</SectionTitle>
+        <section>
+          <SectionTitle hint={`${suppliers.length} matched`}>
+            Suppliers
+          </SectionTitle>
           <div className="space-y-3">
             {suppliers.map((s, i) => (
               <SupplierCard
@@ -219,80 +344,93 @@ export default function Scorecard({
               />
             ))}
           </div>
-        </div>
+        </section>
       )}
 
-      <div>
-        <SectionTitle>
-          Demand Metrics
-          {demandProv && (
-            <ProvenanceBadge
-              provenance={demandProv.provenance}
-              label={demandProv.label}
-              title={infoTitle(demandProv)}
-            />
-          )}
-        </SectionTitle>
+      {/* ---------------------------------------------------------------- */}
+      {/* Demand                                                          */}
+      {/* ---------------------------------------------------------------- */}
+      <section>
+        <SectionTitle hint="last 30 days">Demand</SectionTitle>
         {demand && demand.sold_count_30d != null ? (
           <>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <Metric
                 label="Sold (30d)"
-                value={demand.sold_count_30d ?? 0}
+                emphasis
                 prov={demandField("sold_count_30d")}
+                value={demand.sold_count_30d ?? 0}
               />
               <Metric
                 label="Sold (7d)"
                 prov={demandField("sold_count_7d")}
                 value={
                   demand.sold_count_7d ?? (
-                    <span className="text-accent-amber">⚠️ Unverified</span>
+                    <span className="text-accent-amber">Not stated</span>
                   )
                 }
               />
               <Metric
-                label="Avg Sold Price"
+                label="Avg sold price"
                 prov={demandField("avg_sold_price")}
                 value={
                   demand.avg_sold_price != null
                     ? formatGBP(demand.avg_sold_price)
-                    : "⚠️ Unverified"
+                    : "Not stated"
                 }
               />
               <Metric
-                label="Price Range"
+                label="Price range"
                 prov={demandField("price_range", "lowest_sold_price")}
                 value={priceRange}
               />
             </div>
+
             {/* A3 — the observations behind the four tiles above. Plotted from
               the SAME list that produced them, so the shape of the market is
               shown rather than asserted by a min/avg/max triple. Runs saved
               before sold_prices existed render nothing here. */}
             {demand.sold_prices && demand.sold_prices.length > 0 && (
-              <div className="mt-3 bg-bg-surface border border-border rounded-control p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-wider text-text-dim mb-2">
-                  Sold price distribution
-                </div>
+              <figure className="mt-4 rounded-card border border-border/50 bg-bg-surface/40 p-4">
+                <figcaption className="mb-3 flex items-baseline gap-3">
+                  <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-dim">
+                    Sold price distribution
+                  </span>
+                  <span className="h-px flex-1 bg-border/40" />
+                  <span className="text-[11px] text-text-dim">
+                    {demand.sold_prices.length} observed sales
+                  </span>
+                </figcaption>
                 <SoldPriceDistribution
                   prices={demand.sold_prices}
                   average={demand.avg_sold_price}
                 />
-              </div>
+              </figure>
             )}
           </>
         ) : (
-          <div className="bg-bg-surface border border-border rounded-control p-4 text-sm text-text-secondary">
-            ⚠️ No demand data available — marked Unverified
+          <div className="rounded-card border border-border/50 border-dashed bg-bg-surface/30 px-5 py-8 text-center">
+            <p className="text-sm font-medium text-text-secondary">
+              No demand data for this product
+            </p>
+            <p className="mt-1 text-[13px] text-text-dim">
+              eBay returned too few completed sales to measure demand. These
+              figures are marked unverified rather than estimated.
+            </p>
           </div>
         )}
-      </div>
+      </section>
 
+      {/* ---------------------------------------------------------------- */}
+      {/* AI narrative — clearly separated from the facts above          */}
+      {/* ---------------------------------------------------------------- */}
       {llmAnalysis && (
-        <div>
-          <SectionTitle>AI Analysis</SectionTitle>
-          <div className="grid md:grid-cols-2 gap-4">
-            <div>
+        <section>
+          <SectionTitle hint="model opinion, not measurement">
+            AI read
+          </SectionTitle>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-3">
               <LlmLine
                 label="Brand"
                 value={llmAnalysis.brand_verdict}
@@ -304,69 +442,49 @@ export default function Scorecard({
                 reasoning={llmAnalysis.demand_reasoning}
               />
             </div>
-            <div>
+            <div className="space-y-3">
               <LlmLine label="Action" value={llmAnalysis.recommended_action} />
               {llmAnalysis.supplier_type_reasoning && (
-                <p className="text-xs text-text-dim leading-relaxed">
-                  {llmAnalysis.supplier_type_reasoning}
-                </p>
+                <div className="rounded-card border border-border/40 bg-bg-surface/40 px-4 py-3">
+                  <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-dim">
+                    Supplier type
+                  </span>
+                  <p className="mt-1.5 text-[13px] leading-relaxed text-text-secondary">
+                    {llmAnalysis.supplier_type_reasoning}
+                  </p>
+                </div>
               )}
             </div>
           </div>
           {llmAnalysis.raw_response && (
-            <details className="mt-3">
-              <summary className="text-xs text-text-dim cursor-pointer hover:text-white">
-                Raw LLM response
+            <details className="group mt-4">
+              <summary className="cursor-pointer list-none text-[13px] text-text-dim transition-colors duration-200 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand-lime">
+                <span className="group-open:hidden">
+                  Show raw model response
+                </span>
+                <span className="hidden group-open:inline">
+                  Hide raw model response
+                </span>
               </summary>
-              <pre className="mt-2 text-[11px] font-mono bg-bg-primary border border-border rounded-control p-3 overflow-x-auto text-text-secondary">
+              <pre className="mt-2 overflow-x-auto rounded-card border border-border/50 bg-bg-primary p-3 font-mono text-[11px] leading-relaxed text-text-secondary">
                 {llmAnalysis.raw_response}
               </pre>
             </details>
           )}
-        </div>
-      )}
-
-      {verdict && (
-        <div>
-          <SectionTitle>Verdict</SectionTitle>
-          <div className="grid grid-cols-3 gap-3 mb-4">
-            <Metric
-              label="Profit"
-              prov={provenance?.profit_analysis}
-              value={
-                <span
-                  className={
-                    (verdict.profit ?? 0) > 0
-                      ? "text-brand-lime"
-                      : "text-accent-red"
-                  }
-                >
-                  {formatGBP(verdict.profit)}
-                </span>
-              }
-            />
-            <Metric
-              label="Margin"
-              prov={provenance?.profit_analysis}
-              value={formatPercent(verdict.margin)}
-            />
-            <Metric
-              label="Verdict"
-              value={<Badge tone={v}>{v.toUpperCase()}</Badge>}
-            />
-          </div>
-          <div className="space-y-2">
-            <FilterChecks filters={verdict.filters || []} />
-          </div>
-        </div>
+        </section>
       )}
 
       {scorecard && (
-        <details>
-          <summary className="text-sm text-text-secondary cursor-pointer hover:text-white mb-2">
-            Full Scorecard
+        <details className="group">
+          <summary className="cursor-pointer list-none rounded-card border border-border/40 px-4 py-3 text-sm text-text-secondary transition-colors duration-200 hover:border-border/70 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand-lime">
+            <span className="group-open:hidden">
+              Show full written scorecard
+            </span>
+            <span className="hidden group-open:inline">
+              Hide written scorecard
+            </span>
           </summary>
-          <pre className="text-xs font-mono bg-bg-primary border border-border rounded-control p-4 overflow-x-auto text-text-secondary leading-relaxed mt-2">
+          <pre className="mt-2 overflow-x-auto rounded-card border border-border/50 bg-bg-primary p-4 font-mono text-xs leading-relaxed text-text-secondary">
             {scorecard}
           </pre>
         </details>
