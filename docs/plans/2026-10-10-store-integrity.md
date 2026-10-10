@@ -163,9 +163,9 @@ weakened; several are now strictly stronger:
 | 3     | Provenance honesty: remove Verified-on-derived contradiction                | `domain-modeling`             | 0          | pending |
 | 4     | 12 adversarial store-validation scenarios, red-green-refactor               | `tdd`                         | 0          | pending |
 | 5     | Runtime: `start/stop/check.ps1`, root `start` script                        | `diagnosing-bugs`             | 0          | pending |
-| 6     | Dashboard UI premium pass on `Scorecard` + `EbayStoresCard`                 | `redesign-existing-projects`  | 0          | pending |
-| 7     | Regression + honest verification report                                     | `code-review`                 | 0          | pending |
-| 8     | Report with measured before/after                                           | —                             | 0          | pending |
+| 6     | Dashboard UI premium pass on `Scorecard` + `EbayStoresCard`                 | `redesign-existing-projects`  | 0          | done    |
+| 7     | Regression + honest verification report                                     | `code-review`                 | 0          | done    |
+| 8     | Report with measured before/after                                           | —                             | 0          | done    |
 
 ### Dependency map
 
@@ -181,27 +181,50 @@ beautifying a lie.
 
 ## Report
 
-Populated after Phase 7 with observed values only. Anything not measured is
-labelled **not verified**.
+Populated with observed values only. Anything not measured is labelled
+**not verified**.
 
-| Area                        | Before                                                                                                                                                       | After | Evidence                                       |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----- | ---------------------------------------------- |
-| Store validity              | **not verified** — all 16 baseline rows built `/str/{username}` (derived), but eBay blocks `/str/` with a CAPTCHA so no row could be confirmed dead or alive |       | `backend/engine/stores.py:48,107`; Phase 1 run |
-| Fabricated store prevention | confirmed as a source-level defect (every row `url_derived=True` + `provenance="verified"`)                                                                  |       | Phase 1 run output                             |
-| Normal analysis             | stores produced through the same `resolve_stores()` path                                                                                                     |       | source trace                                   |
-| Deep Search                 | stores produced through the same `resolve_stores()` path                                                                                                     |       | source trace                                   |
-| Server startup              | backend + frontend both start and serve 200; root `npm start` fails (no script)                                                                              |       | Phase 1 process + health capture               |
-| Dashboard UI                | 9/9 pages 200; byte sizes recorded; no browser available for pixel screenshots                                                                               |       | Phase 1 capture                                |
-| Regression risk             | baseline **1032 passed, 7 skipped**                                                                                                                          |       | pre-commit hook                                |
+| Area                        | Before                                                                          | After                                                                                                                    | Evidence                          |
+| --------------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | --------------------------------- |
+| Store validity              | all 16 baseline rows built `/str/{username}` (derived) while stamped `verified` | **0 fabricated `/str/` URLs across 12 live rows**; every link is either an observed anchor or canonical `/usr/`          | live run, Phase 7                 |
+| Fabricated store prevention | not tested                                                                      | 35 adversarial scenarios; **2 real holes found and closed** (off-eBay host accepted; `sold_count='x'` crashed discovery) | `tests/test_store_adversarial.py` |
+| Block vs rows               | block read `verified` while every row read `unverified`                         | block takes the weakest row; carries `confirmed_storefronts`                                                             | Phase 7 live run                  |
+| Normal analysis             | `resolve_stores()` — derived `/str/`                                            | same path, honest links                                                                                                  | source trace + live               |
+| Deep Search                 | `resolve_stores()` — derived `/str/`                                            | same path, honest links                                                                                                  | source trace + live               |
+| All five workflows          | each called `resolve_stores()`                                                  | unchanged — **one fix, five paths**                                                                                      | source trace                      |
+| Server startup              | root `npm start` failed (no script); no stop/check                              | `npm start\|stop\|check`; verified stop→start→check from cold                                                            | Phase 5 run                       |
+| Dashboard UI                | uniform border+fill tiles; verdict buried last                                  | hero + decision-first hierarchy; new radius/shadow tokens                                                                | Phase 6; CSS bundle verified      |
+| Regression risk             | 1032 passed, 7 skipped                                                          | **1092 passed, 7 skipped** (+60), vitest 47, typecheck clean                                                             | pre-commit hook                   |
 
-**eBay API calls used: 1 attempted / 20 budgeted.** The single Browse API
-attempt never left the host (DNS failure for `api.ebay.co.uk`). The 4 product
-runs resolved via the HTML path, which does not bill an API call. Request counts
-for the HTML path are **not instrumented** and are therefore not claimed.
+### eBay calls
 
-**Known limitation:** the brief asks for a before/after count of dead store
-links. That number **cannot be measured from this host** — eBay serves a
-CAPTCHA for `/str/` and 403 for `/usr/`, proven with a negative control. The
-fix removes the fabrication entirely, which makes every emitted link either an
-observed eBay anchor or eBay's canonical `/usr/` form; per-link liveness is
-reported as **not verified**.
+**1 attempted of 20 budgeted.** The single Browse API attempt never left the
+host (`api.ebay.co.uk` does not resolve from this network). The 12-row live
+check resolved through the HTML path, which does not bill an API call. HTML
+request counts are **not instrumented** and are not claimed.
+
+### Not verified — and why
+
+| Claim                                    | Status                            | Reason                                                                                                                                                                                                                                                                   |
+| ---------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Per-link liveness of `/str/` and `/usr/` | **not verified**                  | eBay serves a CAPTCHA for `/str/` and 403 for `/usr/` from this host. A deliberate negative control returned the same 200+CAPTCHA as a plausible store, so a 200 proves nothing. Only the project's Playwright+stealth path could check this, and that was out of scope. |
+| Pixel-level UI appearance                | **not verified**                  | No browser or screenshot tooling available. Verified structurally instead: typecheck, build, emitted CSS tokens and utilities, page status codes.                                                                                                                        |
+| Before/after count of dead store links   | **not measurable from this host** | Same CAPTCHA/403 constraint. The fix removes the fabrication entirely, so every emitted link is now either an observed eBay anchor or eBay's canonical form — but whether each destination resolves was not observed.                                                    |
+
+### Remaining limitations
+
+- **Option A was chosen**, so unconfirmed storefronts link to `/usr/`
+  (the seller's account page), clearly labelled "Seller profile". That is a
+  real page but it is not a shop. If you later want shopfronts, the Playwright
+  path in `scrapers/base.py` is the route.
+- `_search_scrape` in `backend/scrapers/ebay.py` still never populates
+  `seller`, so the plain-search fallback contributes no stores. Pre-existing,
+  not touched — discovery reaches stores through the sold query.
+- `resolve_stores()` keeps its 6-parameter signature with a `provenance`
+  out-param. `codebase-design` vocabulary was used to shape the new code
+  (return results, small interface, one seam); the signature itself was left
+  alone deliberately, to keep the diff inside §7 scope control.
+- The GitHub token in the shell history and in this session should be
+  rotated.
+
+**eBay API calls used: 1 attempted / 20 budgeted**
