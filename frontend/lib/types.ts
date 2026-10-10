@@ -77,14 +77,23 @@ export interface MatchAvailabilityFields {
 export interface EbayStore {
   name: string;
   url: string;
-  /** true = the /str/ URL was derived from the username, not observed. */
+  /**
+   * REGRESSION-007: which eBay identifier this link is.
+   * "observed" = a /str/ storefront href read off an eBay page.
+   * "seller_profile" = /usr/ profile, derived from a real username.
+   * A username is NOT a store slug, so /str/ is never synthesised from one.
+   */
+  url_kind?: "observed" | "seller_profile";
+  /** true = the URL was built from the username, never observed. */
   url_derived?: boolean;
-  /** Listings observed in the search window (cap 50) — NOT eBay sold count. */
+  /** Listings observed in the search window (cap 50) - NOT eBay sold count. */
   sold_count: number;
   sold_count_label?: string;
   avg_price: number;
   provenance?: string;
   provenance_label?: string;
+  /** Why a row is not a confirmed storefront, when it is not. */
+  provenance_reason?: string;
   source_name?: string;
 }
 

@@ -4,6 +4,7 @@ import Card from "@/components/ui/Card";
 import EmptyState from "@/components/EmptyState";
 import ProvenanceBadge from "@/components/ui/ProvenanceBadge";
 import { EbayStore, ProvenanceInfo } from "@/lib/types";
+import { describeStoreLink } from "@/lib/storeLinks";
 import { formatGBP } from "@/lib/format";
 
 /**
@@ -47,44 +48,64 @@ export default function EbayStoresCard({
       })`}
     >
       <div className="space-y-2">
-        {stores.map((s, i) => (
-          <div
-            key={`${s.name || "store"}-${i}`}
-            className="flex flex-wrap items-center justify-between gap-3 bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm"
-          >
-            <a
-              href={s.url || "#"}
-              target="_blank"
-              rel="noopener noreferrer"
-              title={
-                s.url_derived
-                  ? `URL derived from seller name (not API-provided): ${s.url}`
-                  : s.url
-              }
-              className="flex items-center gap-2 min-w-0 text-text-primary hover:text-accent-blue"
+        {stores.map((s, i) => {
+          const link = describeStoreLink(s);
+          return (
+            <div
+              key={`${s.name || "store"}-${i}`}
+              className="flex flex-wrap items-center justify-between gap-3 bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm"
             >
-              <span className="truncate">{s.name || "—"}</span>
-              {s.url_derived && (
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-text-dim border border-border rounded-sm px-1 shrink-0">
-                  derived
+              {link ? (
+                <a
+                  href={link.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={link.explanation}
+                  className="flex items-center gap-2 min-w-0 text-text-primary hover:text-accent-blue"
+                >
+                  <span className="truncate">{s.name || "—"}</span>
+                  <span
+                    data-store-link-kind={link.kind}
+                    className={`text-[10px] font-semibold uppercase tracking-wider border rounded-sm px-1 shrink-0 ${
+                      link.isConfirmedStorefront
+                        ? "text-brand-lime border-brand-lime/40"
+                        : "text-text-dim border-border"
+                    }`}
+                  >
+                    {link.kindLabel}
+                  </span>
+                </a>
+              ) : (
+                // No link we can stand behind — show the name, never a dead
+                // href="#" (REGRESSION-007).
+                <span className="flex items-center gap-2 min-w-0 text-text-secondary">
+                  <span className="truncate">{s.name || "—"}</span>
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-text-dim border border-border rounded-sm px-1 shrink-0">
+                    no link
+                  </span>
                 </span>
               )}
-            </a>
-            <div className="flex items-center gap-3 whitespace-nowrap">
-              <span className="text-text-secondary">
-                {s.sold_count ?? "—"}{" "}
-                {s.sold_count_label || "observed listings"} ·{" "}
-                {formatGBP(s.avg_price)}
-              </span>
-              <ProvenanceBadge
-                provenance={s.provenance}
-                label={s.provenance_label}
-                title={s.source_name}
-              />
+              <div className="flex items-center gap-3 whitespace-nowrap">
+                <span className="text-text-secondary">
+                  {s.sold_count ?? "—"}{" "}
+                  {s.sold_count_label || "observed listings"} ·{" "}
+                  {formatGBP(s.avg_price)}
+                </span>
+                <ProvenanceBadge
+                  provenance={s.provenance}
+                  label={s.provenance_label}
+                  title={link?.reason || link?.explanation || s.source_name}
+                />
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
+
+      {/* REGRESSION-007: the row chip and the badge now agree. A row reads
+          "Store" only when the storefront href was observed on an eBay page;
+          everything else reads "Seller profile" and carries the reason, so a
+          profile page is never presented as a shop. */}
 
       {/* The block-level stamp. Hidden when everything was found exactly,
           shown whenever the picture is partial - which is information, not
