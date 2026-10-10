@@ -49,16 +49,59 @@ username), and discards the genuine `/str/{slug}` anchor next to it.
 | Root `npm start` -> "Missing script"     | **Defect.** No `start` script exists.               |
 | Orphaned `node` pids with port 3000 down | **Defect.** Detached children leak.                 |
 
+## Phase 1 findings (measured)
+
+### Runtime
+
+| Check                  | Result                                                                                                                                                                        |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Backend start          | healthy — `{"status":"ok"}`, pid bound to 8000                                                                                                                                |
+| Frontend start         | healthy — HTTP 200, `next start`, pid bound to 3000                                                                                                                           |
+| Orphaned app processes | **none found.** The two `node` pids seen earlier are `shadcn mcp` (agent tooling), not the app. My earlier "process leak" reading was a **mis-attribution and is withdrawn.** |
+| Root `npm start`       | fails — root `package.json` has no `start` script                                                                                                                             |
+
+Long-running behaviour is therefore **expected**, not stuck: `next start` and
+`uvicorn` do not exit. Only the missing start script is a real defect.
+
+### Store rows
+
+Four products through the real `resolve_stores()` produced **16 store rows**,
+and every single one was:
+
+- `url_derived = True`
+- `provenance = "verified"`
+- URL = `https://www.ebay.co.uk/str/{username}`
+
+So the fabricated-URL path is **confirmed in production output**, not just in
+source reading.
+
+### Verification is blocked from this host
+
+| Route                           | Result                                              |
+| ------------------------------- | --------------------------------------------------- |
+| `www.ebay.co.uk/str/<x>`        | HTTP **200 + CAPTCHA** ("Security measure \| eBay") |
+| `www.ebay.co.uk/usr/<x>`        | HTTP **403**                                        |
+| `www.ebay.co.uk/sch/` (scraper) | HTTP **403 Forbidden**                              |
+| `api.ebay.co.uk`                | **DNS resolution fails**                            |
+
+A deliberate negative control (`/str/zzqx-nonexistent-store-99887766`) returned
+the **same** 200 + CAPTCHA as a plausibly-real store. This is exactly the trap
+in the brief: a 200 is not proof of identity, and a block is not proof a store
+is missing.
+
+**Consequence:** the planned live HTTP verifier is not viable from this host —
+it would classify every store as unverified. Decision 1 is superseded below.
+
 ## Design decisions
 
-| #   | Decision                                | Resolution                                                                                                                                                                       |
-| --- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Live verification: always or on demand? | Always, bounded at 12 URLs/run, 1.5s timeout, 1s cooldown, 15-min in-memory cache. Fail-open: budget/timeout exhausted -> `verification_unavailable`, never silently "verified". |
-| 2   | Confirmed 404 -> drop or demote?        | Demote. Row shown with no link, status "Store not found".                                                                                                                        |
-| 3   | `url_derived` contract field            | Keep it. Add `url_kind: observed \| seller_profile \| none` alongside (additive only).                                                                                           |
-| 4   | Display name when slug != username      | Store name when observed, else username. Carry `username` separately.                                                                                                            |
-| 5   | Cache verification?                     | Yes. In-memory, TTL 15 min, keyed by canonical URL. No schema change.                                                                                                            |
-| 6   | Blast radius                            | Fix once in `engine/stores.py`; all five workflows share `resolve_stores()`.                                                                                                     |
+| #   | Decision                                | Resolution                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| --- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | Live verification: always or on demand? | **SUPERSEDED by Phase 1 evidence.** A live HTTP verifier is not viable from this host — every `/str/` fetch returns a CAPTCHA (proven by negative control), `/usr/` returns 403, and `api.ebay.co.uk` does not resolve. Replaced by: **no network verification dependency.** Authenticity comes from the _provenance of the link_ (observed anchor vs canonical `/usr/` derived from a real username), never from fetching it. |
+| 2   | Confirmed 404 -> drop or demote?        | Demote. Row shown with no link, status "Store not found".                                                                                                                                                                                                                                                                                                                                                                      |
+| 3   | `url_derived` contract field            | Keep it. Add `url_kind: observed \| seller_profile \| none` alongside (additive only).                                                                                                                                                                                                                                                                                                                                         |
+| 4   | Display name when slug != username      | Store name when observed, else username. Carry `username` separately.                                                                                                                                                                                                                                                                                                                                                          |
+| 5   | Cache verification?                     | **SUPERSEDED** — there is no verification call to cache. The observed anchor is captured during the listing fetch that already happens.                                                                                                                                                                                                                                                                                        |     |
+| 6   | Blast radius                            | Fix once in `engine/stores.py`; all five workflows share `resolve_stores()`.                                                                                                                                                                                                                                                                                                                                                   |
 
 ### Fallback ladder
 
@@ -72,17 +115,17 @@ Never fabricate `/str/{username}`. Never stamp `Verified` on a derived URL.
 
 ## Phases
 
-| Phase | Work                                                                                     | Skill                         | eBay calls | Status  |
-| ----- | ---------------------------------------------------------------------------------------- | ----------------------------- | ---------- | ------- |
-| 0     | Ticket split / plan doc                                                                  | `to-tickets`                  | 0          | done    |
-| 1     | Baseline: live runs, store URLs, resolution check, screenshots, test counts, orphan pids | `diagnosing-bugs`             | 8          | pending |
-| 2     | Store identity: observed -> `/usr/` fallback -> none                                     | `domain-modeling`, `grilling` | 0          | pending |
-| 3     | Provenance honesty: remove Verified-on-derived contradiction                             | `domain-modeling`             | 0          | pending |
-| 4     | 12 adversarial store-validation scenarios, red-green-refactor                            | `tdd`                         | 0          | pending |
-| 5     | Runtime: `start/stop/check.ps1`, process-tree kill, root `start` script                  | `diagnosing-bugs`             | 0          | pending |
-| 6     | Dashboard UI premium pass on `Scorecard` + `EbayStoresCard`                              | `redesign-existing-projects`  | 0          | pending |
-| 7     | Regression + live verification                                                           | `code-review`                 | 12         | pending |
-| 8     | Report with measured before/after                                                        | —                             | 0          | pending |
+| Phase | Work                                                                        | Skill                         | eBay calls | Status  |
+| ----- | --------------------------------------------------------------------------- | ----------------------------- | ---------- | ------- |
+| 0     | Ticket split / plan doc                                                     | `to-tickets`                  | 0          | done    |
+| 1     | Baseline: live runs, store URLs, resolution probe, test counts, orphan pids | `diagnosing-bugs`             | 4 runs     | done    |
+| 2     | Store identity: observed -> `/usr/` fallback -> none                        | `domain-modeling`, `grilling` | 0          | pending |
+| 3     | Provenance honesty: remove Verified-on-derived contradiction                | `domain-modeling`             | 0          | pending |
+| 4     | 12 adversarial store-validation scenarios, red-green-refactor               | `tdd`                         | 0          | pending |
+| 5     | Runtime: `start/stop/check.ps1`, root `start` script                        | `diagnosing-bugs`             | 0          | pending |
+| 6     | Dashboard UI premium pass on `Scorecard` + `EbayStoresCard`                 | `redesign-existing-projects`  | 0          | pending |
+| 7     | Regression + honest verification report                                     | `code-review`                 | 0          | pending |
+| 8     | Report with measured before/after                                           | —                             | 0          | pending |
 
 ### Dependency map
 
@@ -101,14 +144,24 @@ beautifying a lie.
 Populated after Phase 7 with observed values only. Anything not measured is
 labelled **not verified**.
 
-| Area                        | Before            | After | Evidence |
-| --------------------------- | ----------------- | ----- | -------- |
-| Store validity              | _pending Phase 1_ |       |          |
-| Fabricated store prevention | _pending Phase 4_ |       |          |
-| Normal analysis             | _pending Phase 1_ |       |          |
-| Deep Search                 | _pending Phase 1_ |       |          |
-| Server startup              | _pending Phase 1_ |       |          |
-| Dashboard UI                | _pending Phase 1_ |       |          |
-| Regression risk             | _pending Phase 1_ |       |          |
+| Area                        | Before                                                                                                                                                       | After | Evidence                                       |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----- | ---------------------------------------------- |
+| Store validity              | **not verified** — all 16 baseline rows built `/str/{username}` (derived), but eBay blocks `/str/` with a CAPTCHA so no row could be confirmed dead or alive |       | `backend/engine/stores.py:48,107`; Phase 1 run |
+| Fabricated store prevention | confirmed as a source-level defect (every row `url_derived=True` + `provenance="verified"`)                                                                  |       | Phase 1 run output                             |
+| Normal analysis             | stores produced through the same `resolve_stores()` path                                                                                                     |       | source trace                                   |
+| Deep Search                 | stores produced through the same `resolve_stores()` path                                                                                                     |       | source trace                                   |
+| Server startup              | backend + frontend both start and serve 200; root `npm start` fails (no script)                                                                              |       | Phase 1 process + health capture               |
+| Dashboard UI                | 9/9 pages 200; byte sizes recorded; no browser available for pixel screenshots                                                                               |       | Phase 1 capture                                |
+| Regression risk             | baseline **1032 passed, 7 skipped**                                                                                                                          |       | pre-commit hook                                |
 
-**eBay calls used: 0 / 20**
+**eBay API calls used: 1 attempted / 20 budgeted.** The single Browse API
+attempt never left the host (DNS failure for `api.ebay.co.uk`). The 4 product
+runs resolved via the HTML path, which does not bill an API call. Request counts
+for the HTML path are **not instrumented** and are therefore not claimed.
+
+**Known limitation:** the brief asks for a before/after count of dead store
+links. That number **cannot be measured from this host** — eBay serves a
+CAPTCHA for `/str/` and 403 for `/usr/`, proven with a negative control. The
+fix removes the fabrication entirely, which makes every emitted link either an
+observed eBay anchor or eBay's canonical `/usr/` form; per-link liveness is
+reported as **not verified**.
