@@ -62,6 +62,8 @@ from scrapers.ebay_sold import EbaySoldData, EbaySoldItem, EbaySoldScraper
 REQUIRED_ROW_KEYS = {
     "name", "url", "url_derived", "sold_count", "sold_count_label",
     "avg_price", "provenance", "provenance_label", "source_name",
+    # REGRESSION-007: which of the two eBay identifiers this link is.
+    "url_kind",
 }
 
 
@@ -209,11 +211,23 @@ class TestNormaliseUsername:
 # ---------------------------------------------------------------------------
 
 class TestDeriveStoreUrl:
+    """REGRESSION-007: this asserted ``/str/{username}``.
+
+    A seller user ID is not a store slug. eBay derives the slug independently,
+    so the old assertion described a link that is usually a dead "Store not
+    found" — it encoded the bug, not the contract. The builder now emits
+    eBay's canonical ``/usr/`` profile for a username.
+    """
+
     def test_url_is_derived_from_the_config_base(self):
         # NOT a hardcoded literal: the base must come from config.
-        assert derive_store_url("good_store") == f"{EBAY_UK_BASE}/str/good_store"
+        assert derive_store_url("good_store") == f"{EBAY_UK_BASE}/usr/good_store"
         assert derive_store_url("good_store") == \
-            "https://www.ebay.co.uk/str/good_store"
+            "https://www.ebay.co.uk/usr/good_store"
+
+    def test_a_username_is_never_turned_into_a_storefront_url(self):
+        """Stronger than before: the old test only checked the shape."""
+        assert "/str/" not in derive_store_url("good_store")
 
     @pytest.mark.parametrize("junk", ["", "   ", "has space", "has/slash"])
     def test_empty_or_junk_username_yields_empty_url(self, junk):
@@ -277,12 +291,17 @@ class TestBuildStores:
     def test_row_values_match_the_spec(self):
         row = build_stores([("good_store", 3, 12.5)])[0]
         assert row["name"] == "good_store"
-        assert row["url"] == f"{EBAY_UK_BASE}/str/good_store"
+        # REGRESSION-007: /usr/ profile, not a fabricated /str/ storefront.
+        assert row["url"] == f"{EBAY_UK_BASE}/usr/good_store"
+        assert row["url_kind"] == "seller_profile"
         assert row["url_derived"] is True      # derived, never observed
         assert row["sold_count"] == 3
         assert row["avg_price"] == 12.5
-        assert row["provenance"] == Provenance.VERIFIED.value
-        assert row["provenance_label"] == Provenance.VERIFIED.label
+        # A profile link is not a confirmed storefront, so it is UNVERIFIED
+        # and says why. See test_store_identity.py for the full contract.
+        assert row["provenance"] == Provenance.UNVERIFIED.value
+        assert row["provenance_label"] == Provenance.UNVERIFIED.label
+        assert "storefront" in row["provenance_reason"].lower()
         assert row["source_name"]
 
     def test_sold_count_label_names_the_window_and_cap(self):
@@ -293,10 +312,26 @@ class TestBuildStores:
         assert f"cap {OBSERVED_WINDOW}" in label
         assert OBSERVED_WINDOW == 50
 
-    def test_rows_built_from_real_names_are_verified(self):
-        # 'verified' = read off a real eBay response (C13), not "store exists".
+    def test_rows_built_from_real_names_are_not_claimed_as_confirmed_stores(self):
+        # REGRESSION-007: this asserted 'verified' for rows whose URL the
+        # system had fabricated. We DID read the username off a real eBay
+        # response, but that says the account exists — not that a storefront
+        # exists. Claiming otherwise is what produced dead "Store not found"
+        # links wearing a Verified badge.
         rows = build_stores([("good_store", 3, 1.0)])
-        assert all(r["provenance"] == Provenance.VERIFIED.value for r in rows)
+        assert all(r["provenance"] == Provenance.UNVERIFIED.value for r in rows)
+        assert all(r["url_kind"] == "seller_profile" for r in rows)
+        assert all(r["url"].startswith(f"{EBAY_UK_BASE}/usr/") for r in rows)
+
+    def test_an_observed_storefront_row_is_verified(self):
+        rows = build_stores(
+            [("good_store", 3, 1.0)],
+            observed_store_urls={"good_store": f"{EBAY_UK_BASE}/str/RealShop"},
+        )
+        assert rows[0]["provenance"] == Provenance.VERIFIED.value
+        assert rows[0]["url"] == f"{EBAY_UK_BASE}/str/RealShop"
+        assert rows[0]["url_kind"] == "observed"
+        assert rows[0]["url_derived"] is False
 
     @pytest.mark.parametrize("bad", [
         "just-a-string", None, 42, ("only_name",), (1, 2, 3, 4),
@@ -366,12 +401,21 @@ class TestStoresFromTopSellers:
         assert "provenance" not in raw
         assert "provenance_label" not in raw
         row = stores_from_top_sellers([raw])[0]
-        # ...the adapter adds it, and derives the URL from the username
-        # even though the scraper also sent one.
-        assert row["provenance"] == Provenance.VERIFIED.value
-        assert row["provenance_label"] == Provenance.VERIFIED.label
-        assert row["url"] == f"{EBAY_UK_BASE}/str/good_store"
+        # ...the adapter adds it, and links to the canonical profile rather
+        # than inventing a storefront from the username (REGRESSION-007).
+        assert row["provenance"] == Provenance.UNVERIFIED.value
+        assert row["provenance_label"] == Provenance.UNVERIFIED.label
+        assert row["url"] == f"{EBAY_UK_BASE}/usr/good_store"
+        assert row["url_kind"] == "seller_profile"
         assert row["url_derived"] is True
+
+    def test_an_observed_store_url_in_the_scraper_dict_is_used(self):
+        raw = _top_seller("good_store", 7, 70.0, 10.0)
+        raw["store_url"] = f"{EBAY_UK_BASE}/str/RealShop"
+        row = stores_from_top_sellers([raw])[0]
+        assert row["url"] == f"{EBAY_UK_BASE}/str/RealShop"
+        assert row["url_kind"] == "observed"
+        assert row["provenance"] == Provenance.VERIFIED.value
 
 
 class TestStoresFromProducts:
@@ -388,12 +432,13 @@ class TestStoresFromProducts:
         assert rows[0]["avg_price"] == 15.0
         assert rows[1]["sold_count"] == 1
 
-    def test_product_rows_are_still_verified(self):
-        # We DID read the username off a real page (C13) — the smaller
-        # window changes the count, not the provenance.
+    def test_product_rows_are_unverified_without_an_observed_storefront(self):
+        # REGRESSION-007: the username came off a real page (C13), but a
+        # username is not a storefront, so the link is not a confirmed one.
         row = stores_from_products([_product("shop_a")])[0]
         assert row["sold_count"] == 1
-        assert row["provenance"] == Provenance.VERIFIED.value
+        assert row["provenance"] == Provenance.UNVERIFIED.value
+        assert row["url_kind"] == "seller_profile"
 
 
 class TestStoresFromDemandAndScan:
@@ -402,7 +447,9 @@ class TestStoresFromDemandAndScan:
             top_sellers=[_top_seller("demand_seller", 3, 30.0, 10.0)])
         rows = stores_from_demand(demand)
         assert _names(rows) == ["demand_seller"]
-        assert rows[0]["provenance"] == Provenance.VERIFIED.value
+        # No storefront was observed on the source, so the row links to the
+        # profile and says so (REGRESSION-007).
+        assert rows[0]["provenance"] == Provenance.UNVERIFIED.value
 
     @pytest.mark.parametrize("demand", [DemandData(), SimpleNamespace()])
     def test_demand_without_sellers_is_empty(self, demand):

@@ -113,13 +113,53 @@ Tier 3  none             no usable identity                  -> no link, not cli
 
 Never fabricate `/str/{username}`. Never stamp `Verified` on a derived URL.
 
+## Phase 2 outcome
+
+### What changed
+
+| File                            | Change                                                                                                                                                                                                                                                                                                                      |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `backend/engine/stores.py`      | `seller_profile_url()` (`/usr/`) and `store_url_from_observed_slug()` (`/str/`) replace the single conflated builder. `_row()` takes an observed URL, emits `url_kind`, and stamps `unverified` + a reason for profile rows. `build_stores`/`stores_from_items`/`stores_from_top_sellers` thread the observed link through. |
+| `backend/scrapers/ebay_sold.py` | HTML path now **reads** the `/str/` anchor eBay rendered instead of discarding it. API path stops fabricating `/str/{username}`. `EbaySoldItem.store_url` added (appended last, so positional construction cannot shift). `top_sellers` carries `store_url`.                                                                |
+
+### REGRESSION-007b — a second, previously invisible bug
+
+`_parse_sold_page` used `lo, hi` at the band gate but never bound them: they
+were locals of `_get_sold_via_scrape`, a different scope. Every item therefore
+raised `NameError`, and a blanket `except: continue` swallowed it. **The HTML
+sold-listing parser always returned zero items**, so store discovery always
+fell through to the API path and Tier-1 observed storefronts could never have
+been captured even once the anchor was being read.
+
+Fixed by binding `lo, hi = self._resolve_band()` at the top of the method.
+
+### Tests
+
+`tests/test_store_identity.py` (new, 18 tests) covers the two identifiers,
+row precedence, the no-fabrication invariant, and the scraper's anchor capture.
+It runs fully offline — the fix must not depend on a request.
+
+Four pre-existing tests asserted the defect itself and were updated to the
+corrected contract, each with the reason recorded at the site. None were
+weakened; several are now strictly stronger:
+
+- `test_stores.py::TestDeriveStoreUrl` — additionally asserts a username is
+  never turned into a `/str/` URL
+- `test_store_wiring.py::_assert_store_row` — replaced a blanket
+  `url.startswith("/str/")` with a two-branch invariant: a `/str/` href may
+  only appear on an `observed` row
+- `test_rows_built_from_real_names_are_verified` — renamed to
+  `..._are_not_claimed_as_confirmed_stores`
+
+**Suite: 1053 passed, 7 skipped** (baseline 1032; +21 new, 0 regressions).
+
 ## Phases
 
 | Phase | Work                                                                        | Skill                         | eBay calls | Status  |
 | ----- | --------------------------------------------------------------------------- | ----------------------------- | ---------- | ------- |
 | 0     | Ticket split / plan doc                                                     | `to-tickets`                  | 0          | done    |
 | 1     | Baseline: live runs, store URLs, resolution probe, test counts, orphan pids | `diagnosing-bugs`             | 4 runs     | done    |
-| 2     | Store identity: observed -> `/usr/` fallback -> none                        | `domain-modeling`, `grilling` | 0          | pending |
+| 2     | Store identity: observed -> `/usr/` fallback -> none                        | `domain-modeling`, `grilling` | 0          | done    |
 | 3     | Provenance honesty: remove Verified-on-derived contradiction                | `domain-modeling`             | 0          | pending |
 | 4     | 12 adversarial store-validation scenarios, red-green-refactor               | `tdd`                         | 0          | pending |
 | 5     | Runtime: `start/stop/check.ps1`, root `start` script                        | `diagnosing-bugs`             | 0          | pending |

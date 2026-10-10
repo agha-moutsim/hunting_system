@@ -45,9 +45,64 @@ MAX_LADDER_RUNGS = 8
 # every export uses identical wording.
 SOLD_COUNT_LABEL = f"observed listings (search window, cap {OBSERVED_WINDOW})"
 
-STORE_URL_TEMPLATE = f"{EBAY_UK_BASE}/str/{{username}}"
+STORE_URL_TEMPLATE = f"{EBAY_UK_BASE}/str/{{slug}}"
+SELLER_PROFILE_URL_TEMPLATE = f"{EBAY_UK_BASE}/usr/{{username}}"
 
 SOURCE_NAME = "eBay sold-listing search (conditions:{NEW})"
+
+# Why a row can be unverified even though eBay gave us the username.
+PROFILE_NOT_STOREFRONT = (
+    "storefront URL not confirmed - showing the seller's eBay profile, which "
+    "is not the same thing as their shop"
+)
+
+# ---------------------------------------------------------------------------
+# Identity: two distinct eBay identifiers, never conflated again
+# ---------------------------------------------------------------------------
+#
+# REGRESSION-007: this module used to build ``ebay.co.uk/str/{username}`` and
+# stamp the result ``verified``. Those are two different identifiers:
+#
+#     seller user ID  -> /usr/{username}   exists for every real account
+#     store URL slug  -> /str/{slug}       exists only if the seller set one
+#
+# eBay derives the slug independently of the username, so ``/str/{username}``
+# is usually a dead "Store not found". The old code never looked at the link
+# eBay had already rendered on the listing, so it had no way to know whether a
+# storefront actually existed and claimed Verified anyway.
+#
+# The rule now: a ``/str/`` URL is emitted ONLY when we observed that exact
+# href on a page eBay served us. Otherwise the row links to ``/usr/``, which
+# is canonical for a real username, and says plainly that it is not a
+# storefront.
+
+def seller_profile_url(username: str) -> str:
+    """Canonical seller-profile URL. Valid for any real eBay username.
+
+    This is the honest fallback: eBay's own canonical form for an account, so
+    it resolves whenever the username is real, and it makes no claim about the
+    seller owning a storefront.
+    """
+    name = normalise_username(username)
+    return SELLER_PROFILE_URL_TEMPLATE.format(username=name) if name else ""
+
+
+def store_url_from_observed_slug(slug: str) -> str:
+    """Storefront URL for a slug we READ OFF an eBay page.
+
+    Call this only with a slug taken from a link eBay itself rendered. A
+    username is not a slug and must never be passed here.
+    """
+    clean = normalise_username(slug)
+    return STORE_URL_TEMPLATE.format(slug=clean) if clean else ""
+
+
+def is_observed_store_url(url: Any) -> bool:
+    """True only for a real ``/str/`` href read off an eBay page."""
+    text = str(url or "").strip()
+    if not text.lower().startswith(("http://", "https://")):
+        return False
+    return "/str/" in text
 
 
 # ---------------------------------------------------------------------------
@@ -78,55 +133,76 @@ def normalise_username(raw: Any) -> str:
 
 
 def derive_store_url(username: str) -> str:
-    """Build the storefront URL from a username.
+    """Deprecated alias for :func:`seller_profile_url`.
 
-    C11 marks this DERIVED — we never observed the link, we constructed it,
-    so every row built from it carries ``url_derived=True``.
+    Kept so older callers and tests keep importing successfully, but it no
+    longer builds a storefront: a username is not a store slug.
     """
-    name = normalise_username(username)
-    return STORE_URL_TEMPLATE.format(username=name) if name else ""
+    return seller_profile_url(username)
 
-
-# ---------------------------------------------------------------------------
-# Row construction
-# ---------------------------------------------------------------------------
 
 def _row(name: str, sold_count: int, avg_price: float,
          source_name: str = SOURCE_NAME,
-         provenance: str = "verified") -> dict:
+         observed_store_url: str = "") -> dict:
     """One store row, stamped per C13.
 
-    ``verified`` here means exactly: these values were read off a real eBay
-    response. It does NOT mean we confirmed the storefront exists.
+    ``verified`` now means something stricter than it used to: the link on
+    this row is a storefront URL we OBSERVED on an eBay page. A row with only
+    a seller profile is stamped UNVERIFIED with the reason attached, because
+    eBay told us the account exists but not that it has a shop.
     """
     from engine.provenance import Provenance
 
-    prov = Provenance.VERIFIED if provenance == "verified" else Provenance.UNVERIFIED
-    return {
+    observed = observed_store_url if is_observed_store_url(observed_store_url) else ""
+    if observed:
+        url = observed
+        url_kind = "observed"
+        derived = False
+        prov = Provenance.VERIFIED
+        reason = ""
+    else:
+        url = seller_profile_url(name)
+        url_kind = "seller_profile"
+        derived = True
+        prov = Provenance.UNVERIFIED
+        reason = PROFILE_NOT_STOREFRONT
+
+    row = {
         "name": name,
-        "url": derive_store_url(name),
-        # C11 — declared derived so a consumer can never claim it was observed.
-        "url_derived": True,
+        "url": url,
+        # Which of the two eBay identifiers this link is.
+        "url_kind": url_kind,
+        # C11 - True only when we built the link ourselves from a username.
+        "url_derived": derived,
         "sold_count": int(sold_count),
-        # C11 — the label travels WITH the number.
+        # C11 - the label travels WITH the number.
         "sold_count_label": SOLD_COUNT_LABEL,
         "avg_price": round(float(avg_price or 0.0), 2),
         "provenance": prov.value,
         "provenance_label": prov.label,
         "source_name": source_name,
     }
+    if reason:
+        row["provenance_reason"] = reason
+    return row
 
 
 def build_stores(counts: Iterable[tuple], source_name: str = SOURCE_NAME,
-                 limit: int = MAX_STORES) -> list[dict]:
+                 limit: int = MAX_STORES,
+                 observed_store_urls: Optional[dict] = None) -> list[dict]:
     """Turn ``(username, sold_count, avg_price)`` triples into store rows.
 
     Sorts by observed count desc, de-duplicates usernames case-insensitively
     (eBay usernames are case-insensitive, so ``Store`` and ``store`` are one
     seller), drops unusable names, and never exceeds ``limit`` (C11).
+
+    ``observed_store_urls`` maps a username to a ``/str/`` href that was read
+    off an eBay page. Only a seller listed there is shown a storefront link;
+    everyone else gets the canonical ``/usr/`` profile.
     """
     if not counts:
         return []
+    observed_store_urls = observed_store_urls or {}
     seen: dict[str, dict] = {}
     for entry in counts:
         # Every coercion lives INSIDE the guard. The obvious failure is a
@@ -158,7 +234,8 @@ def build_stores(counts: Iterable[tuple], source_name: str = SOURCE_NAME,
                 )
             existing["_n"] = merged_n
             continue
-        row = _row(name, count_i, avg_f, source_name=source_name)
+        row = _row(name, count_i, avg_f, source_name=source_name,
+                   observed_store_url=observed_store_urls.get(name, ""))
         row["_n"] = count_i or 1
         seen[key] = row
 
@@ -175,8 +252,14 @@ def build_stores(counts: Iterable[tuple], source_name: str = SOURCE_NAME,
 
 def stores_from_items(items: Iterable[Any], source_name: str = SOURCE_NAME,
                       limit: int = MAX_STORES) -> list[dict]:
-    """Aggregate directly from ``EbaySoldItem`` objects."""
+    """Aggregate directly from ``EbaySoldItem`` objects.
+
+    ``item.store_url`` is the storefront href eBay rendered on the listing we
+    parsed, or '' when the page showed no store link. Passing it through is
+    what lets a row be an observed storefront instead of a guess.
+    """
     tally: dict[str, list] = {}
+    observed: dict[str, str] = {}
     for item in items or []:
         name = normalise_username(getattr(item, "seller", None))
         if not name:
@@ -185,9 +268,13 @@ def stores_from_items(items: Iterable[Any], source_name: str = SOURCE_NAME,
         slot = tally.setdefault(name, [0, 0.0])
         slot[0] += 1
         slot[1] += price
+        seen_url = getattr(item, "store_url", "") or ""
+        if name not in observed and is_observed_store_url(seen_url):
+            observed[name] = seen_url
     return build_stores(
         ((n, c, t / c if c else 0.0) for n, (c, t) in tally.items()),
         source_name=source_name, limit=limit,
+        observed_store_urls=observed,
     )
 
 
@@ -201,6 +288,7 @@ def stores_from_top_sellers(top_sellers: Iterable[dict],
     and attach the label + provenance it never had.
     """
     counts = []
+    observed: dict[str, str] = {}
     for s in top_sellers or []:
         if not isinstance(s, dict):
             continue
@@ -210,8 +298,13 @@ def stores_from_top_sellers(top_sellers: Iterable[dict],
         if avg is None:
             total = float(s.get("total_price") or 0.0)
             avg = total / count if count else 0.0
+        clean = normalise_username(name)
+        seen_url = s.get("store_url") or ""
+        if clean and clean not in observed and is_observed_store_url(seen_url):
+            observed[clean] = seen_url
         counts.append((name, count, avg))
-    return build_stores(counts, source_name=source_name, limit=limit)
+    return build_stores(counts, source_name=source_name, limit=limit,
+                        observed_store_urls=observed)
 
 
 def stores_from_products(products: Iterable[Any],

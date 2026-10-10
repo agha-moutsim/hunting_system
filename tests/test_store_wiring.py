@@ -179,15 +179,37 @@ def _sold_data(top=True):
 
 
 def _assert_store_row(row):
-    """C11/C13 — the row contract, asserted wherever a row surfaces."""
+    """C11/C13 — the row contract, asserted wherever a row surfaces.
+
+    REGRESSION-007: this used to assert every URL was a ``/str/`` link derived
+    from the username, which is precisely the fabrication that produced dead
+    "Store not found" pages. It now asserts the STRONGER property: a ``/str/``
+    href may only appear on a row whose storefront was actually observed, and
+    every other row links to the canonical ``/usr/`` profile and is unverified.
+    """
     assert REQUIRED_ROW_KEYS <= set(row)
-    assert row["url_derived"] is True                     # derived, never observed
-    assert row["url"].startswith(f"{EBAY_UK_BASE}/str/")  # config base + /str/
     label = row["sold_count_label"]
     assert "observed" in label.lower()                    # never eBay's sold count
     assert f"cap {OBSERVED_WINDOW}" in label              # window travels with it
     assert row["provenance"] in {"verified", "unverified"}
     assert row["provenance_label"] == Provenance(row["provenance"]).label
+
+    url = row["url"]
+    assert url.startswith(EBAY_UK_BASE), f"URL must use the configured base: {url}"
+    kind = row["url_kind"]
+    assert kind in {"observed", "seller_profile"}, kind
+
+    if "/str/" in url:
+        # A storefront link is only ever an observed one.
+        assert kind == "observed", f"fabricated storefront on a {kind!r} row: {url}"
+        assert row["url_derived"] is False
+        assert row["provenance"] == Provenance.VERIFIED.value
+    else:
+        assert kind == "seller_profile", kind
+        assert url.startswith(f"{EBAY_UK_BASE}/usr/"), url
+        assert row["url_derived"] is True
+        assert row["provenance"] == Provenance.UNVERIFIED.value
+        assert "storefront" in row["provenance_reason"].lower()
 
 
 def _names(rows):

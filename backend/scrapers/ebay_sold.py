@@ -30,6 +30,34 @@ class _Unset:
 
 _UNSET = _Unset()
 
+
+def _absolute_ebay_url(href: str) -> str:
+    """Normalise a scraped href into a canonical ebay.co.uk URL.
+
+    Returns '' unless the href really points at an eBay storefront, so a
+    relative link or some other host can never be mistaken for an observed
+    one.
+    """
+    raw = str(href or "").strip()
+    if not raw:
+        return ""
+    if raw.startswith("//"):
+        raw = f"https:{raw}"
+    elif raw.startswith("/"):
+        raw = f"{EBAY_UK_BASE}{raw}"
+    if not raw.startswith(("http://", "https://")):
+        return ""
+    if "ebay.co.uk" not in raw.lower() or "/str/" not in raw.lower():
+        return ""
+    return raw.split("?")[0].split("#")[0]
+
+
+def _seller_profile_link(username: str) -> str:
+    """Canonical /usr/ profile for a seller username. Never a /str/ link."""
+    from engine.stores import seller_profile_url
+
+    return seller_profile_url(username)
+
 # The local gate for an unrestricted request needs finite bounds, but must
 # not re-impose the user's buying range. Any real eBay price is inside this.
 _UNRESTRICTED_BOUNDS = (0.0, 1_000_000.0)
@@ -56,6 +84,11 @@ class EbaySoldItem:
     shipping_cost: float = 0.0
     shipping_days: int = 0
     shipping_raw: str = ""
+    # REGRESSION-007: the storefront href eBay actually rendered for this
+    # seller, or '' when the source showed no store link. The Browse API
+    # carries no slug, so the API path leaves this empty rather than guessing
+    # one from the username.
+    store_url: str = ""
 
 
 @dataclass
@@ -260,7 +293,14 @@ class EbaySoldScraper:
                     price=price,
                     url=item.get("itemWebUrl", ""),
                     seller=seller_info.get("username", ""),
-                    seller_url=f"https://www.ebay.co.uk/str/{seller_info.get('username', '')}",
+                    # REGRESSION-007: the Browse API gives a seller user ID and
+                    # no store slug. This used to build /str/{username}, which
+                    # 404s whenever the seller's slug differs. The canonical
+                    # /usr/ profile is the only link this response supports;
+                    # store_url stays '' because no storefront was observed.
+                    seller_url=_seller_profile_link(
+                        seller_info.get("username", "")),
+                    store_url="",
                     sold_date="",  # Browse summaries carry no sale date — never fake one
                     condition=condition,
                     image_url=item.get("thumbnailImages", [{}])[0].get("imageUrl")
@@ -325,6 +365,15 @@ class EbaySoldScraper:
         """Parse a single eBay sold listings page."""
         items = []
 
+        # REGRESSION-007b: this method used `lo, hi` at the band gate without
+        # ever binding them — they were locals of `_get_sold_via_scrape`, a
+        # different scope. Every item therefore raised NameError, and the
+        # blanket `except: continue` below swallowed it, so the HTML sold
+        # path silently returned zero items and store discovery always fell
+        # through to the API. Bind them here, or drop the gate entirely when
+        # the caller asked for no restriction.
+        lo, hi = self._resolve_band()
+
         # eBay sold items are in list items
         for item in soup.select("li.s-item"):
             try:
@@ -359,16 +408,33 @@ class EbaySoldScraper:
                 link_el = item.select_one("a.s-item__link")
                 url = link_el.get("href", "") if link_el else ""
 
-                # Seller
+# Seller
+                # REGRESSION-007: this block used to take the first whitespace
+                # token and BUILD `/str/{seller}` from it. A seller user ID is
+                # not a store slug, so that link is usually a dead "Store not
+                # found". eBay already renders the real storefront href next to
+                # the seller name when the seller has one, so read that first
+                # and only fall back to the canonical /usr/ profile.
                 seller_el = item.select_one("span.s-item__seller-info-text")
                 seller = ""
+                store_url = ""
                 seller_url = ""
                 if seller_el:
-                    seller_text = seller_el.get_text(strip=True)
+                    anchor = seller_el.select_one("a[href*='/str/']")
+                    if anchor is None:
+                        scope = item.select_one(".s-item__seller-info")
+                        if scope is not None:
+                            anchor = scope.select_one("a[href*='/str/']")
+                    if anchor is not None:
+                        store_url = _absolute_ebay_url(anchor.get("href", ""))
+                        # The anchor's text is the store's display name.
+                        seller_text = anchor.get_text(strip=True)
+                    else:
+                        seller_text = seller_el.get_text(strip=True)
                     seller_match = re.search(r"(\S+)", seller_text)
                     if seller_match:
                         seller = seller_match.group(1)
-                        seller_url = f"https://www.ebay.co.uk/str/{seller}"
+                    seller_url = store_url or _seller_profile_link(seller)
 
                 # Sold date (if available) — "" when the page omits it, never faked
                 date_el = item.select_one("span.POSITIVE")
@@ -397,6 +463,7 @@ class EbaySoldScraper:
                     url=url,
                     seller=seller,
                     seller_url=seller_url,
+                    store_url=store_url,
                     sold_date=sold_date,
                     condition=condition,
                     image_url=image_url,
@@ -447,6 +514,10 @@ class EbaySoldScraper:
                     seller_counts[item.seller] = {
                         "name": item.seller,
                         "url": item.seller_url,
+                        # REGRESSION-007: carry the observed storefront href so
+                        # engine.stores can show a real store link when we
+                        # actually saw one.
+                        "store_url": getattr(item, "store_url", "") or "",
                         "sold_count": 0,
                         "total_price": 0,
                     }
