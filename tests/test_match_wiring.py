@@ -936,6 +936,37 @@ class TestHunterPicksBestMatch:
 class TestHunterSupplierLookupEndToEnd:
     """C14 — the rows _first_valid picks are what the report is built from."""
 
+    @pytest.fixture(autouse=True)
+    def _no_live_discovery(self, monkeypatch):
+        """Stop discovery reaching the network.
+
+        `_lookup_single_supplier` tries SerpApi discovery FIRST and only then
+        the scrapers. These tests stub the scrapers but never discovery, so
+        they were asserting against live SerpApi results. That made them
+        intermittently wrong in BOTH directions: when Google happened to
+        return a matching B&Q or Toolstation row for the reference title,
+        `test_nothing_matching_yields_no_supplier_at_all` saw a supplier and
+        failed even though the code under test was correct.
+
+        Defaulting discovery to "found nothing" makes the suite deterministic
+        and leaves each test's own assertion intact. Discovery has its own
+        tests in the serpapi suite.
+        """
+        from scrapers import serpapi_discovery as sd
+        from scrapers.aliexpress import AliExpressScraper
+
+        monkeypatch.setattr(sd, "discover", lambda *a, **k: [])
+
+        # _lookup_single_supplier falls through to AliExpress when discovery
+        # and CJ find nothing, and that was a LIVE ~60s browser call. It was
+        # the real source of the flake: whenever AliExpress happened to return
+        # a matching drill, "nothing matching yields no supplier" failed while
+        # the code under test was correct.
+        async def _no_aliexpress(self, query):
+            return []
+
+        monkeypatch.setattr(AliExpressScraper, "search", _no_aliexpress)
+
     def test_the_report_row_comes_from_a_scored_hit(self, monkeypatch):
         from scrapers.cjdropshipping import CJDropshippingScraper
         from hunter.supplier_lookup import _lookup_single_supplier

@@ -687,6 +687,56 @@ def discover_stores(query: str, limit: int = MAX_STORES) -> list[dict]:
     return rows
 
 
+def annotate_store_checks(rows: list[dict], *, verify: bool = True) -> list[dict]:
+    """REGRESSION-007: check each OBSERVED storefront and record the verdict.
+
+    Identity (Phase 2) stopped fabricating ``/str/`` links. This asks the
+    question that actually matters: does the shop exist? Measured 2026-10-10
+    over eight stores the system had been showing as ``Verified`` — four came
+    back HTTP 410, i.e. eBay has no shop at that slug.
+
+    A row that turns out to be dead is demoted to UNVERIFIED and keeps its
+    reason. It is NOT dropped: "this seller competes with you but has no
+    storefront" is a fact worth showing, and dropping it would quietly shrink
+    a list the user can see the reason for.
+
+    A row we could not check (``unavailable``) keeps whatever provenance it
+    had — a blocked request is not evidence of absence (C13).
+
+    Costs at most ``verify.MAX_CHECKS`` calls per process; past that every
+    row reports ``unavailable`` and nothing is guessed.
+    """
+    if not rows or not verify:
+        return rows
+
+    from engine.verify import StoreCheck, verify_store_url
+
+    for row in rows:
+        # Only an observed storefront can be wrong in this way. A seller
+        # profile link was never claiming to be a shop.
+        if row.get("url_kind") != "observed":
+            continue
+        try:
+            result = verify_store_url(row.get("url", ""))
+        except Exception as e:  # noqa: BLE001 - never break discovery
+            row["store_check"] = "unavailable"
+            row["store_check_reason"] = f"check could not run: {type(e).__name__}"
+            continue
+
+        row["store_check"] = result.status.value
+        row["store_check_reason"] = result.reason
+        if result.status is StoreCheck.NOT_FOUND:
+            from engine.provenance import Provenance
+
+            row["provenance"] = Provenance.UNVERIFIED.value
+            row["provenance_label"] = Provenance.UNVERIFIED.label
+            row["provenance_reason"] = (
+                "eBay reports no storefront at this URL - the seller account "
+                "is real but the shop is not there"
+            )
+    return rows
+
+
 def resolve_stores(query: str = "", demand: Any = None, products: Iterable[Any] = None,
                    sold_data: Any = None, limit: int = MAX_STORES,
                    provenance: Optional[dict] = None) -> list[dict]:
@@ -702,6 +752,10 @@ def resolve_stores(query: str = "", demand: Any = None, products: Iterable[Any] 
     provenance (including whether the search had to widen), so the caller can
     stamp the block honestly instead of claiming "verified" for a broadened
     search. Free-data rungs (1-3) never widen, so they are verified as-is.
+
+    Whatever the rung, every returned row has been through
+    :func:`annotate_store_checks`, so an observed storefront that eBay denies
+    is demoted rather than presented as a store.
     """
     if provenance is not None:
         provenance.clear()
@@ -712,23 +766,23 @@ def resolve_stores(query: str = "", demand: Any = None, products: Iterable[Any] 
             rows = stores_from_top_sellers(
                 getattr(sold_data, "top_sellers", []) or [], limit=limit)
         if rows:
-            return rows
+            return annotate_store_checks(rows)
 
     if demand is not None:
         rows = stores_from_demand(demand, limit=limit)
         if rows:
-            return rows
+            return annotate_store_checks(rows)
 
     if products:
         rows = stores_from_products(products, limit=limit)
         if rows:
-            return rows
+            return annotate_store_checks(rows)
 
     if query:
         rows, ladder = search_stores(query, limit=limit)
         if provenance is not None:
             provenance.update(ladder)
-        return rows
+        return annotate_store_checks(rows)
     return []
 
 
