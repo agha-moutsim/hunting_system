@@ -69,7 +69,18 @@ def run_async(coro, timeout: float | None = None):
 # thrash the machine and can OOM/kill the API process.
 _BROWSER_SEMAPHORE = asyncio.Semaphore(2)
 # Hard cap per supplier scraper so one hung site can't stall the pipeline.
-SCRAPER_TIMEOUT_S = 45.0
+# 2026-10: raised from 45.0 after two live health checks. The fan-out runs in
+# PARALLEL, so this costs the slowest scraper's time, not the sum. Measured
+# against "wireless earbuds":
+#     AliExpress  61.46s   <- 20 products. WORKS. Was being cut off at 45s.
+#     GoDropship  58.22s   -> 0 products, ERR_EMPTY_RESPONSE
+#     Joybuy      59.46s   -> 0 products
+#     CJ           2.77s   -> 2 products
+# 45s discarded the one supplier that reliably returns data. 70s clears the
+# measured worst case with margin and still leaves the run well inside
+# PIPELINE_TIMEOUT_S (150s). This constant governs ONLY the supplier fan-out
+# - it never bounded eBay requests, which carry their own 15-20s timeouts.
+SCRAPER_TIMEOUT_S = 70.0
 # Overall pipeline budget (eBay + suppliers + LLM + verdict).
 PIPELINE_TIMEOUT_S = 150.0
 

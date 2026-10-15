@@ -139,8 +139,58 @@ class TestNoCallSiteHardcodesItsOwn:
 
 
 class TestTheScraperTimeoutIsUntouched:
-    def test_scrape_budget_stays_at_45(self):
-        """45s is still correct for a web scrape - only the LLM budget moved.
-        Changing this too would have made eBay calls hang for two minutes."""
+    """The scraper budget is a NAMED constant, not the old LLM wall.
+
+    2026-10: the value moved 45.0 -> 70.0. The original 45 was written to keep
+    this constant distinct from OLLAMA_TIMEOUT_S (which is 120), and that is
+    still the property worth guarding. Its old docstring claimed raising it
+    "would have made eBay calls hang for two minutes" - which was never true:
+    this constant governs only the parallel supplier fan-out in
+    analysis_pipeline, and eBay requests carry their own 15-20s timeouts.
+
+    What changed the value was measurement: AliExpress returns 20 products in
+    61.46s and was being discarded at 45s, so the fan-out was throwing away the
+    one supplier that reliably works.
+    """
+
+    def test_scrape_budget_stays_a_named_constant(self):
         source = (BACKEND / "analysis_pipeline.py").read_text(encoding="utf-8")
-        assert "SCRAPER_TIMEOUT_S = 45.0" in source
+        assert "SCRAPER_TIMEOUT_S = 70.0" in source
+
+    def test_scrape_budget_clears_the_measured_slowest_supplier(self):
+        """If this ever drops below the slowest supplier we measured, that
+        supplier is silently cut off again and the fan-out returns less than
+        it actually found."""
+        import re
+
+        source = (BACKEND / "analysis_pipeline.py").read_text(encoding="utf-8")
+        match = re.search(r"SCRAPER_TIMEOUT_S\s*=\s*([0-9.]+)", source)
+        assert match, "SCRAPER_TIMEOUT_S must stay a named constant"
+        value = float(match.group(1))
+        # AliExpress: 61.46s in the 2026-10 health check, and it WORKS.
+        assert value >= 65.0, (
+            f"SCRAPER_TIMEOUT_S is {value}s but AliExpress needs ~61.5s - it "
+            f"would be discarded before it returns anything"
+        )
+
+    def test_scrape_budget_never_exceeds_the_pipeline_budget(self):
+        """The fan-out runs inside PIPELINE_TIMEOUT_S, so the per-scraper cap
+        must leave room for the eBay query and the supplier scoring stage."""
+        import re
+
+        source = (BACKEND / "analysis_pipeline.py").read_text(encoding="utf-8")
+        scraper = float(re.search(r"SCRAPER_TIMEOUT_S\s*=\s*([0-9.]+)", source).group(1))
+        pipeline = float(re.search(r"PIPELINE_TIMEOUT_S\s*=\s*([0-9.]+)", source).group(1))
+        assert scraper < pipeline, (
+            f"per-scraper cap ({scraper}s) must leave room inside the pipeline "
+            f"budget ({pipeline}s)"
+        )
+
+    def test_scrape_budget_does_not_bound_the_llm_budget(self):
+        """The property the 45 originally existed to protect."""
+        source = (BACKEND / "analysis_pipeline.py").read_text(encoding="utf-8")
+        assert "SCRAPER_TIMEOUT_S = 70.0" in source
+        assert "SCRAPER_TIMEOUT_S = 45.0" not in source
+        assert "OLLAMA_TIMEOUT_S" not in source, (
+            "the supplier budget must never be where the LLM budget lives"
+        )
