@@ -49,7 +49,18 @@ class BandQScraper(BaseScraper):
                 "https://serpapi.com/search.json",
                 params={
                     "engine": "google_shopping",
-                    "q": f"site:diy.com {query}",
+                    # 2026-10: was `site:diy.com {query}`, which made
+                    # SerpApi's Google Shopping engine HANG - measured at
+                    # 60.7s and still running when the probe gave up, against
+                    # 1.1-2.8s for a plain query. B&Q therefore never returned
+                    # anything and this branch silently fell through to
+                    # scraping. Naming the RETAILER works and the existing
+                    # source filter below matches on it:
+                    #     "garden hose B&Q"      2.8s, 27 B&Q rows
+                    #     "garden hose diy.com" 35.7s, timed out
+                    # A domain or site: operator is not a supported filter
+                    # here; the merchant name is.
+                    "q": f"{query} B&Q",
                     "location": "United Kingdom",
                     "gl": "uk",
                     "hl": "en",

@@ -48,7 +48,13 @@ class ToolstationScraper(BaseScraper):
                 "https://serpapi.com/search.json",
                 params={
                     "engine": "google_shopping",
-                    "q": f"site:toolstation.com {query}",
+                    # 2026-10: was `site:toolstation.com {query}`, which hangs
+                    # the Google Shopping engine (measured 60.7s, still
+                    # running at cutoff; a plain query answers in 1.1-2.8s).
+                    # Naming the retailer works and the filter below matches
+                    # on it. Same fix as bandq.py - a site: operator is not a
+                    # supported way to scope this engine.
+                    "q": f"{query} Toolstation",
                     "location": "United Kingdom",
                     "gl": "uk",
                     "hl": "en",
