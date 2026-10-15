@@ -224,18 +224,17 @@ async def search_all_suppliers(query: str, progress=None) -> list[ScrapedProduct
     from scrapers.aliexpress import AliExpressScraper
     from scrapers.bandq import BandQScraper
     from scrapers.cjdropshipping import CJDropshippingScraper
-    from scrapers.godropship import GoDropshipScraper
-    from scrapers.joybuy import JoybuyScraper
     from scrapers.toolstation import ToolstationScraper
 
-    # Amazon UK removed 2026-10: PA-API 5 deprecated (403), access needs 10
-    # sales/30d, and the Associates licence bars aggregating product data for
-    # analysis. Recorded in suppliers.json under "enabled": false.
+    # Amazon UK, GoDropship and Joybuy removed 2026-10. Each has the evidence
+    # and the unblock path recorded in suppliers.json under "enabled": false:
+    #   amazon_uk  - PA-API 5 deprecated (403), needs 10 sales/30d, licence
+    #                bars aggregating product data for analysis
+    #   godropship - the domain is FOR SALE (spaceship.com, $16,995)
+    #   joybuy     - JD "Risk Control" challenge survives playwright-stealth
     scrapers = [
         ("AliExpress", AliExpressScraper),
         ("CJ Dropshipping", CJDropshippingScraper),
-        ("GoDropship", GoDropshipScraper),
-        ("Joybuy", JoybuyScraper),
         ("B&Q", BandQScraper),
         ("Toolstation", ToolstationScraper),
     ]

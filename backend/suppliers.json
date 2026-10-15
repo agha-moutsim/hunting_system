@@ -53,7 +53,10 @@
       "type": "dropship",
       "delivery_days_min": 7,
       "delivery_days_max": 18,
-      "scrapable": true,
+      "scrapable": false,
+      "enabled": false,
+      "disabled_reason": "The domain no longer hosts a business. Verified 2026-10-10 with a real browser: https://www.godropship.com renders 'GoDropship.com for sale | Spaceship.com' asking $16,995, with buy/add-to-cart links to spaceship.com and zero product markup. /search returns RemoteDisconnected for every variant including a bare /search. This is not a bot block and no proxy, header or endpoint fix can recover it.",
+      "revisit_if": "The company reacquires the domain, or a successor supplier is registered.",
       "notes": "Dropship supplier."
     },
     "joybuy": {
@@ -61,13 +64,16 @@
       "label": "Joybuy UK",
       "slug": "joybuy",
       "base_url": "https://www.joybuy.com",
-      "search_url": "https://www.joybuy.com/search?q={query}",
-      "domains": ["joybuy.com"],
+      "search_url": "https://www.joybuy.com/s?k={query}",
+      "domains": ["joybuy.com", "joybuy.co.uk"],
       "type": "dropship",
       "delivery_days_min": 7,
       "delivery_days_max": 21,
-      "scrapable": true,
-      "notes": "Dropship supplier."
+      "scrapable": false,
+      "enabled": false,
+      "disabled_reason": "Actively bot-protected, and the old endpoint is gone. Verified 2026-10-10: /search?q= returns 404 'Page Not Found | Joybuy' (the site has also moved to joybuy.co.uk). robots.txt advertises the real route as /s?k=, but requesting it returns a 'Joybuy Risk Control' interstitial that redirects to /user/risk/pic and hands off to JD's risk handler at cfe.m.jd.com. That challenge is still served to headless Chromium with playwright-stealth applied, so it is not defeated by the current browser settings.",
+      "revisit_if": "A residential proxy clears the JD risk challenge, or JD publishes an affiliate/feed API for the UK store.",
+      "notes": "Dropship supplier. Real stock and good UK delivery - worth reviving with a proxy."
     },
     "bandq": {
       "id": "bandq",

@@ -38,17 +38,14 @@ from scrapers.aliexpress import AliExpressScraper
 from scrapers.bandq import BandQScraper
 from scrapers.cjdropshipping import CJDropshippingScraper
 from scrapers.ebay import EbayScraper
-from scrapers.godropship import GoDropshipScraper
-from scrapers.joybuy import JoybuyScraper
 from scrapers.toolstation import ToolstationScraper
 
 logger = logging.getLogger(__name__)
 
+# GoDropship and Joybuy removed 2026-10; see suppliers.json for the evidence.
 SUPPLIER_SCRAPERS = {
     "aliexpress": AliExpressScraper,
     "cjdropshipping": CJDropshippingScraper,
-    "godropship": GoDropshipScraper,
-    "joybuy": JoybuyScraper,
     "bandq": BandQScraper,
     "toolstation": ToolstationScraper,
 }

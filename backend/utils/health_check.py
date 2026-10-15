@@ -13,8 +13,6 @@ from dataclasses import dataclass
 from scrapers.aliexpress import AliExpressScraper
 from scrapers.bandq import BandQScraper
 from scrapers.cjdropshipping import CJDropshippingScraper
-from scrapers.godropship import GoDropshipScraper
-from scrapers.joybuy import JoybuyScraper
 from scrapers.toolstation import ToolstationScraper
 from scrapers.ebay import EbayScraper
 
@@ -32,8 +30,6 @@ SCRAPERS = {
     "ebay": EbayScraper,
     "aliexpress": AliExpressScraper,
     "cjdropshipping": CJDropshippingScraper,
-    "godropship": GoDropshipScraper,
-    "joybuy": JoybuyScraper,
     "bandq": BandQScraper,
     "toolstation": ToolstationScraper,
 }
