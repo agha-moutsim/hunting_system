@@ -16,7 +16,7 @@ SUPPLIER_FETCH_TIMEOUT = 10
 # Timeout per product (seconds).
 #
 # REGRESSION-003: this was 15 while the work inside it could take 20 - CJ for
-# SUPPLIER_FETCH_TIMEOUT, then, when it found nothing, an AliExpress/Amazon
+# SUPPLIER_FETCH_TIMEOUT, then, when it found nothing, an AliExpress
 # gather costing another SUPPLIER_FETCH_TIMEOUT. The outer kill therefore
 # fired before its own body finished, `supplier` came back None, and every
 # remaining product vanished with no explanation. The budget now covers the
@@ -82,7 +82,7 @@ def _first_valid(
 async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
     """Find the cheapest *genuinely matching* supplier offer for one product.
 
-    REGRESSION-002: this used to lead with CJ/Aliexpress/Amazon, whose
+    REGRESSION-002: this used to lead with CJ/Aliexpress, whose
     responses are mostly not the same product -------- 60 of the 109 supplier rows
     in the real database were e.g. GBP35.99 earbuds matched to a GBP641.48
     AliExpress row. The matcher correctly rejected them, so the Hunter showed
@@ -218,48 +218,6 @@ async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
                     pass
         return None
 
-    async def _scrape_amazon():
-        scraper = None
-        try:
-            from scrapers.amazon_uk import AmazonUKScraper
-            scraper = AmazonUKScraper()
-            products = await asyncio.wait_for(scraper.search(product.title), timeout=10)
-            hit = _first_valid(
-                products, product.title, product.price or 0.0,
-                image_hash_for(getattr(product, "image_url", None)),
-            )
-            if hit:
-                return {
-                    "name": "Amazon UK",
-                    "price": hit.price,
-                    "url": hit.url,
-                    "delivery_days": f"{hit.delivery_days_min}-{hit.delivery_days_max}",
-                    "product_title": getattr(hit, "title", ""),
-                    # C14 -------- the computed score travels with the row so the
-                    # report and the API say what the matcher decided.
-                    "match_score": getattr(hit, "match_score", 0.0),
-                    "match_tier": getattr(hit, "match_tier", ""),
-                    "match_label": getattr(hit, "match_label", ""),
-                    # C13 -------- derived from the real source, never assumed.
-                    "supplier_type": supplier_type(name="Amazon UK", url=hit.url),
-                    "provenance": Provenance.VERIFIED.value,
-                    "provenance_label": Provenance.VERIFIED.label,
-                    # C13 — "api" when the signed Associates call returned it,
-                    # "browser" when the page read did; both are verified, but
-                    # the reader can tell which produced this row.
-                    "fetch_method": getattr(hit, "fetch_method", "") or "",
-                    "source_url": hit.url,
-                }
-        except (asyncio.TimeoutError, Exception):
-            pass
-        finally:
-            if scraper and hasattr(scraper, 'close'):
-                try:
-                    await scraper.close()
-                except:
-                    pass
-        return None
-
     # Discovery first (REGRESSION-002), then CJ, then the rest only if
     # nothing was found -------- a cheaper confirmed offer is still preferred.
     try:
@@ -280,10 +238,8 @@ async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
     # Only run the remaining suppliers if nothing was found
     if not results:
         try:
-            ae_result, amz_result = await asyncio.gather(
-                _scrape_ae(), _scrape_amazon()
-            )
-            results = [r for r in [ae_result, amz_result] if r is not None]
+            ae_result = await _scrape_ae()
+            results = [r for r in [ae_result] if r is not None]
         except Exception:
             results = []
 

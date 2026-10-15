@@ -861,7 +861,6 @@ def deep_search_product(
         f"{query} site:toolstation.com",
         f"{query} site:joybuy.co.uk",
         f"{query} site:aliexpress.com",
-        f"{query} site:amazon.co.uk",
     ]
 
     for sq in search_queries[:5]:
@@ -1173,26 +1172,14 @@ def deep_search_fast(
             print(f"[WARN] AliExpress scrape failed: {e}")
             return []
 
-    async def _scrape_amazon():
-        try:
-            from scrapers.amazon_uk import AmazonUKScraper
-            amz = AmazonUKScraper()
-            products = await amz.search(query)
-            print(f"[OK] Amazon UK: {len(products)} products found")
-            return [("Amazon UK", p) for p in products[:2]]
-        except Exception as e:
-            print(f"[WARN] Amazon scrape failed: {e}")
-            return []
-
     # Run all scrapes with a hard cap so one hung site can't block the API
     import concurrent.futures
 
     try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
             futs = [
                 pool.submit(asyncio.run, _scrape_cj()),
                 pool.submit(asyncio.run, _scrape_ae()),
-                pool.submit(asyncio.run, _scrape_amazon()),
             ]
             # A1.4 â€” 50 s is the ceiling, not the target: the pool waits only
             # for what is left of the route's budget, so the Bulk path can
@@ -1201,7 +1188,7 @@ def deep_search_fast(
             if _deadline is not None:
                 _scrape_wait = max(0.0, min(_scrape_wait, _deadline - time.monotonic()))
             done, not_done = concurrent.futures.wait(futs, timeout=_scrape_wait)
-            cj_results = ae_results = amz_results = []
+            cj_results = ae_results = []
             for i, fut in enumerate(futs):
                 try:
                     val = fut.result(timeout=0) if fut in done else []
@@ -1210,20 +1197,18 @@ def deep_search_fast(
                     val = []
                 if i == 0:
                     cj_results = val
-                elif i == 1:
-                    ae_results = val
                 else:
-                    amz_results = val
+                    ae_results = val
             if not_done:
                 print(f"[WARN] {len(not_done)} supplier scrape(s) timed out at "
                       f"{_scrape_wait:.0f}s")
     except Exception as e:
         print(f"[WARN] Parallel scrape failed: {e}")
-        cj_results, ae_results, amz_results = [], [], []
+        cj_results, ae_results = [], []
 
-    # Process results â€” supplier prices are never range-gated (PR-1);
+    # Process results — supplier prices are never range-gated (PR-1);
     # only unusable rows (no positive price) are skipped.
-    for source_name, product in cj_results + ae_results + amz_results:
+    for source_name, product in cj_results + ae_results:
         if not product.price or product.price <= 0:
             continue
         store_display = product.store_name or product.seller or source_name
@@ -1233,8 +1218,8 @@ def deep_search_fast(
             "full_name": store_display,
             "price": product.price,
             "url": product.url,
-            # C13 â€” derived from the real source, never assumed. Amazon is
-            # not the only retailer and everything else is not a dropshipper.
+            # C13 â€” derived from the real source, never assumed. A retailer is
+            # not a dropshipper, and not every supplier is one.
             "supplier_type": classify_source(
                 name=store_display or source_name, url=product.url
             ),
@@ -1247,7 +1232,7 @@ def deep_search_fast(
             # verified, and it carries its own link as the receipt.
             "provenance": Provenance.VERIFIED.value,
             "provenance_label": Provenance.VERIFIED.label,
-            # C13 â€” verified AND how: an AliExpress/Amazon row can only be a
+            # C13 â€” verified AND how: an AliExpress row can only be a
             # browser read when the credentialed API is unconfigured, and the
             # UI must not present that as indistinguishable from an API row.
             "fetch_method": getattr(product, "fetch_method", "") or "",
@@ -1298,7 +1283,7 @@ def deep_search_fast(
     result.set_fact_provenance(
         "suppliers",
         Provenance.VERIFIED if result.suppliers else Provenance.UNVERIFIED,
-        source_name="supplier scrapers (CJ / AliExpress / Amazon UK)",
+        source_name="supplier scrapers (CJ / AliExpress)",
         method="" if result.suppliers else "no supplier scrape returned a price",
     )
     # C11/C13 â€” store block stamp (same shape as the full path).

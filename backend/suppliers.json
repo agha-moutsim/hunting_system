@@ -25,6 +25,9 @@
       "delivery_days_min": 1,
       "delivery_days_max": 5,
       "scrapable": true,
+      "enabled": false,
+      "disabled_reason": "Amazon cannot be a source for this tool as of 2026-10. Three independent blockers: (1) PA-API 5 is DEPRECATED and returns 403 AccessDeniedException - the successor Creators API uses OAuth2 and different endpoints, so amazon_api.py targeted a dead path; (2) access now requires 10 qualifying sales in the trailing 30 days, which cannot be bootstrapped without already selling; (3) the Associates Operating Agreement restricts use of the API for aggregating or analysing product content, which is exactly what this tool does. Health-checked twice: 0 products, ~55s. The browser scraper also returns nothing.",
+      "revisit_if": "Amazon publishes a non-restrictive programmatic price feed for the UK market, or the 10-sale gate and licence wording change.",
       "notes": "UK-based. Fast delivery. Higher supplier cost typically."
     },
     "cj_dropshipping": {

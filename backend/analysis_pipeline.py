@@ -211,16 +211,17 @@ def _score_supplier(
 async def search_all_suppliers(query: str, progress=None) -> list[ScrapedProduct]:
     """Search all 7 supplier scrapers in parallel and return combined results."""
     from scrapers.aliexpress import AliExpressScraper
-    from scrapers.amazon_uk import AmazonUKScraper
     from scrapers.bandq import BandQScraper
     from scrapers.cjdropshipping import CJDropshippingScraper
     from scrapers.godropship import GoDropshipScraper
     from scrapers.joybuy import JoybuyScraper
     from scrapers.toolstation import ToolstationScraper
 
+    # Amazon UK removed 2026-10: PA-API 5 deprecated (403), access needs 10
+    # sales/30d, and the Associates licence bars aggregating product data for
+    # analysis. Recorded in suppliers.json under "enabled": false.
     scrapers = [
         ("AliExpress", AliExpressScraper),
-        ("Amazon UK", AmazonUKScraper),
         ("CJ Dropshipping", CJDropshippingScraper),
         ("GoDropship", GoDropshipScraper),
         ("Joybuy", JoybuyScraper),

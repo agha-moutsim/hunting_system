@@ -35,7 +35,6 @@ from engine.profit import calculate_profit
 from engine.stores import resolve_stores, store_provenance_block
 from llm.analyzer import ProductAnalyzer
 from scrapers.aliexpress import AliExpressScraper
-from scrapers.amazon_uk import AmazonUKScraper
 from scrapers.bandq import BandQScraper
 from scrapers.cjdropshipping import CJDropshippingScraper
 from scrapers.ebay import EbayScraper
@@ -47,7 +46,6 @@ logger = logging.getLogger(__name__)
 
 SUPPLIER_SCRAPERS = {
     "aliexpress": AliExpressScraper,
-    "amazon_uk": AmazonUKScraper,
     "cjdropshipping": CJDropshippingScraper,
     "godropship": GoDropshipScraper,
     "joybuy": JoybuyScraper,

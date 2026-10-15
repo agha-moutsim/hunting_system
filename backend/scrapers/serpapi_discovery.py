@@ -56,11 +56,21 @@ _TIMEOUT = 20
 with open(SUPPLIERS_JSON, encoding="utf-8") as f:
     _SUPPLIERS: dict = json.load(f)["suppliers"]
 
+# A supplier marked "enabled": false stays in the file with its reason, so the
+# decision is auditable, but must never contribute a whitelist entry — or
+# SerpApi results would still be labelled as an approved supplier we do not
+# actually use. (amazon_uk is currently disabled: PA-API 5 is deprecated,
+# access needs 10 sales in 30 days, and the licence bars this use case.)
+_ACTIVE_SUPPLIERS = {
+    slug: cfg for slug, cfg in _SUPPLIERS.items()
+    if cfg.get("enabled", True)
+}
+
 # Link domain -> approved slug, built from the `domains` arrays that live
 # next to each supplier in suppliers.json.
 _DOMAIN_TO_SLUG = {
     domain: slug
-    for slug, cfg in _SUPPLIERS.items()
+    for slug, cfg in _ACTIVE_SUPPLIERS.items()
     for domain in cfg.get("domains", [])
 }
 
@@ -70,7 +80,6 @@ _DOMAIN_TO_SLUG = {
 # .co.uk alias may carry no host we index.
 _SOURCE_TOKENS = {
     "aliexpress": ("aliexpress",),
-    "amazon_uk": ("amazon",),
     "cj_dropshipping": ("cj dropshipping", "cjdropshipping"),
     "godropship": ("godropship", "go dropship"),
     "joybuy": ("joybuy",),

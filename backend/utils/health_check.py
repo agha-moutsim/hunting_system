@@ -11,7 +11,6 @@ import time
 from dataclasses import dataclass
 
 from scrapers.aliexpress import AliExpressScraper
-from scrapers.amazon_uk import AmazonUKScraper
 from scrapers.bandq import BandQScraper
 from scrapers.cjdropshipping import CJDropshippingScraper
 from scrapers.godropship import GoDropshipScraper
@@ -32,7 +31,6 @@ class HealthResult:
 SCRAPERS = {
     "ebay": EbayScraper,
     "aliexpress": AliExpressScraper,
-    "amazon_uk": AmazonUKScraper,
     "cjdropshipping": CJDropshippingScraper,
     "godropship": GoDropshipScraper,
     "joybuy": JoybuyScraper,

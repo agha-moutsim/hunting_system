@@ -323,8 +323,24 @@ class TestRealSerpApiPayloadShape:
         actually prints has to reach the approved supplier."""
         from scrapers.serpapi_discovery import _slug_for
 
-        assert _slug_for({"source": "Amazon.co.uk", "link": ""}) == "amazon_uk"
         assert _slug_for({"source": "aliexpress", "link": ""}) == "aliexpress"
+        assert _slug_for({"source": "cj dropshipping", "link": ""}) == "cj_dropshipping"
+
+    def test_a_disabled_supplier_is_never_whitelisted(self):
+        """2026-10: amazon_uk was disabled in suppliers.json.
+
+        PA-API 5 is deprecated, access needs 10 sales in 30 days, and the
+        Associates licence bars aggregating product data for analysis — so a
+        SerpApi row naming Amazon must NOT become an approved supplier. Before
+        this test existed that mapping was live, which would have let Amazon
+        rows back in through the discovery path while it was being removed
+        everywhere else.
+        """
+        from scrapers.serpapi_discovery import _slug_for
+
+        assert _slug_for({"source": "Amazon.co.uk", "link": ""}) == ""
+        assert _slug_for({"source": "Amazon", "link": ""}) == ""
+        assert _slug_for({"source": "amazon.co.uk", "link": ""}) == ""
 
     def test_a_real_row_with_no_source_key_still_returns_nothing(self, serpapi_payload):
         """At least one captured row carries no `source` at all. The fallback
