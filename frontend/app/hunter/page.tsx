@@ -153,7 +153,7 @@ export default function HunterPage() {
           href={r.url || "#"}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-accent-blue hover:underline line-clamp-2"
+          className="text-text-primary hover:underline line-clamp-2"
         >
           {r.title}
         </a>
