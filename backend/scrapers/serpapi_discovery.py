@@ -117,13 +117,24 @@ class _Budget:
         return True
 
 
-def _get_json(params: dict, api_key: str, budget: "_Budget") -> dict | None:
+def _get_json(params: dict, api_key: str, budget: "_Budget",
+              timeout: float | None = None) -> dict | None:
     """One SerpApi request. None = the call failed (transport, non-JSON or a
     reported error), so the caller stops rather than burning the budget on a
-    key or endpoint that is not answering."""
+    key or endpoint that is not answering.
+
+    `timeout` defaults to the module's own. It exists because the two callers
+    hit genuinely different endpoints: `google_shopping` answers in ~3s, while
+    `google` on a `site:` pass measured 1.2s, 1.6s and 2.3s on good days and
+    over 20s on others. Forcing the shopping timeout onto the web engine was
+    measured to abandon the call mid-flight, so a caller that knows its own
+    endpoint passes its own number.
+    """
     params = {**params, "api_key": api_key}
     try:
-        resp = requests.get(SERPAPI_BASE, params=params, timeout=_TIMEOUT)
+        resp = requests.get(
+            SERPAPI_BASE, params=params,
+            timeout=_TIMEOUT if timeout is None else timeout)
     except requests.RequestException as e:
         # scrub(): `requests` puts the whole URL — api_key included — into
         # its exception text, and this line lands in be.log (A4).
@@ -316,8 +327,24 @@ def _row_for(slug: str, item: dict, store: dict) -> ScrapedProduct | None:
 
 
 def _site_query(slug: str, query: str) -> str:
-    """Targeted pass for one supplier, '' when it has no indexed domain."""
-    domains = _SUPPLIERS[slug].get("domains") or []
+    """Targeted pass for one supplier, '' when it has no indexed domain.
+
+    REGRESSION-008: a supplier the SHOPPING index does not carry must not be
+    sent down this road. Measured 2026-10-10 against the live API:
+
+        google_shopping  "site:joybuy.com <product>"   0 rows,  67.0s
+        google           "site:joybuy.com <product>"   10/10,   2.3s
+
+    So the stall is the SHOPPING engine refusing the `site:` operator, not the
+    operator itself, and paying 67s per query for zero rows is a real cost on
+    every lookup. A supplier flagged `skip_site_pass` is served instead by
+    scrapers.joybuy_web, which reads Google's WEB index and never contacts
+    the supplier at all; it returns '' here so Stage 2 skips it.
+    """
+    cfg = _SUPPLIERS[slug]
+    if cfg.get("skip_site_pass"):
+        return ""
+    domains = cfg.get("domains") or []
     return f"site:{domains[0]} {query}" if domains else ""
 
 

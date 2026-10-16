@@ -70,10 +70,13 @@
       "delivery_days_min": 7,
       "delivery_days_max": 21,
       "scrapable": false,
-      "enabled": false,
-      "disabled_reason": "Actively bot-protected, and the old endpoint is gone. Verified 2026-10-10: /search?q= returns 404 'Page Not Found | Joybuy' (the site has also moved to joybuy.co.uk). robots.txt advertises the real route as /s?k=, but requesting it returns a 'Joybuy Risk Control' interstitial that redirects to /user/risk/pic and hands off to JD's risk handler at cfe.m.jd.com. That challenge is still served to headless Chromium with playwright-stealth applied, so it is not defeated by the current browser settings.",
-      "revisit_if": "A residential proxy clears the JD risk challenge, or JD publishes an affiliate/feed API for the UK store.",
-      "notes": "Dropship supplier. Real stock and good UK delivery - worth reviving with a proxy."
+      "enabled": true,
+      "revisit_if": "A Joybuy Dropshipper account exposes a product export or API with full cost prices - that replaces the 20%-priced web route entirely. Until then this entry is a link-out source, not a pricing source.",
+      "notes": "Dropship supplier, 7-21 day delivery. Rows carry a real product URL and the SKU in its path; see price_coverage before trusting it for margin.",
+      "discovery": "web",
+      "skip_site_pass": true,
+      "enabled_reason": "Enabled 2026-10-10 WITHOUT scraping it. Joybuy's own site is unreadable by us - /s?k= serves a 'Joybuy Risk Control' interstitial that redirects to /user/risk/pic and hands off to JD's risk handler at cfe.m.jd.com, still served to headless Chromium with playwright-stealth, to ScrapingBee on a datacenter IP (403) and on a premium IP (Risk Control). Six routes, zero results. But we do not need to read the site: Joybuy is absent from Google's SHOPPING index (0 of 80 results across two product queries) and present in its ordinary WEB index (10 of 10 results for a site: pass). scrapers/joybuy_web reads Google's index of Joybuy, so Joybuy's servers are never contacted and there is nothing to block. skip_site_pass is set because the same site: on the SHOPPING engine stalls at 67.0s for zero rows.",
+      "price_coverage": "Low. A price exists only where Google rendered a rich snippet with a price extension - measured 2 of 10 results (20%). Unpriced rows are returned as a link-out with price 0.0 ('not stated') and are skipped by the priced matcher, so they can never look like a free product. A Joybuy Dropshipper account with a real product feed is the route to complete pricing; revisit_if below."
     },
     "bandq": {
       "id": "bandq",

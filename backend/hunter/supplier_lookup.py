@@ -218,12 +218,77 @@ async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
                     pass
         return None
 
+    async def _scrape_joybuy_web():
+        """Joybuy from Google's WEB index - a link-out, priced where it can be.
+
+        Joybuy's own site cannot be read by anything we have (Risk Control,
+        verified across six routes), so `scrapers.joybuy_web` reads Google's
+        index of it instead and never contacts Joybuy.
+
+        It runs CONCURRENTLY with shopping discovery rather than after it,
+        because SerpApi's web engine has a measured latency tail out to >25s.
+        Sequential, a slow call would eat the whole LOOKUP_TIMEOUT and starve
+        CJ and AliExpress, which answer in 2.8s and ~61s respectively and are
+        the sources that actually produce priced rows.
+
+        Returns None on any failure. A secondary source that cannot be reached
+        must not take the lookup down with it.
+        """
+        try:
+            from scrapers.joybuy_web import discover_web
+            rows = await asyncio.to_thread(discover_web, product.title)
+        except Exception as e:
+            print(f"[WARN] Joybuy web discovery failed: {type(e).__name__}")
+            return None
+        if not rows:
+            return None
+
+        hit = _first_valid(
+            rows, product.title, product.price or 0.0,
+            image_hash_for(getattr(product, "image_url", None)),
+        )
+        if not hit:
+            return None
+        return {
+            "name": "Joybuy UK",
+            "price": hit.price,
+            "url": hit.url,
+            "delivery_days": f"{hit.delivery_days_min}-{hit.delivery_days_max}",
+            "product_title": getattr(hit, "title", ""),
+            "match_score": getattr(hit, "match_score", 0.0),
+            "match_tier": getattr(hit, "match_tier", ""),
+            "match_label": getattr(hit, "match_label", ""),
+            "supplier_type": supplier_type(name="Joybuy UK", url=hit.url),
+            # C13 - read off a real API response, so verified; the snippet's own
+            # stock and delivery wording travel with the row.
+            "provenance": Provenance.VERIFIED.value,
+            "provenance_label": Provenance.VERIFIED.label,
+            "fetch_method": getattr(hit, "fetch_method", "") or "",
+            "source_url": hit.url,
+            "in_stock": getattr(hit, "in_stock", ""),
+            "stock_raw": getattr(hit, "stock_raw", ""),
+            "shipping_cost": getattr(hit, "shipping_cost", 0.0),
+            "shipping_days": getattr(hit, "shipping_days", 0),
+            "shipping_raw": getattr(hit, "shipping_raw", ""),
+            "found_via": "joybuy_web",
+        }
+
     # Discovery first (REGRESSION-002), then CJ, then the rest only if
     # nothing was found -------- a cheaper confirmed offer is still preferred.
+    #
+    # Joybuy runs alongside discovery rather than after it: both are one
+    # blocking SerpApi call each, so overlapping them costs the SLOWER of the
+    # two instead of their sum.
     try:
-        discovery_result = await _scrape_discovery()
-        if discovery_result:
-            results.append(discovery_result)
+        settled = await asyncio.gather(
+            _scrape_discovery(), _scrape_joybuy_web(), return_exceptions=True
+        )
+        for outcome in settled:
+            # return_exceptions=True means a crash in one source surfaces here
+            # rather than cancelling the other; it is skipped, never guessed at.
+            if isinstance(outcome, BaseException) or not outcome:
+                continue
+            results.append(outcome)
     except Exception:
         pass
 
