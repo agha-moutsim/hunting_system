@@ -67,7 +67,21 @@ def run_async(coro, timeout: float | None = None):
 
 # Cap concurrent Playwright browsers — 7 full Chromium instances
 # thrash the machine and can OOM/kill the API process.
-_BROWSER_SEMAPHORE = asyncio.Semaphore(2)
+#
+# REGRESSION-009: this was a module-level `asyncio.Semaphore(2)`, and a
+# Semaphore binds itself to the first event loop that awaits it. The API
+# creates a NEW loop per request (`run_async`), so:
+#
+#     1st analysis -> all 4 scrapers run
+#     2nd onward   -> 2 of 4 die instantly with
+#                     "Semaphore ... bound to a different event loop"
+#
+# Reproduced in isolation: run 1 ok=4 err=0, runs 2 and 3 ok=2 err=2. Which
+# two died depended on arrival order, so it presented as random suppliers
+# going missing rather than as one fault. A Semaphore is therefore created
+# PER CALL now, inside `search_all_suppliers`, which is the only place that
+# uses it and which always runs on the loop currently in play.
+BROWSER_CONCURRENCY = 2
 # Hard cap per supplier scraper so one hung site can't stall the pipeline.
 # 2026-10: raised from 45.0 after two live health checks. The fan-out runs in
 # PARALLEL, so this costs the slowest scraper's time, not the sum. Measured
@@ -226,6 +240,12 @@ async def search_all_suppliers(query: str, progress=None) -> list[ScrapedProduct
     from scrapers.cjdropshipping import CJDropshippingScraper
     from scrapers.toolstation import ToolstationScraper
 
+    # REGRESSION-009: created per call, never at module level. A Semaphore
+    # binds to the first loop that awaits it, and this module is driven by a
+    # fresh loop per request — so a shared one poisons every request after the
+    # first. See the note on BROWSER_CONCURRENCY.
+    browser_semaphore = asyncio.Semaphore(BROWSER_CONCURRENCY)
+
     # Amazon UK, GoDropship and Joybuy removed 2026-10. Each has the evidence
     # and the unblock path recorded in suppliers.json under "enabled": false:
     #   amazon_uk  - PA-API 5 deprecated (403), needs 10 sales/30d, licence
@@ -242,7 +262,7 @@ async def search_all_suppliers(query: str, progress=None) -> list[ScrapedProduct
     async def _run_one(name: str, ScraperClass):
         scraper = ScraperClass()
         try:
-            async with _BROWSER_SEMAPHORE:
+            async with browser_semaphore:
                 results = await asyncio.wait_for(
                     scraper.search(query), timeout=SCRAPER_TIMEOUT_S
                 )
