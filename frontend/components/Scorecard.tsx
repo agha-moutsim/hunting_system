@@ -301,7 +301,7 @@ export default function Scorecard({
               emphasis
               value={formatGBP(ebayProduct.price)}
             />
-            {suppliers.slice(0, 4).map((s, i) => {
+            {suppliers.map((s, i) => {
               const delta = ebayProduct.price - s.price;
               return (
                 <Metric
