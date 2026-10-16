@@ -57,25 +57,45 @@ export default function EbayStoresCard({
               className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-card border border-border/40 bg-bg-surface/40 px-4 py-3 transition-colors duration-200 hover:border-border/70 hover:bg-bg-surface/70"
             >
               {link ? (
-                <a
-                  href={link.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title={link.explanation}
-                  className="group flex min-w-0 items-center gap-2.5 rounded-control text-text-primary transition-colors duration-200 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand-lime"
-                >
-                  <span className="truncate font-medium">{s.name || "—"}</span>
-                  <span
-                    data-store-link-kind={link.kind}
-                    className={`shrink-0 rounded-sm border px-1.5 py-px text-[10px] font-semibold uppercase tracking-[0.08em] ${
-                      link.isConfirmedStorefront
-                        ? "border-brand-lime/40 bg-brand-lime/10 text-brand-lime"
-                        : "border-border bg-bg-surface text-text-dim"
-                    }`}
+                link.href ? (
+                  <a
+                    href={link.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={link.explanation}
+                    className="group flex min-w-0 items-center gap-2.5 rounded-control text-text-primary transition-colors duration-200 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand-lime"
                   >
-                    {link.kindLabel}
+                    <span className="truncate font-medium">
+                      {s.name || "—"}
+                    </span>
+                    <span
+                      data-store-link-kind={link.kind}
+                      className={`shrink-0 rounded-sm border px-1.5 py-px text-[10px] font-semibold uppercase tracking-[0.08em] ${
+                        link.isConfirmedStorefront
+                          ? "border-brand-lime/40 bg-brand-lime/10 text-brand-lime"
+                          : "border-border bg-bg-surface text-text-dim"
+                      }`}
+                    >
+                      {link.kindLabel}
+                    </span>
+                  </a>
+                ) : (
+                  /* eBay answered and says there is no shop here. The seller
+                     is still real, so the row stays - but there is nowhere to
+                     send anyone, so nothing is clickable (REGRESSION-007). */
+                  <span
+                    title={link.explanation}
+                    className="flex min-w-0 items-center gap-2.5 text-text-secondary"
+                  >
+                    <span className="truncate">{s.name || "—"}</span>
+                    <span
+                      data-store-link-kind="dead"
+                      className="shrink-0 rounded-sm border border-accent-red/40 bg-accent-red/10 px-1.5 py-px text-[10px] font-semibold uppercase tracking-[0.08em] text-accent-red"
+                    >
+                      {link.kindLabel}
+                    </span>
                   </span>
-                </a>
+                )
               ) : (
                 // No link we can stand behind — show the name, never a dead
                 // href="#" (REGRESSION-007).

@@ -86,6 +86,13 @@ export interface EbayStore {
   url_kind?: "observed" | "seller_profile";
   /** true = the URL was built from the username, never observed. */
   url_derived?: boolean;
+  /**
+   * What eBay said when the backend checked this storefront.
+   * "verified" | "not_found" | "unavailable". Absent on rows saved before
+   * verification existed, or when no verification key is configured.
+   */
+  store_check?: "verified" | "not_found" | "unavailable";
+  store_check_reason?: string;
   /** Listings observed in the search window (cap 50) - NOT eBay sold count. */
   sold_count: number;
   sold_count_label?: string;
