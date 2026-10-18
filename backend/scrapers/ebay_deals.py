@@ -48,12 +48,24 @@ cards whose bare legacy id does not resolve (see `_by_title`; on one live page
 that was 35 of 73 cards). At the hourly refresh that is ~2,600/day against the
 5,000/day allowance, which is why this is a scheduled job and not a
 request-time fetch.
+
+WHAT ELSE A BROWSE CALL RETURNS
+-------------------------------
+Far more than a price. Each payload also carries the listing's creation date,
+the seller's feedback percentage and score, whether that seller is a business or
+an individual, the item's location, the postage charged, the category and the
+buying options — all of which this module used to drop on the floor. Since the
+rich-fields pass, every payload it fetches is handed to `on_observation` and
+stored; see scrapers/browse_fields.py for what each field is and why `None`
+there means "eBay did not return it". This costs no extra API call: the fields
+were in the response the price came from.
 """
 
 from __future__ import annotations
 
 import base64
 import json
+import logging
 import re
 import time
 from dataclasses import dataclass, field
@@ -70,6 +82,9 @@ from config import (
     SCRAPE_CONFIG,
 )
 from engine.stores import is_observed_store_url, seller_profile_url
+from scrapers.browse_fields import SOURCE_ITEM, SOURCE_SUMMARY
+
+logger = logging.getLogger(__name__)
 
 DEALS_URL = f"{EBAY_UK_BASE}/deals"
 
@@ -221,7 +236,15 @@ def _price_of(payload: dict) -> tuple[Optional[float], str]:
 class EbayDealsScraper:
     """Read eBay's own deals page, then price its cards from the Browse API."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        on_observation: Optional[Callable[[str, dict, str], None]] = None,
+    ) -> None:
+        #: Called with (listing_id, payload, source) for every real reading this
+        #: scraper takes. None by default - the scraper neither knows nor cares
+        #: what a caller does with a reading, which is what keeps it free of
+        #: database knowledge and testable without one.
+        self.on_observation = on_observation
         self.session = requests.Session()
         self.session.headers.update({
             "User-Agent": SCRAPE_CONFIG["user_agent"],
@@ -362,6 +385,23 @@ class EbayDealsScraper:
             item.image_url = _upgrade_image(str(image))
         return True
 
+    def _observe(self, listing_id: str, payload: dict, source: str) -> None:
+        """Hand one real reading to the sink, if a sink is attached.
+
+        A side effect must never cost the board its prices, so a failing sink is
+        logged and swallowed here. It cannot go unnoticed: the refresh reports
+        how many readings it recorded, and a sink that starts failing shows up
+        there.
+        """
+        if self.on_observation is None:
+            return
+        try:
+            self.on_observation(listing_id, payload, source)
+        except Exception:  # noqa: BLE001 - reported to the log, never raised
+            logger.warning(
+                "Observation sink failed for listing %s", listing_id, exc_info=True
+            )
+
     def enrich(self, item: DealItem) -> bool:
         """Fill one card's price and seller from the Browse API.
 
@@ -370,11 +410,19 @@ class EbayDealsScraper:
         the board, because the listing is real either way.
         """
         payload = self._by_id(item)
+        source = SOURCE_ITEM
         if payload is None:
             payload = self._by_title(item)
+            source = SOURCE_SUMMARY
         if payload is None:
             self._price_failures += 1
             return False
+
+        # Recorded before the price is judged: the listing's fields are real
+        # whether or not this card ends up with a readable price, and a card
+        # with no price is exactly the one whose other fields are worth having.
+        self._observe(item.listing_id, payload, source)
+
         if not self._apply(item, payload):
             self._price_failures += 1
             return False

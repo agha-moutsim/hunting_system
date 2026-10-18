@@ -1,6 +1,7 @@
 """History endpoints — past analyses + product detail."""
 
 import logging
+from datetime import datetime
 
 from fastapi import APIRouter, HTTPException
 
@@ -9,6 +10,49 @@ from utils.filters import active_range, outside_range, price_in_range, resolve_r
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _serialize_observation(row) -> dict:
+    """One stored Browse reading, replayed exactly as it was recorded.
+
+    Built from `browse_fields.FIELDS` rather than a second hand-written list, so
+    a field can never be added to the extractor and silently omitted from the
+    replay. A null value means the Browse API did not return that field, and the
+    client must never be able to read it as a zero.
+    """
+    from scrapers.browse_fields import FIELDS
+
+    payload = {
+        "listing_id": row.listing_id,
+        "observed_at": row.observed_at.isoformat() if row.observed_at else None,
+        "source": row.source,
+    }
+    for name in FIELDS:
+        value = getattr(row, name)
+        payload[name] = value.isoformat() if isinstance(value, datetime) else value
+    return payload
+
+
+def _observations_block(db, listing_id) -> dict:
+    """The Browse readings held for this product's listing.
+
+    A product whose listing was never observed returns an empty block rather
+    than a placeholder: History must not imply a reading that was never taken.
+    """
+    if not listing_id:
+        return {"listing_id": "", "returned": 0, "readings": []}
+
+    from db.queries import get_listing_observations
+
+    rows = get_listing_observations(db, listing_id)
+    return {
+        "listing_id": str(listing_id),
+        # How many readings this response carries, newest first. Named
+        # `returned` on purpose: it is not a total, and a deeper history exists
+        # in the table than a single product page needs to draw.
+        "returned": len(rows),
+        "readings": [_serialize_observation(row) for row in rows],
+    }
 
 
 @router.get("/history")
@@ -144,6 +188,10 @@ def product_detail(product_id: int):
                 }
                 for s in kept_suppliers
             ],
+            # The Browse readings behind this listing, replayed so a saved
+            # analysis shows what was measured and not merely what was computed
+            # from it. Absent for a product whose listing was never observed.
+            "observations": _observations_block(db, product.ebay_listing_id),
             "analysis": {
                 "brand_verdict": analysis.brand_verdict,
                 "brand_reasoning": analysis.brand_reasoning,

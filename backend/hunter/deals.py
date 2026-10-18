@@ -27,6 +27,7 @@ from datetime import datetime, timedelta
 from typing import Iterable, Optional
 
 from db.models import DealItem as DealItemRow
+from db.queries import save_listing_observations
 from scrapers.ebay_deals import SOURCE, SOURCE_LABEL, DealItem, EbayDealsScraper
 
 #: How long a pool is considered current. One hour holds the Browse spend at
@@ -196,22 +197,55 @@ def save_deals(items: Iterable[DealItem], session) -> dict:
     }
 
 
+def _record_observations(session, readings: list[tuple]) -> dict:
+    """Store this refresh's Browse readings, without ever failing the refresh.
+
+    Storing evidence is a side effect of a run that already happened: if it
+    breaks, the board keeps its prices and the error is reported in the refresh
+    result rather than swallowed. A silent failure here would look exactly like
+    "nothing about these listings changed".
+    """
+    if not readings:
+        return {"readings": 0, "recorded": 0, "unchanged": 0, "empty": 0}
+    try:
+        return save_listing_observations(session, readings)
+    except Exception as exc:  # noqa: BLE001 - reported, never raised upward
+        session.rollback()
+        return {"error": str(exc)}
+
+
 def refresh(
     session=None,
     limit: Optional[int] = None,
     enrich: bool = True,
+    scraper=None,
 ) -> dict:
     """Fetch eBay's deals page and store it.
 
     `limit` prices only the first N cards and is intended for a cheap partial
     run; the scheduled job passes None and prices the whole page.
+
+    Every payload the scraper fetches is also stored as a listing observation.
+    That spends no extra API call - the fields were already in the response the
+    price came from - and `scraper` exists so the wiring can be tested without
+    touching the network.
     """
     owns_session = session is None
     if owns_session:
         from db.database import SessionLocal
         session = SessionLocal()
 
-    scraper = EbayDealsScraper()
+    readings: list[tuple] = []
+    if scraper is None:
+        scraper = EbayDealsScraper()
+    # Readings are collected here and written in one batch after the fetch, so
+    # no write transaction is open while ~108 Browse calls are in flight.
+    scraper.on_observation = (
+        lambda listing_id, payload, source: readings.append(
+            (listing_id, payload, source)
+        )
+    )
+
     try:
         items = scraper.fetch_deals(limit=limit, enrich=enrich)
         result = save_deals(items, session)
@@ -221,6 +255,7 @@ def refresh(
             "api_calls": scraper.api_calls,
             "price_failures": scraper.price_failures,
             "source_label": SOURCE_LABEL,
+            "observations": _record_observations(session, readings),
         })
         return result
     finally:

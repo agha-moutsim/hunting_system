@@ -124,6 +124,29 @@ def ensure_deal_items_table() -> bool:
     return True
 
 
+def ensure_listing_observations_table() -> bool:
+    """Create `listing_observations` if it is missing. True when it had to be.
+
+    The same self-healing stance as `ensure_deal_items_table` above and for the
+    same reason: this table is new, and a database created before it existed
+    would otherwise raise "no such table: listing_observations" the first time
+    History was opened.
+
+    No column ALTERs accompany it. The `_*_ADDITIONS` helpers above exist to
+    reach columns added to a table that already existed; a brand-new table is
+    created whole, and adding empty tuples for it now would be code that never
+    runs.
+    """
+    inspector = inspect(engine)
+    if inspector.has_table("listing_observations"):
+        return False
+    from db.models import ListingObservation  # deferred: db.models imports this
+    Base.metadata.create_all(
+        bind=engine, tables=[ListingObservation.__table__]
+    )
+    return True
+
+
 def get_db():
     """Dependency for FastAPI routes."""
     db = SessionLocal()

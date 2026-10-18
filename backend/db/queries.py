@@ -3,12 +3,26 @@ Common database queries.
 """
 
 from datetime import datetime, timedelta
+from typing import Iterable
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from db.models import Product, DemandData, SupplierMatch, Analysis, Verdict, PurchaseCapture
+from db.models import (
+    Product,
+    DemandData,
+    SupplierMatch,
+    Analysis,
+    Verdict,
+    PurchaseCapture,
+    ListingObservation,
+)
 from scrapers.base import ScrapedProduct, DemandData as DemandDataDTO
+from scrapers.browse_fields import (
+    COMPARED,
+    extract_observation,
+    is_change,
+)
 
 
 def get_product_by_listing_id(db: Session, listing_id: str) -> Product | None:
@@ -382,3 +396,95 @@ def purchase_capture_stats(db: Session, *, now: datetime | None = None) -> dict:
         ),
         "last_capture_at": last_capture_at.isoformat() if last_capture_at else None,
     }
+
+
+def _reading_values(row: ListingObservation) -> dict:
+    """The extractor's own field set, read back off a stored row.
+
+    Driven by `browse_fields.COMPARED` rather than by a second hand-written
+    list, so the comparison cannot drift from the columns: a field added to the
+    extractor and not to the model raises here instead of silently never
+    registering as a change.
+    """
+    return {name: getattr(row, name) for name in COMPARED}
+
+
+def save_listing_observations(
+    db: Session,
+    readings: Iterable[tuple],
+    *,
+    observed_at: datetime | None = None,
+) -> dict:
+    """Store Browse readings, keeping only the ones that say something new.
+
+    `readings` is an iterable of `(listing_id, payload, source)`. Append-only:
+    nothing here is ever updated or deleted, because the value of the table is
+    the sequence.
+
+    Three outcomes, all counted, because a refresh should report what it
+    actually recorded rather than imply that every card produced a row:
+
+    * `recorded`  - differs from the last reading for that listing, so stored.
+    * `unchanged` - repeats the last reading, so not stored again.
+    * `empty`     - every field came back None. That payload was not a usable
+      listing, and writing it would claim eBay reported nothing when in fact
+      nothing was read (C1).
+    """
+    stamped = observed_at or datetime.utcnow()
+    recorded = unchanged = empty = 0
+
+    for listing_id, payload, source in readings:
+        listing_id = str(listing_id)
+        fields = extract_observation(payload)
+
+        if not any(value is not None for value in fields.values()):
+            empty += 1
+            continue
+
+        fields["source"] = source
+        latest = (
+            db.query(ListingObservation)
+            .filter(ListingObservation.listing_id == listing_id)
+            .order_by(
+                ListingObservation.observed_at.desc(),
+                ListingObservation.id.desc(),
+            )
+            .first()
+        )
+        if latest is not None and not is_change(_reading_values(latest), fields):
+            unchanged += 1
+            continue
+
+        db.add(
+            ListingObservation(listing_id=listing_id, observed_at=stamped, **fields)
+        )
+        recorded += 1
+
+    db.commit()
+    return {
+        "readings": recorded + unchanged + empty,
+        "recorded": recorded,
+        "unchanged": unchanged,
+        "empty": empty,
+    }
+
+
+def get_listing_observations(
+    db: Session, listing_id: str, limit: int = 50
+) -> list[ListingObservation]:
+    """A listing's stored readings, newest first.
+
+    `limit` bounds what a replay hands back; the sequence itself is never
+    trimmed, so a deeper query is always possible later.
+    """
+    if not listing_id:
+        return []
+    return (
+        db.query(ListingObservation)
+        .filter(ListingObservation.listing_id == str(listing_id))
+        .order_by(
+            ListingObservation.observed_at.desc(), ListingObservation.id.desc()
+        )
+        .limit(limit)
+        .all()
+    )

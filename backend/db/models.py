@@ -7,7 +7,7 @@ from sqlalchemy import (
     Column, Integer, String, Float, Boolean, Text, ForeignKey, JSON, DateTime
 )
 from sqlalchemy.orm import relationship
-from db.database import Base, ensure_deal_items_table
+from db.database import Base, ensure_deal_items_table, ensure_listing_observations_table
 from config import FILTERS
 
 
@@ -345,14 +345,81 @@ class DealItem(Base):
     )
 
 
+class ListingObservation(Base):
+    """One Browse reading of one listing, kept as evidence.
+
+    APPEND-ONLY. `deal_items` is upsert-by-listing-id because a board row means
+    "eBay is featuring this now"; this table means "this is what the Browse API
+    said at this moment", and a reading that can be overwritten cannot show that
+    anything changed. Nothing here is derived, ranked or inferred - every value
+    is a field eBay returned (see scrapers/browse_fields.py for the shapes,
+    which were measured against a live payload before being written down).
+
+    A reading is stored only when it DIFFERS from the last one for that listing,
+    so `observed_at` means "the listing became different here" and an hourly
+    refresh of an unchanged board adds no rows.
+
+    NULL is load-bearing throughout: it means the Browse API did not return that
+    field - measured on a real payload, `itemOriginDate`, `itemGroupType`,
+    `itemLocation.postalCode` and `seller.storeName` were all absent. None of
+    them is defaulted to 0, "" or False, because "not read" and "read as zero"
+    are different facts and only one of them is evidence.
+    """
+    __tablename__ = "listing_observations"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    listing_id = Column(String(32), nullable=False, index=True)
+    observed_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    item_creation_date = Column(DateTime)
+    item_origin_date = Column(DateTime)
+
+    seller_username = Column(String(64))
+    # eBay sends this as the string "99.1" (measured); stored as a number so it
+    # can be compared without every reader re-parsing it.
+    seller_feedback_percentage = Column(Float)
+    seller_feedback_score = Column(Integer)
+    # BUSINESS or INDIVIDUAL - eBay's own word, kept verbatim.
+    seller_account_type = Column(String(16))
+    seller_store_name = Column(String(128))
+
+    item_country = Column(String(8))
+    item_city = Column(String(64))
+    item_postal_code = Column(String(16))
+
+    condition_id = Column(String(16))
+    condition_text = Column(String(64))
+    category_id = Column(String(32))
+    category_name = Column(String(128))
+
+    # Nullable booleans on purpose: absent is not False.
+    top_rated = Column(Boolean)
+    priority_listing = Column(Boolean)
+    item_group_type = Column(String(32))
+    buying_options = Column(JSON)
+
+    price = Column(Float)
+    currency = Column(String(8))
+    # 0.00 is a real measured value (free postage); None means not read.
+    shipping_cost = Column(Float)
+    shipping_currency = Column(String(8))
+    shipping_type = Column(String(64))
+
+    #: Which Browse surface produced this reading - scrapers/browse_fields.py
+    #: holds the two values. A search-summary reading is less complete than an
+    #: item reading, so a NULL is only interpretable alongside this.
+    source = Column(String(32), default="browse_api_item")
+
+
 # ---------------------------------------------------------------------------
-# The board's table has to exist before anything can read it, and table
-# creation otherwise only happens in the manual `python -m db.init_db` step.
-# So a database created before this table existed would raise "no such table:
-# deal_items" the first time the board was opened. Same self-healing stance as
-# the column ALTERs in db/database.py.
+# These tables have to exist before anything can read them, and table creation
+# otherwise only happens in the manual `python -m db.init_db` step. So a
+# database created before a table existed would raise "no such table" the first
+# time the surface that reads it was opened. Same self-healing stance as the
+# column ALTERs in db/database.py.
 #
-# Called here, at the END of the module, because the helper creates the table
-# from the model class above: running it earlier would find no such model.
+# Called here, at the END of the module, because the helpers create the tables
+# from the model classes above: running them earlier would find no such models.
 # ---------------------------------------------------------------------------
 ensure_deal_items_table()
+ensure_listing_observations_table()
