@@ -163,9 +163,28 @@ class ScrapedProduct:
 
 @dataclass
 class DemandData:
-    """Sales demand evidence from eBay."""
+    """Sales demand evidence from eBay.
+
+    DISCIPLINE (2026-10-18) — `sold_count_30d` / `sold_count_7d` are OBSERVED
+    SALES and nothing else. Only a browser purchase-history capture can supply
+    them today, so None is the normal case and means "sales were not measured"
+    — never "no sales" (C1/C4).
+
+    eBay offers this app no sold-listing search: the Finding API's
+    findCompletedItems was decommissioned on 2025-02-04, Marketplace Insights
+    is closed to new applications, and the Browse API returns ACTIVE listings
+    only. A query therefore yields a count of live listings — real and useful
+    (it says how crowded a niche is) but SUPPLY, not demand. That count used to
+    be written into `sold_count_30d`, which made every downstream "sold" figure
+    and every `verified` badge false. It now lives in
+    `active_listings_in_band`.
+    """
     sold_count_30d: Optional[int] = None
     sold_count_7d: Optional[int] = None
+    #: In-band New ACTIVE listings the query returned. The request asks for 50,
+    #: so a popular niche saturates and ties: it orders badly at the top and
+    #: must never be presented or ranked as sales volume.
+    active_listings_in_band: Optional[int] = None
     last_sale_date: Optional[str] = None
     avg_sold_price: Optional[float] = None
     lowest_sold_price: Optional[float] = None

@@ -40,8 +40,9 @@ _UNRESTRICTED_BOUNDS = (0.0, 1_000_000.0)
 
 
 _SOLD_SOURCE_LABEL = (
-    "ebay_browse_sold_search: count of in-band New sold listings the search "
-    "returned; a search-page count, not a sales total"
+    "ebay_browse_active_listings: in-band New ACTIVE listings the search "
+    "returned. Supply, not sales - this app has no sold-listing search, so "
+    "this call cannot produce a sold count at all."
 )
 # Deliberately free of the words "verified" and "exact". The label is shown
 # and, worse, may be string-matched by a renderer - a source string containing
@@ -467,7 +468,14 @@ class EbayScraper:
 
         prices = [i["price"] for i in sold_items if i["price"] > 0]
         demand = DemandData(
-            sold_count_30d=len(sold_items),  # approximate from search results
+            # Browse returns ACTIVE listings, so this count is SUPPLY, not
+            # demand. Writing it into sold_count_30d is what made every
+            # downstream "sold" figure and `verified` badge false — and eBay
+            # offers this app no sold search at all: findCompletedItems was
+            # decommissioned 2025-02-04 and Marketplace Insights is closed to
+            # new applications.
+            active_listings_in_band=len(sold_items),
+            sold_count_30d=None,
             sold_count_7d=None,
             avg_sold_price=sum(prices) / len(prices) if prices else None,
             lowest_sold_price=min(prices) if prices else None,
@@ -476,7 +484,9 @@ class EbayScraper:
             # rather than re-derived so the chart plots exactly the same
             # numbers the metrics show.
             sold_prices=prices,
-            verified=bool(sold_items),
+            # No sale was read, so there is no verified demand evidence here
+            # however many listings came back.
+            verified=False,
             excluded_over_band=excluded,
             data_source=_SOLD_SOURCE_LABEL,
         )

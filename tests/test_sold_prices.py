@@ -256,8 +256,8 @@ class TestTheScraperCarriesWhatItObserved:
         assert demand.highest_sold_price == 30.0
 
     def test_used_sales_are_not_chart_points(self, monkeypatch):
-        """C10 is absolute: a Used sale is not a New-condition sale, so it
-        cannot become a point in a distribution labelled New."""
+        """C10 is absolute: a Used listing is not a New-condition listing, so
+        it cannot become a point in a distribution labelled New."""
         scraper = _scraper(
             monkeypatch, _payload((9.99, "New"), (8.0, "Used"))
         )
@@ -265,7 +265,13 @@ class TestTheScraperCarriesWhatItObserved:
         demand = scraper._get_sold_api("widget")
 
         assert demand.sold_prices == [9.99]
-        assert demand.sold_count_30d == 1
+        # One in-band New listing came back. That is a LISTING count, not a
+        # sale: Browse cannot see sold items, so the sold count stays
+        # unmeasured rather than borrowing this number (C1/C4). The old
+        # assertion here read `sold_count_30d == 1`, which is precisely the
+        # mislabelling this test now guards against.
+        assert demand.sold_count_30d is None
+        assert demand.active_listings_in_band == 1
 
     def test_out_of_band_prices_are_not_chart_points(self, monkeypatch):
         """The band (£5–£35) is what sold_count and avg were already built
@@ -288,3 +294,53 @@ class TestTheScraperCarriesWhatItObserved:
 
         assert demand.sold_prices == []
         assert demand.sold_count_30d is None
+
+
+# ---------------------------------------------------------------------------
+# 4. SUPPLY is not DEMAND (2026-10-18)
+# ---------------------------------------------------------------------------
+
+class TestAListingCountIsNeverASoldCount:
+    """eBay offers this app no sold-listing search: findCompletedItems was
+    decommissioned on 2025-02-04, Marketplace Insights is closed to new
+    applications, and the Browse API returns ACTIVE listings only.
+
+    `_get_sold_api` therefore reads SUPPLY. It used to write that number into
+    `sold_count_30d`, which made the demand verdict, the "hot" badge and the
+    configured demand floors all report a figure that had never been measured
+    as sales. The whole honesty chain above rests on this one function not
+    lying, so the separation is pinned here rather than assumed.
+    """
+
+    def test_supply_lands_in_its_own_field(self, monkeypatch):
+        scraper = _scraper(monkeypatch, _payload((9.99, "New"), (12.5, "New")))
+
+        demand = scraper._get_sold_api("widget")
+
+        assert demand.active_listings_in_band == 2
+        assert demand.sold_count_30d is None
+
+    def test_a_listing_count_is_never_verified_demand(self, monkeypatch):
+        """`verified` is what the verdict engine reads to decide that a demand
+        row is evidence rather than PENDING. It must be False when nothing
+        about sales was observed, however many listings came back."""
+        scraper = _scraper(monkeypatch, _payload((9.99, "New")))
+
+        demand = scraper._get_sold_api("widget")
+
+        assert demand.verified is False
+
+    def test_the_source_label_says_outright_that_these_are_not_sales(
+        self, monkeypatch
+    ):
+        """The label is rendered in the UI and may be string-matched, so it
+        must state what the count is AND what it is not. Banning the word
+        "sold" would be the wrong test: an honest label has to be able to
+        mention sales in order to deny them."""
+        scraper = _scraper(monkeypatch, _payload((9.99, "New")))
+
+        demand = scraper._get_sold_api("widget")
+
+        label = demand.data_source.lower()
+        assert "active" in label           # says what the count IS
+        assert "not sales" in label        # says what it is NOT

@@ -36,8 +36,14 @@ def batch_demand_check(
 
         try:
             sold_data = scraper.get_sold_data(product.title)
+            # Observed SALES only. None means "not measured", which is the
+            # normal case: this app has no sold-listing search (see
+            # scrapers/base.py DemandData).
             product.sold_30d = sold_data.total_sold_30d
             product.sold_7d = sold_data.total_sold_7d  # None = unknown
+            # In-band New ACTIVE listings: SUPPLY. Carried under its own name
+            # so nothing downstream can read it as demand.
+            product.active_listings_in_band = sold_data.active_listings_in_band
 
             # C11 — this query already listed the sellers it saw; keep them
             # instead of paying for a second store-discovery request.
@@ -51,7 +57,19 @@ def batch_demand_check(
             seven_day_ok = (
                 product.sold_7d is None or product.sold_7d >= min_sold_7d
             )
-            if product.sold_30d >= min_sold_30d and seven_day_ok:
+            # What this gate can actually measure. eBay exposes no sold
+            # search, so real sales are usually absent and the only figure
+            # available is the competing New listing count. The `min_sold_*`
+            # argument names predate that finding: the number compared here
+            # is LISTINGS, and an unknown never prunes a row (C4).
+            observed = (
+                product.sold_30d
+                if product.sold_30d is not None
+                else product.active_listings_in_band
+            )
+            if observed is None:
+                results.append(product)
+            elif observed >= min_sold_30d and seven_day_ok:
                 results.append(product)
 
         except Exception as e:

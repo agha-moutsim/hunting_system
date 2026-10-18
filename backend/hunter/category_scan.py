@@ -40,9 +40,13 @@ class CategoryProduct:
     # text sent to eBay. A row never claims a category it did not come from.
     search_mode: str = ""
     search_query: str = ""
-    # Filled later
-    sold_30d: int = 0
-    sold_7d: int = 0
+    # Filled later. `sold_*` are OBSERVED SALES (None = not measured, which is
+    # the normal case — see scrapers/base.py DemandData). `active_listings_in_band`
+    # is the in-band New listing count: SUPPLY, kept apart so no badge, gate or
+    # verdict can read one as the other.
+    sold_30d: Optional[int] = None
+    sold_7d: Optional[int] = None
+    active_listings_in_band: Optional[int] = None
     supplier_price: float = 0.0
     supplier_name: str = ""
     supplier_url: str = ""

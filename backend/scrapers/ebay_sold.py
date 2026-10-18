@@ -96,9 +96,21 @@ class EbaySoldData:
     """Aggregated sold data for a product."""
     product_name: str
     query: str
-    total_sold_30d: int = 0
+    # OBSERVED SALES. Set only when the sold/completed-listing page was really
+    # read (that page lists ended sales). None = not measured — the Browse API
+    # path cannot see sold items at all, so it leaves these None and fills
+    # `active_listings_in_band` instead (C1/C4: never an assumed count).
+    total_sold_30d: Optional[int] = None
     # None = no parseable sale dates → unknown (C1: never estimated).
     total_sold_7d: Optional[int] = None
+    #: In-band New ACTIVE listings: SUPPLY, not demand.
+    active_listings_in_band: Optional[int] = None
+    #: Which path produced `items` — "ebay_sold_scrape" (ended sales, so a
+    #: count of them IS a sold count) or "ebay_browse_active" (live listings,
+    #: so it is not). The meaning of the two counts above is derived from THIS
+    #: and never assumed, because the same `len(items)` means two different
+    #: things depending on where the items came from.
+    items_source: str = ""
     sold_prices: list[float] = field(default_factory=list)
     price_min: float = 0.0
     price_max: float = 0.0
@@ -209,10 +221,17 @@ class EbaySoldScraper:
             api_items = self._get_sold_via_api(query)
             if api_items:
                 result.items = api_items
+                # The Browse API cannot see sold items — these are LIVE
+                # listings, so counting them measures supply, not sales.
+                # Recorded so _calculate_stats knows which number it holds
+                # instead of assuming (C1/C4).
+                result.items_source = "ebay_browse_active"
             else:
-                # Fallback to scraping
+                # Fallback to scraping the sold/completed page, which lists
+                # real ended sales.
                 scrape_items = self._get_sold_via_scrape(query)
                 result.items = scrape_items
+                result.items_source = "ebay_sold_scrape" if scrape_items else ""
 
             # Calculate statistics
             self._calculate_stats(result)
@@ -491,10 +510,22 @@ class EbaySoldScraper:
             mid = len(sorted_prices) // 2
             result.price_median = sorted_prices[mid] if len(sorted_prices) % 2 else (sorted_prices[mid-1] + sorted_prices[mid]) / 2
 
-        # Sold counts. 30d = items collected (existing accepted source);
+        # Counts. WHICH count this is depends on where `items` came from, so it
+        # is decided by `items_source` rather than assumed — the same
+        # `len(items)` means two different things depending on the path
+        # (C1/C4: never an assumed count).
+        #   "ebay_sold_scrape"  → the sold/completed page, so a count of its
+        #                         rows IS a count of observed sold listings.
+        #   "ebay_browse_active" → live listings: SUPPLY. Recording that as
+        #                         sales is exactly the bug this replaces.
+        if result.items_source == "ebay_sold_scrape":
+            result.total_sold_30d = len(result.items)
+            result.active_listings_in_band = None
+        else:
+            result.total_sold_30d = None
+            result.active_listings_in_band = len(result.items)
         # 7d = ONLY from parseable sale dates — None when the pages carry no
         # usable dates. Never an estimate (C1/C4: no assumed counts).
-        result.total_sold_30d = len(result.items)
         from datetime import date as _date
         from utils.purchase_history import parse_date
         today = _date.today()
