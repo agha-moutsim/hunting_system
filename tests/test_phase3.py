@@ -3,11 +3,20 @@ Test Phase 3: eBay scraper (API-first design).
 Works with or without API keys — falls back to scraping.
 
 Assertions are NOT swallowed: a failure fails the test.
+
+Both tests below call the real eBay API or scrape the live site, so the module
+carries the `live` marker and is excluded from the default run by pytest.ini.
+Run it on demand with:  python -m pytest -m live tests/test_phase3.py
 """
 
 import os
+
+import pytest
+
 from scrapers.ebay import EbayScraper
 from config import EBAY_CLIENT_ID
+
+pytestmark = pytest.mark.live
 
 
 def test_ebay_search():

@@ -60,9 +60,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — Vercel frontend + local Next.js dev
+# CORS — local development origins only. The deployed frontend origin is supplied
+# at runtime through CORS_ORIGINS below and is deliberately not hardcoded. An
+# earlier revision allowlisted https://ebay-hunter.vercel.app, which turned out to
+# be an unrelated third party's site; we do not allowlist hosts we do not control.
 _origins = [
-    "https://ebay-hunter.vercel.app",
     "http://localhost:3000",
     "http://localhost:5173",
     "http://127.0.0.1:3000",

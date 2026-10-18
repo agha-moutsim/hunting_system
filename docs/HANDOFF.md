@@ -34,9 +34,10 @@ is explicitly labelled as not verified.** A fabricated price costs real money.
 ## 1. Verification (run this before and after every change)
 
 ```powershell
-# Backend tests — baseline is 911 (7 skipped are the opt-in live tests)
+# Backend tests — baseline is 1163 passed. Live tests carry the `live` marker
+# and are deselected by pytest.ini; run them on demand with `pytest -m live`.
 $env:PYTHONIOENCODING='utf-8'
-python -m pytest tests/ -q --ignore=tests/test_phase3.py
+python -m pytest tests/ -q
 
 # Import smoke (catches circular imports / missing symbols fast)
 python -c "import sys; sys.path.insert(0,'backend'); import main, pipeline, analysis_pipeline, deep_search, api.analyze, api.bulk, api.deep_search, api.hunter, api.demand_monitor, export.format, export.csv_export, hunter.supplier_lookup, hunter.demand_monitor, engine.match; print('OK')"
@@ -514,7 +515,7 @@ hunter}.py`, `backend/export/{format,csv_export}.py`,
 `test_stores.py` (62), `test_store_wiring.py` (42),
 `test_serpapi_discovery.py` (32) and `test_phash_wiring.py` (30) are both
 zero network + pre-existing ~164 → **671 for those seven alone** (the whole
-suite is **911** — see §1). Added since: `test_demand_monitor.py`,
+suite is **1163** — see §1). Added since: `test_demand_monitor.py`,
 `test_demand_monitor_schedule.py` (asserts the OS task, skips if absent),
 `test_fetch_method.py`, `test_analyze_provenance_stamp.py`,
 `test_history_provenance_persistence.py`, `test_match_score_persistence.py`,
@@ -541,7 +542,7 @@ suite is **911** — see §1). Added since: `test_demand_monitor.py`,
 
 ## 9. Suggested first three moves in the new session
 
-1. **Verify:** run §1. Expect `911 passed`, `tsc` exit 0. If not, stop and
+1. **Verify:** run §1. Expect `1163 passed`, `tsc` exit 0. If not, stop and
    diagnose — do not build on a broken baseline.
 2. **The decision queue is empty.** All six product questions are settled and
    recorded in §4.5 — do not re-open `New - Open Box`, the competitor

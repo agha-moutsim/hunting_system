@@ -65,22 +65,22 @@ If a bug is found in any of these, fix it in place. Don't fork a "v2" version.
 
 ### Backend (`backend/`)
 
-| File                 | Responsibility                                                               |
-| -------------------- | ---------------------------------------------------------------------------- |
-| `main.py`            | FastAPI app, CORS, mounts all routers, `/api/health`                         |
-| `requirements.txt`   | Pinned dependencies                                                          |
-| `render.yaml`        | Render.com deploy config                                                     |
-| `api/schemas.py`     | Pydantic request/response models                                             |
-| `api/status.py`      | `GET /api/status` — DB, Ollama, eBay key health                              |
-| `api/analyze.py`     | `POST /api/analyze` — full single-product pipeline                           |
-| `api/deep_search.py` | `POST /api/deep-search` (with LLM) and `POST /api/deep-search/fast` (no LLM) |
-| `api/bulk.py`        | `POST /api/bulk` — many queries at once, fast mode only                      |
-| `api/hunter.py`      | `POST /api/hunter/scan`, `POST /api/hunter/lookup`                           |
-| `api/tracker.py`     | CRUD for tracked products + `POST /check/{id}`                               |
-| `api/watchlist.py`   | CRUD for watchlist items + saved searches + run search                       |
-| `api/dashboard.py`   | KPIs, chart data, sales CRUD                                                 |
-| `api/history.py`     | `GET /api/history` with verdict + text search filters                        |
-| `api/export_api.py`  | CSV and JSON download endpoints                                              |
+| File                 | Responsibility                                                                                                          |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `main.py`            | FastAPI app, CORS, mounts all routers, `/api/health`                                                                    |
+| `requirements.txt`   | Pinned dependencies                                                                                                     |
+| `render.yaml`        | Render.com deploy config — **planned, not yet created.** Nothing is deployed today; listed here as the intended target. |
+| `api/schemas.py`     | Pydantic request/response models                                                                                        |
+| `api/status.py`      | `GET /api/status` — DB, Ollama, eBay key health                                                                         |
+| `api/analyze.py`     | `POST /api/analyze` — full single-product pipeline                                                                      |
+| `api/deep_search.py` | `POST /api/deep-search` (with LLM) and `POST /api/deep-search/fast` (no LLM)                                            |
+| `api/bulk.py`        | `POST /api/bulk` — many queries at once, fast mode only                                                                 |
+| `api/hunter.py`      | `POST /api/hunter/scan`, `POST /api/hunter/lookup`                                                                      |
+| `api/tracker.py`     | CRUD for tracked products + `POST /check/{id}`                                                                          |
+| `api/watchlist.py`   | CRUD for watchlist items + saved searches + run search                                                                  |
+| `api/dashboard.py`   | KPIs, chart data, sales CRUD                                                                                            |
+| `api/history.py`     | `GET /api/history` with verdict + text search filters                                                                   |
+| `api/export_api.py`  | CSV and JSON download endpoints                                                                                         |
 
 Existing directories (`scrapers/`, `engine/`, etc.) get **moved** into `backend/` using `git mv` so history is preserved. They are not duplicated.
 
@@ -205,7 +205,7 @@ GET    /api/export/json?type=sales|analysis
 | Source   | **GitHub** `agha-moutsim/hunting_system`                                                                                                                                                                       | Public for portfolio.                                                                                                     |
 | LLM      | **Ollama** is local during development. In production we use the existing **rule-based fallback** (already in `deep_search.py`) unless a free hosted Ollama is configured. Must never crash if Ollama is down. |
 
-CORS: backend must allow exactly `https://ebay-hunter.vercel.app` and `http://localhost:3000`.
+CORS: the backend allows the local development origins (`http://localhost:3000`, `http://localhost:5173` and the `127.0.0.1` equivalents). The deployed frontend origin is supplied through the `CORS_ORIGINS` environment variable rather than hardcoded. An earlier revision allowlisted `https://ebay-hunter.vercel.app` — that host belongs to an unrelated third party (a Spanish eBay sniping tool), not this project, and the entry was removed.
 
 The legacy `app.py` (Streamlit) was retired once the Next.js stack replaced it: `start.ps1` had never launched it, no test covered it, and the shared pipeline it called is unchanged. Recover it with `git show dd84608^:app.py > app.py` — the whole history is in this repo.
 
