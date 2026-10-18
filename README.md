@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/brand/hero.svg" width="100%" alt="A field of scattered particles on deep indigo, with a band of lime light sweeping across it; where the band passes, the particles resolve into an evenly spaced grid of bright points. Blue topographic contours recede behind.">
+<img src="assets/brand/hero.svg" width="100%" alt="The eBay Hunter wordmark: a pair of lime selection brackets around a white point, beside the name set in white on deep indigo.">
 
 # eBay Hunter
 

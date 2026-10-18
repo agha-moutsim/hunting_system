@@ -1,190 +1,61 @@
-<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="2560" height="640" viewBox="0 0 2560 640" preserveAspectRatio="xMidYMid slice">
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="2560" height="640" viewBox="0 0 2560 640" preserveAspectRatio="xMidYMid meet">
   <defs>
-    <!-- ============ NOISE ============
-         Turbulence -> alpha lifted from the red channel -> discrete quantisation.
-         The table is zero across the lower bins so only the tail of the noise
-         distribution survives: sparse dots rather than a solid wash. The top
-         bin reaches alpha 1.0, because at 0.7 the field was measurably too dim
-         to read against the base (it lifted luminance by only ~8 of 255). -->
-    <filter id="fNoiseA" filterUnits="userSpaceOnUse" x="0" y="0" width="2560" height="640" color-interpolation-filters="sRGB">
-      <feTurbulence type="fractalNoise" baseFrequency="0.24" numOctaves="2" seed="7" result="t"/>
-      <feColorMatrix in="t" type="matrix" values="0 0 0 0 0.545  0 0 0 0 0.361  0 0 0 0 0.965  1 0 0 0 0" result="m"/>
-      <feComponentTransfer in="m">
-        <feFuncA type="discrete" tableValues="0 0 0 0 0 0 0 0 0.6 0.85 1 1"/>
-      </feComponentTransfer>
-    </filter>
-    <filter id="fNoiseB" filterUnits="userSpaceOnUse" x="0" y="0" width="2560" height="640" color-interpolation-filters="sRGB">
-      <feTurbulence type="fractalNoise" baseFrequency="0.13" numOctaves="2" seed="23" result="t"/>
-      <feColorMatrix in="t" type="matrix" values="0 0 0 0 0.545  0 0 0 0 0.361  0 0 0 0 0.965  1 0 0 0 0" result="m"/>
-      <feComponentTransfer in="m">
-        <feFuncA type="discrete" tableValues="0 0 0 0 0 0 0 0 0 0 0.5 0.9"/>
-      </feComponentTransfer>
-    </filter>
-
-    <!-- Coarser accent particles, so the field has depth rather than one grain size -->
-    <filter id="fNoiseC" filterUnits="userSpaceOnUse" x="0" y="0" width="2560" height="640" color-interpolation-filters="sRGB">
-      <feTurbulence type="fractalNoise" baseFrequency="0.062" numOctaves="1" seed="41" result="t"/>
-      <feColorMatrix in="t" type="matrix" values="0 0 0 0 0.620  0 0 0 0 0.478  0 0 0 0 0.980  1 0 0 0 0" result="m"/>
-      <feComponentTransfer in="m">
-        <feFuncA type="discrete" tableValues="0 0 0 0 0 0 0 0 0 0 0.55 1"/>
-      </feComponentTransfer>
-    </filter>
-
-    <filter id="fGrain" filterUnits="userSpaceOnUse" x="0" y="0" width="2560" height="640" color-interpolation-filters="sRGB">
-      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="3" result="t"/>
-      <feColorMatrix in="t" type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  2 0 0 0 -0.5"/>
-    </filter>
-
-    <!-- Bloom for the band's halo -->
-    <filter id="fBloom" filterUnits="userSpaceOnUse" x="-200" y="180" width="2960" height="440">
-      <feGaussianBlur stdDeviation="24"/>
-    </filter>
-
-    <!-- ============ BAND PROFILE ============
-         Two axes, which a single gradient cannot express:
-           gBandV  vertical   - hot core fading to nothing, so the band reads as
-                                emitted light instead of a filled rectangle
-           gBandH  horizontal - dissolves at both ends so it reads as a sweep
-                                crossing the frame rather than a UI divider -->
-    <linearGradient id="gBandV" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0"    stop-color="#CBFD03" stop-opacity="0"/>
-      <stop offset="0.26" stop-color="#CBFD03" stop-opacity="0.22"/>
-      <stop offset="0.42" stop-color="#D9FF4A" stop-opacity="0.66"/>
-      <stop offset="0.50" stop-color="#E8FF86" stop-opacity="0.86"/>
-      <stop offset="0.58" stop-color="#D9FF4A" stop-opacity="0.66"/>
-      <stop offset="0.74" stop-color="#CBFD03" stop-opacity="0.22"/>
-      <stop offset="1"    stop-color="#CBFD03" stop-opacity="0"/>
-    </linearGradient>
-    <linearGradient id="gBandH" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0"    stop-color="#FFFFFF" stop-opacity="0"/>
-      <stop offset="0.10" stop-color="#FFFFFF" stop-opacity="0.16"/>
-      <stop offset="0.30" stop-color="#FFFFFF" stop-opacity="0.58"/>
-      <stop offset="0.55" stop-color="#FFFFFF" stop-opacity="1"/>
-      <stop offset="0.80" stop-color="#FFFFFF" stop-opacity="0.70"/>
-      <stop offset="1"    stop-color="#FFFFFF" stop-opacity="0"/>
+    <!-- Quiet base: a slow vertical lift, so the field is not a flat fill but
+         still reads as one colour. -->
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0"    stop-color="#242038"/>
+      <stop offset="0.5"  stop-color="#2E2950"/>
+      <stop offset="1"    stop-color="#242038"/>
     </linearGradient>
 
-    <!-- ============ SNAPPED NODE ============
-         Pure white core on a wide lime corolla. The previous version put a dark
-         ring under a lime core, which on a lime band rendered as a punched
-         eyelet; the core is now the brightest value in the image instead. -->
-    <radialGradient id="rNode" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0"    stop-color="#FFFFFF" stop-opacity="0.85"/>
-      <stop offset="0.22" stop-color="#F2FFB0" stop-opacity="0.55"/>
-      <stop offset="0.55" stop-color="#CBFD03" stop-opacity="0.18"/>
-      <stop offset="1"    stop-color="#CBFD03" stop-opacity="0"/>
+    <!-- Light behind the lockup. Very low opacity: it should register as the
+         surface being lit, never as a shape. -->
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0"   stop-color="#CBFD03" stop-opacity="0.10"/>
+      <stop offset="0.55" stop-color="#0D1CC4" stop-opacity="0.07"/>
+      <stop offset="1"   stop-color="#0D1CC4" stop-opacity="0"/>
     </radialGradient>
 
-    <!-- ============ MASKS ============ -->
-    <!-- Horizontal weighting for the noise: clean on the left for a wordmark,
-         full density on the right. -->
-    <linearGradient id="gH" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0"    stop-color="#FFFFFF" stop-opacity="0.02"/>
-      <stop offset="0.28" stop-color="#FFFFFF" stop-opacity="0.10"/>
-      <stop offset="0.50" stop-color="#FFFFFF" stop-opacity="0.42"/>
-      <stop offset="0.72" stop-color="#FFFFFF" stop-opacity="0.88"/>
-      <stop offset="1"    stop-color="#FFFFFF" stop-opacity="1"/>
-    </linearGradient>
-    <!-- Vertical weighting: dense above, cleared out across the band, faint below. -->
-    <linearGradient id="gV" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0"    stop-color="#FFFFFF" stop-opacity="0.85"/>
-      <stop offset="0.30" stop-color="#FFFFFF" stop-opacity="1"/>
-      <stop offset="0.48" stop-color="#FFFFFF" stop-opacity="0.75"/>
-      <stop offset="0.56" stop-color="#FFFFFF" stop-opacity="0.06"/>
-      <stop offset="0.66" stop-color="#FFFFFF" stop-opacity="0.04"/>
-      <stop offset="0.80" stop-color="#FFFFFF" stop-opacity="0.14"/>
-      <stop offset="1"    stop-color="#FFFFFF" stop-opacity="0.22"/>
-    </linearGradient>
-    <mask id="mNoise" maskUnits="userSpaceOnUse" x="0" y="0" width="2560" height="640">
-      <rect x="0" y="0" width="2560" height="640" fill="url(#gH)"/>
-    </mask>
-    <mask id="mNoiseV" maskUnits="userSpaceOnUse" x="0" y="0" width="2560" height="640">
-      <rect x="0" y="0" width="2560" height="640" fill="url(#gV)"/>
-    </mask>
+    <radialGradient id="vignette" cx="0.5" cy="0.5" r="0.75">
+      <stop offset="0.55" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="1"    stop-color="#000000" stop-opacity="0.36"/>
+    </radialGradient>
 
-    <mask id="mBandH" maskUnits="userSpaceOnUse" x="0" y="0" width="2560" height="640">
-      <rect x="0" y="0" width="2560" height="640" fill="url(#gBandH)"/>
-    </mask>
-
-    <!-- The approach rows brighten as they near the band, which is what makes
-         the alignment read as a phase change rather than a decorative fringe. -->
-    <linearGradient id="gApproach" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0"   stop-color="#FFFFFF" stop-opacity="0"/>
-      <stop offset="1"   stop-color="#FFFFFF" stop-opacity="0.75"/>
-    </linearGradient>
-    <mask id="mApproach" maskUnits="userSpaceOnUse" x="0" y="0" width="2560" height="72">
-      <rect x="0" y="0" width="2560" height="72" fill="url(#gApproach)"/>
-    </mask>
-    <mask id="mLimeApproach" maskUnits="userSpaceOnUse" x="0" y="0" width="2560" height="28">
-      <rect x="0" y="0" width="2560" height="28" fill="url(#gApproach)"/>
-    </mask>
-    <!-- Node chain dissolves at the edges, matching the band it rides. -->
-    <linearGradient id="gNodeFade" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0"    stop-color="#FFFFFF" stop-opacity="0"/>
-      <stop offset="0.14" stop-color="#FFFFFF" stop-opacity="0.30"/>
-      <stop offset="0.50" stop-color="#FFFFFF" stop-opacity="1"/>
-      <stop offset="0.88" stop-color="#FFFFFF" stop-opacity="0.80"/>
-      <stop offset="1"    stop-color="#FFFFFF" stop-opacity="0"/>
-    </linearGradient>
-    <mask id="mNodeFade" maskUnits="userSpaceOnUse" x="0" y="0" width="2560" height="640">
-      <rect x="0" y="0" width="2560" height="640" fill="url(#gNodeFade)"/>
-    </mask>
-
-    <!-- ============ PATTERNS ============ -->
-    <pattern id="pApproach" patternUnits="userSpaceOnUse" x="0" y="0" width="32" height="14">
-      <circle cx="16" cy="7" r="1.6" fill="#8B5CF6" fill-opacity="0.85"/>
-    </pattern>
-    <pattern id="pLimeApproach" patternUnits="userSpaceOnUse" x="0" y="0" width="32" height="12">
-      <circle cx="16" cy="6" r="1.5" fill="#CBFD03" fill-opacity="0.9"/>
-    </pattern>
-    <pattern id="pNodes" patternUnits="userSpaceOnUse" x="0" y="384" width="32" height="32">
-      <circle cx="16" cy="16" r="16" fill="url(#rNode)"/>
-      <circle cx="16" cy="16" r="2.6" fill="#FFFFFF" fill-opacity="0.94"/>
-      <circle cx="16" cy="16" r="1.1" fill="#FFFFFF"/>
+    <!-- Fine hairline grid: structure you notice only if you look. -->
+    <pattern id="grid" patternUnits="userSpaceOnUse" x="0" y="0" width="64" height="64">
+      <path d="M64 0 L0 0 0 64" fill="none" stroke="#FFFFFF" stroke-opacity="0.045" stroke-width="1"/>
     </pattern>
   </defs>
 
-  <!-- 1. Base -->
-  <rect x="0" y="0" width="2560" height="640" fill="#27233F"/>
+  <rect x="0" y="0" width="2560" height="640" fill="url(#bg)"/>
+  <rect x="0" y="0" width="2560" height="640" fill="url(#grid)"/>
+  <ellipse cx="1280" cy="320" rx="1005" ry="461" fill="url(#glow)"/>
+  <rect x="0" y="0" width="2560" height="640" fill="url(#vignette)"/>
 
-  <!-- 2. Contours.
-       Raised from 0.12-0.22: electric blue is luminance 79 against a 45.7 base,
-       so at the original opacity the delta was under 7 per channel and did not
-       survive on screen at all. -->
-  <g fill="none" stroke="#0D1CC4" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M-40 520 C300 470 520 560 860 480 S1500 330 1900 360 S2400 250 2620 120" stroke-opacity="0.30"/>
-    <path d="M-40 420 C260 380 560 440 900 360 S1480 210 1880 240 S2380 120 2620 20" stroke-opacity="0.34"/>
-    <path d="M-40 300 C300 260 640 320 980 240 S1560 100 1960 130 S2400 30 2620 -40" stroke-opacity="0.38"/>
-    <path d="M700 640 C1000 560 1300 560 1600 470 S2100 420 2300 300 S2560 260 2620 220" stroke-opacity="0.42"/>
-    <path d="M1300 -20 C1400 120 1700 90 1900 190 S2100 330 2620 330" stroke-opacity="0.46"/>
-    <path d="M1750 -20 C1850 80 2100 60 2200 150 S2400 260 2620 270" stroke-opacity="0.50"/>
-    <path d="M2050 60 C2150 0 2350 10 2440 90 C2520 170 2430 250 2300 250 C2150 250 1980 150 2050 60 Z" stroke-opacity="0.52"/>
-    <path d="M1860 30 C1930 -10 2060 -5 2120 55 C2170 110 2110 160 2020 158 C1920 155 1810 85 1860 30 Z" stroke-opacity="0.44"/>
+  <!-- The mark: facing selection brackets around a single point. Says "one
+       thing chosen from a field". A rounded square with a dot was rejected
+       after render: at this weight it is the media-record glyph. Kept
+       deliberately open at the top and bottom so it does not close into a
+       frame, and sized to the cap band so it locks to the type. -->
+  <g fill="none" stroke="#CBFD03" stroke-width="12.5"
+     stroke-linecap="round" stroke-linejoin="round">
+    <path d="M641.4 248.1 H582.4 V395.5 H641.4"/>
+    <path d="M670.8 248.1 H729.8 V395.5 H670.8"/>
   </g>
+  <circle cx="656.1" cy="321.8" r="19.9" fill="#FFFFFF"/>
 
-  <!-- 3. Particle field -->
-  <g mask="url(#mNoise)">
-    <g mask="url(#mNoiseV)">
-      <rect x="0" y="0" width="2560" height="640" fill="#27233F" filter="url(#fNoiseA)"/>
-      <rect x="0" y="0" width="2560" height="640" fill="#27233F" filter="url(#fNoiseB)"/>
-      <rect x="0" y="0" width="2560" height="640" fill="#27233F" filter="url(#fNoiseC)"/>
-    </g>
-
-    <!-- 4. Alignment: scattered noise resolving into columns, then into lime,
-         as it approaches the band. -->
-    <rect x="0" y="300" width="2560" height="72" fill="url(#pApproach)" mask="url(#mApproach)"/>
-    <rect x="0" y="344" width="2560" height="28" fill="url(#pLimeApproach)" mask="url(#mLimeApproach)"/>
+  <!-- Wordmark, set in Plus Jakarta Sans Bold and converted to outlines. -->
+  <g transform="translate(797.6 395.5) scale(0.197821 -0.197821)"
+     fill="#FFFFFF">
+    <path transform="translate(0.0 0)" d="M319 -12Q235 -12 172.0 26.0Q109 64 74.0 129.0Q39 194 39 273Q39 355 74.5 418.5Q110 482 171.5 519.0Q233 556 309 556Q373 556 421.5 535.0Q470 514 504.0 477.0Q538 440 556.0 392.5Q574 345 574 290Q574 276 572.5 261.0Q571 246 567 235H147V335H493L431 288Q440 334 426.5 370.0Q413 406 382.5 427.0Q352 448 309 448Q268 448 236.0 427.5Q204 407 187.5 367.5Q171 328 175 272Q171 222 188.5 183.5Q206 145 240.5 124.0Q275 103 320 103Q365 103 396.5 122.0Q428 141 446 173L552 121Q536 82 502.0 52.0Q468 22 421.5 5.0Q375 -12 319 -12Z"/>
+    <path transform="translate(612.0 0)" d="M72 0V745H386Q460 745 512.5 719.5Q565 694 593.5 647.5Q622 601 622 535Q622 484 594.5 439.5Q567 395 507 366V429Q562 408 594.0 377.0Q626 346 639.0 308.0Q652 270 652 228Q652 121 581.5 60.5Q511 0 386 0ZM208 120H400Q453 120 484.5 149.5Q516 179 516 228Q516 277 484.5 307.0Q453 337 400 337H208ZM208 456H393Q435 456 460.0 480.5Q485 505 485 544Q485 583 460.0 606.0Q435 629 393 629H208Z"/>
+    <path transform="translate(1303.0 0)" d="M226 -12Q169 -12 127.0 7.0Q85 26 62.0 61.5Q39 97 39 144Q39 189 59.0 224.5Q79 260 121.0 284.0Q163 308 227 318L405 347V247L252 221Q213 214 194.0 196.0Q175 178 175 149Q175 121 196.5 104.5Q218 88 250 88Q291 88 322.5 105.5Q354 123 371.5 154.0Q389 185 389 222V362Q389 397 361.5 420.5Q334 444 289 444Q247 444 214.5 421.5Q182 399 167 362L60 414Q76 457 110.5 488.5Q145 520 192.0 538.0Q239 556 294 556Q361 556 412.0 531.5Q463 507 491.5 463.5Q520 420 520 362V0H396V93L424 95Q403 60 374.0 36.5Q345 13 308.0 0.5Q271 -12 226 -12Z"/>
+    <path transform="translate(1883.0 0)" d="M127 -220Q105 -220 84.0 -216.5Q63 -213 46 -204V-95Q59 -98 77.5 -101.0Q96 -104 112 -104Q157 -104 177.5 -83.5Q198 -63 214 -29L250 55L248 -55L11 544H152L318 102H268L433 544H575L338 -55Q317 -107 287.0 -144.0Q257 -181 217.5 -200.5Q178 -220 127 -220Z"/>
+    <path transform="translate(2647.0 0)" d="M72 0V745H208V420H525V745H662V0H525V300H208V0Z"/>
+    <path transform="translate(3380.0 0)" d="M255 -12Q192 -12 145.5 16.0Q99 44 74.5 94.0Q50 144 50 211V544H181V222Q181 188 194.5 162.5Q208 137 233.5 122.5Q259 108 291 108Q323 108 348.0 122.5Q373 137 387.0 163.0Q401 189 401 225V544H532V0H408V107L419 88Q400 38 356.5 13.0Q313 -12 255 -12Z"/>
+    <path transform="translate(3973.0 0)" d="M61 0V544H184V437L174 456Q193 505 236.5 530.5Q280 556 338 556Q398 556 444.5 530.0Q491 504 517.0 457.5Q543 411 543 350V0H412V319Q412 355 398.0 381.0Q384 407 359.5 421.5Q335 436 302 436Q270 436 245.0 421.5Q220 407 206.0 381.0Q192 355 192 319V0Z"/>
+    <path transform="translate(4566.0 0)" d="M309 -6Q217 -6 166.5 44.5Q116 95 116 187V427H22V544H32Q72 544 94.0 565.0Q116 586 116 626V668H247V544H372V427H247V194Q247 167 256.5 148.0Q266 129 286.5 119.0Q307 109 339 109Q346 109 355.5 110.0Q365 111 374 112V0Q360 -2 342.0 -4.0Q324 -6 309 -6Z"/>
+    <path transform="translate(4979.0 0)" d="M319 -12Q235 -12 172.0 26.0Q109 64 74.0 129.0Q39 194 39 273Q39 355 74.5 418.5Q110 482 171.5 519.0Q233 556 309 556Q373 556 421.5 535.0Q470 514 504.0 477.0Q538 440 556.0 392.5Q574 345 574 290Q574 276 572.5 261.0Q571 246 567 235H147V335H493L431 288Q440 334 426.5 370.0Q413 406 382.5 427.0Q352 448 309 448Q268 448 236.0 427.5Q204 407 187.5 367.5Q171 328 175 272Q171 222 188.5 183.5Q206 145 240.5 124.0Q275 103 320 103Q365 103 396.5 122.0Q428 141 446 173L552 121Q536 82 502.0 52.0Q468 22 421.5 5.0Q375 -12 319 -12Z"/>
+    <path transform="translate(5591.0 0)" d="M61 0V544H184V423L174 441Q193 502 233.5 526.0Q274 550 331 550H363V434H316Q260 434 226.0 399.5Q192 365 192 303V0Z"/>
   </g>
-
-  <!-- 5. The band: bloom first, then the core, both under the same end-fade. -->
-  <g mask="url(#mBandH)">
-    <rect x="0" y="352" width="2560" height="96" fill="url(#gBandV)" filter="url(#fBloom)"/>
-    <rect x="0" y="352" width="2560" height="96" fill="url(#gBandV)"/>
-  </g>
-
-  <!-- 6. The snapped row: the signal resolved into discrete nodes. -->
-  <rect x="0" y="384" width="2560" height="32" fill="url(#pNodes)" mask="url(#mNodeFade)"/>
-
-  <!-- 7. Grain -->
-  <rect x="0" y="0" width="2560" height="640" fill="#27233F" opacity="0.055" filter="url(#fGrain)"/>
 </svg>
