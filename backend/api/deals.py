@@ -1,9 +1,10 @@
 """The deals board endpoint — a pure read of the stored eBay deals pool.
 
-Why the route does not fetch: pricing the cards is one Browse call each, about
-73 of them. Waiting on that inside a request would time out, and doing it per
-page view would spend the 5,000/day allowance in under an hour of one tab being
-left open. So the pool is refreshed by
+Why the route does not fetch: pricing the cards costs 108 Browse calls for a
+full page (measured — one per card, plus a second for the cards whose bare
+legacy id does not resolve). Waiting on that inside a request would time out,
+and doing it per page view would spend the 5,000/day allowance in under a
+couple of hours of one tab being left open. So the pool is refreshed by
 `backend/scripts/run_deals_refresh.py` on a schedule, and this route reports how
 old what it returns actually is rather than implying it is live.
 

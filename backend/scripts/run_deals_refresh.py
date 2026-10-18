@@ -8,8 +8,9 @@ that inside a request would time out, and doing it per page view would spend
 the whole 5,000/day allowance in under an hour of one tab being left open. So
 the fetch runs on a schedule and the API only ever reads what this stored.
 
-At the default hourly cadence that is roughly 73 x 24 = ~1,750 calls/day, which
-leaves room for everything else the app does.
+At the default hourly cadence that is ~108 calls x 24 = ~2,600/day (108 is the
+measured cost of a full page), which leaves room for everything else the app
+does.
 
     python -m scripts.run_deals_refresh              # full refresh, ~73 calls
     python -m scripts.run_deals_refresh --limit 10   # cheap partial run

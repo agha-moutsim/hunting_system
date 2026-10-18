@@ -29,9 +29,10 @@ from typing import Iterable, Optional
 from db.models import DealItem as DealItemRow
 from scrapers.ebay_deals import SOURCE, SOURCE_LABEL, DealItem, EbayDealsScraper
 
-#: How long a pool is considered current. One hour keeps the Browse spend at
-#: roughly 73 x 24 = ~1,750 calls/day, comfortably inside the 5,000/day
-#: allowance while still being fresh enough that a "deal" is really on offer.
+#: How long a pool is considered current. One hour holds the Browse spend at
+#: ~108 calls x 24 = ~2,600/day (measured: 108 for a full page), comfortably
+#: inside the 5,000/day allowance while still fresh enough that a "deal" is
+#: really on offer.
 DEALS_TTL_S = 3600
 
 #: Serialises refreshes so two requests arriving together cannot both start

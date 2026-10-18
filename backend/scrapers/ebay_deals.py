@@ -43,9 +43,11 @@ listing at a time from the Browse API via `get_item_by_legacy_id`. A card
 whose price could not be read keeps `price = None` and is still shown, because
 the card itself is real; what it must never do is display a 0 or a guess.
 
-That is ~73 calls per refresh against a 5,000/day Browse allowance, which is
-why refresh is scheduled hourly rather than continuously. The allowance is the
-reason this is a scheduled job and not a request-time fetch.
+That is 108 Browse calls for a full page — one per card, plus a second for the
+cards whose bare legacy id does not resolve (see `_by_title`; on one live page
+that was 35 of 73 cards). At the hourly refresh that is ~2,600/day against the
+5,000/day allowance, which is why this is a scheduled job and not a
+request-time fetch.
 """
 
 from __future__ import annotations
@@ -259,17 +261,16 @@ class EbayDealsScraper:
         self._token_expiry = now + payload.get("expires_in", 7200) - 300
         return self._token
 
-    def enrich(self, item: DealItem) -> bool:
-        """Fill one card's price and seller from the Browse API.
+    def _api_get(self, path: str, params: dict) -> Optional[dict]:
+        """One authenticated Browse GET.
 
-        Returns True when a price was read. Failures are counted, never
-        guessed: a card that cannot be priced keeps `price = None` and stays on
-        the board, because the listing is real either way.
+        Returns None for anything that is not a usable payload. The only thing
+        it raises is QuotaExhausted, which the caller turns into "stop asking".
         """
         try:
             resp = requests.get(
-                f"{EBAY_API_BASE}/buy/browse/v1/item/get_item_by_legacy_id",
-                params={"legacy_item_id": item.listing_id},
+                f"{EBAY_API_BASE}{path}",
+                params=params,
                 headers={
                     "Authorization": f"Bearer {self._get_token()}",
                     "X-EBAY-C-MARKETPLACE-ID": EBAY_MARKETPLACE,
@@ -277,24 +278,60 @@ class EbayDealsScraper:
                 },
                 timeout=20,
             )
-            self._api_calls += 1
-            if resp.status_code == 429:
-                # Out of allowance. Stop rather than hammer: the remaining
-                # cards are still real, they simply keep no price this round.
-                raise QuotaExhausted()
-            if resp.status_code != 200:
-                self._price_failures += 1
-                return False
-            payload = resp.json()
-        except QuotaExhausted:
-            raise
         except Exception:
-            self._price_failures += 1
-            return False
+            return None
 
+        self._api_calls += 1
+        if resp.status_code == 429:
+            raise QuotaExhausted()
+        if resp.status_code != 200:
+            return None
+        try:
+            payload = resp.json()
+        except Exception:
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    def _by_id(self, item: DealItem) -> Optional[dict]:
+        return self._api_get(
+            "/buy/browse/v1/item/get_item_by_legacy_id",
+            {"legacy_item_id": item.listing_id},
+        )
+
+    def _by_title(self, item: DealItem) -> Optional[dict]:
+        """Second chance for a listing the by-id endpoint cannot resolve.
+
+        Some deals are multi-variation listings: their RESTful id carries a
+        non-zero variation (v1|306325186003|606018449347), and for those
+        `get_item_by_legacy_id` answers HTTP 400 / errorId 11006 for the bare
+        legacy id. The listing is perfectly live and in this marketplace — a
+        title search returns it with its price — so without this the card loses
+        a price it can genuinely have. Measured: 35 of 73 cards on one page
+        failed this way, which is half the board.
+
+        The result is matched on `legacyItemId` EXACTLY. The title is only a way
+        to REACH the listing; a summary belonging to any other seller is
+        discarded, so this can never attach someone else's price to this card.
+        """
+        payload = self._api_get(
+            "/buy/browse/v1/item_summary/search",
+            {"q": item.title[:100], "limit": 50},
+        )
+        if not payload:
+            return None
+        for summary in payload.get("itemSummaries") or []:
+            if str(summary.get("legacyItemId") or "") == item.listing_id:
+                return summary
+        return None
+
+    def _apply(self, item: DealItem, payload: dict) -> bool:
+        """Copy what a card needs out of an eBay item payload.
+
+        One place, so the by-id path and the search fallback cannot disagree
+        about what a card ends up holding.
+        """
         price, currency = _price_of(payload)
         if price is None:
-            self._price_failures += 1
             return False
 
         item.price = price
@@ -323,6 +360,24 @@ class EbayDealsScraper:
         image = (payload.get("image") or {}).get("imageUrl")
         if image:
             item.image_url = _upgrade_image(str(image))
+        return True
+
+    def enrich(self, item: DealItem) -> bool:
+        """Fill one card's price and seller from the Browse API.
+
+        Returns True when a price was read. Failures are counted, never
+        guessed: a card that cannot be priced keeps `price = None` and stays on
+        the board, because the listing is real either way.
+        """
+        payload = self._by_id(item)
+        if payload is None:
+            payload = self._by_title(item)
+        if payload is None:
+            self._price_failures += 1
+            return False
+        if not self._apply(item, payload):
+            self._price_failures += 1
+            return False
         return True
 
     # -- Page ---------------------------------------------------------------

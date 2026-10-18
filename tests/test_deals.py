@@ -38,6 +38,7 @@ from hunter import deals
 from scrapers.ebay_deals import (
     SOURCE_LABEL,
     DealItem,
+    EbayDealsScraper,
     _CARD_RE,
     parse_deals_page,
 )
@@ -363,3 +364,117 @@ class TestTheRouteNeverFetchesOnTheRequestPath:
         assert body["meta"]["total"] == 2
         assert body["meta"]["priced"] == 1
         assert body["meta"]["unpriced"] == 1
+
+
+# ---------------------------------------------------------------------------
+# 5. Pricing a card the by-id endpoint cannot resolve
+# ---------------------------------------------------------------------------
+
+class TestAMultiVariationListingStillGetsItsPrice:
+    """Some deals are multi-variation listings: their RESTful id carries a
+    non-zero variation (v1|306325186003|606018449347), and for those
+    `get_item_by_legacy_id` answers HTTP 400 / errorId 11006 for the bare
+    legacy id.
+
+    Measured against one live page: 35 of 73 cards failed that way — half the
+    board — and every one of them was a real, live listing with a perfectly
+    good price. So the fallback is not a nicety; without it half the cards
+    would show "see price on eBay" while the price was sitting in the API the
+    whole time.
+    """
+
+    def _scraper_with(self, monkeypatch, by_id, by_search):
+        scraper = EbayDealsScraper()
+        calls: list[str] = []
+
+        def fake_get(path, params):
+            calls.append(path)
+            if path.endswith("get_item_by_legacy_id"):
+                return by_id
+            return by_search
+
+        monkeypatch.setattr(scraper, "_api_get", fake_get)
+        return scraper, calls
+
+    def test_the_exact_id_lookup_is_tried_first_and_alone(self, monkeypatch):
+        """No fallback cost when the by-id endpoint already answered."""
+        scraper, calls = self._scraper_with(
+            monkeypatch,
+            by_id={"price": {"value": "12.00", "currency": "GBP"},
+                   "seller": {"username": "a_seller"}},
+            by_search=None,
+        )
+        item = DealItem(listing_id="116529177245", title="Dyson", item_url="u")
+
+        assert scraper.enrich(item) is True
+        assert item.price == 12.0
+        assert calls == ["/buy/browse/v1/item/get_item_by_legacy_id"]
+
+    def test_it_falls_back_to_a_search_and_matches_the_id_exactly(
+        self, monkeypatch
+    ):
+        scraper, calls = self._scraper_with(
+            monkeypatch,
+            by_id=None,  # 400/11006: the bare legacy id does not resolve
+            by_search={
+                "itemSummaries": [
+                    # Another seller, near-identical title. Its price belongs
+                    # to it, not to our card, so it must be discarded.
+                    {"legacyItemId": "999999999999",
+                     "price": {"value": "1.00", "currency": "GBP"}},
+                    {"legacyItemId": "306325186003",
+                     "price": {"value": "9.99", "currency": "GBP"},
+                     "seller": {"username": "plate_shop"},
+                     "condition": "New"},
+                ]
+            },
+        )
+        item = DealItem(listing_id="306325186003", title="Number Plates", item_url="u")
+
+        assert scraper.enrich(item) is True
+        assert item.price == 9.99
+        assert item.seller == "plate_shop"
+        assert len(calls) == 2
+
+    def test_a_search_that_never_shows_our_id_leaves_no_price(self, monkeypatch):
+        """Not found is not the same as free, and it is not someone else's
+        price either."""
+        scraper, _ = self._scraper_with(
+            monkeypatch,
+            by_id=None,
+            by_search={"itemSummaries": [
+                {"legacyItemId": "111111111111",
+                 "price": {"value": "5.00", "currency": "GBP"}},
+            ]},
+        )
+        item = DealItem(listing_id="306325186003", title="Number Plates", item_url="u")
+
+        assert scraper.enrich(item) is False
+        assert item.price is None
+        assert item.price_read is False
+
+    def test_a_payload_with_no_price_is_a_failure_not_a_zero(self, monkeypatch):
+        scraper, _ = self._scraper_with(
+            monkeypatch,
+            by_id={"seller": {"username": "whoever"}},
+            by_search=None,
+        )
+        item = DealItem(listing_id="1", title="Thing", item_url="u")
+
+        assert scraper.enrich(item) is False
+        assert item.price is None
+
+    def test_a_price_that_arrives_as_a_string_is_still_read(self, monkeypatch):
+        """The two item endpoints format `price` differently, and the
+        difference has to be absorbed here or a real price silently becomes
+        None."""
+        scraper, _ = self._scraper_with(
+            monkeypatch,
+            by_id={"price": "£14.50", "seller": {"username": "s"}},
+            by_search=None,
+        )
+        item = DealItem(listing_id="1", title="Thing", item_url="u")
+
+        assert scraper.enrich(item) is True
+        assert item.price == 14.50
+        assert item.currency == "GBP"
