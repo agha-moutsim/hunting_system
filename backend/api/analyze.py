@@ -97,7 +97,7 @@ def analyze(req: AnalyzeRequest):
         resp["provenance"] = build_provenance_block(resp, reason="analysis timed out")
         return resp
 
-    # Persist (same path Streamlit uses)
+    # Persist
     if raw.get("ebay_product"):
         try:
             save_analysis_to_db(raw)

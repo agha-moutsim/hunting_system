@@ -2,7 +2,6 @@
 # Install with: pip install -r requirements.txt
 
 # Web Framework
-streamlit>=1.39.0
 
 # HTTP Client
 requests>=2.31.0

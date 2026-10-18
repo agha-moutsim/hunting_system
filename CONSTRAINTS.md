@@ -7,7 +7,7 @@
 
 ## 1. What we're building
 
-We're turning the current Streamlit prototype into a proper web product. The goal is to have something you can put in your portfolio, hand to your brother and his friends, and show to potential clients — without anyone having to install Python or run a terminal command.
+We turned the original Streamlit prototype into a proper web product; the Streamlit app itself has since been retired.
 
 The stack is **FastAPI (Python) + Next.js (React)**. All the existing scraping, LLM, and business logic stays as-is. We're rebuilding the interface and adding an API layer around what already works.
 
@@ -86,30 +86,30 @@ Existing directories (`scrapers/`, `engine/`, etc.) get **moved** into `backend/
 
 ### Frontend (`frontend/`)
 
-| File / Folder                 | Responsibility                                                 |
-| ----------------------------- | -------------------------------------------------------------- |
-| `app/layout.tsx`              | Shell: sidebar nav, status indicators, mobile menu             |
-| `app/page.tsx`                | Redirects to `/analyze`                                        |
-| `app/analyze/page.tsx`        | Single product analysis + scorecard                            |
-| `app/deep-search/page.tsx`    | Deep research with suppliers + sold data                       |
-| `app/bulk/page.tsx`           | Batch analysis, CSV/JSON export                                |
-| `app/hunter/page.tsx`         | Category scanner                                               |
-| `app/tracker/page.tsx`        | Price tracker + alerts                                         |
-| `app/watchlist/page.tsx`      | Watchlist + saved searches + new finds                         |
-| `app/dashboard/page.tsx`      | Sales KPIs + charts + log sale                                 |
-| `app/history/page.tsx`        | Past analyses, search, filter                                  |
-| `components/Layout.tsx`       | Sidebar + topbar (shared)                                      |
-| `components/KpiCard.tsx`      | Reusable metric card                                           |
-| `components/DataTable.tsx`    | Sortable table                                                 |
-| `components/Scorecard.tsx`    | The analysis result card (same format as Streamlit version)    |
-| `components/SupplierCard.tsx` | One supplier row (store, rating, price, delivery)              |
-| `components/charts/*`         | Line, Pie, Bar wrappers for Recharts                           |
-| `components/ui/*`             | Button, Input, Badge, Card, Spinner, EmptyState, ConfirmDialog |
-| `lib/api.ts`                  | One `apiFetch()` helper used by every page                     |
-| `lib/types.ts`                | TypeScript interfaces matching every API response              |
-| `lib/format.ts`               | `formatGBP()`, `formatPercent()`, `formatDate()`               |
-| `tailwind.config.js`          | Dark theme tokens copied from `utils/theme.py`                 |
-| `.env.local`                  | `NEXT_PUBLIC_API_URL`                                          |
+| File / Folder                 | Responsibility                                                             |
+| ----------------------------- | -------------------------------------------------------------------------- |
+| `app/layout.tsx`              | Shell: sidebar nav, status indicators, mobile menu                         |
+| `app/page.tsx`                | Redirects to `/analyze`                                                    |
+| `app/analyze/page.tsx`        | Single product analysis + scorecard                                        |
+| `app/deep-search/page.tsx`    | Deep research with suppliers + sold data                                   |
+| `app/bulk/page.tsx`           | Batch analysis, CSV/JSON export                                            |
+| `app/hunter/page.tsx`         | Category scanner                                                           |
+| `app/tracker/page.tsx`        | Price tracker + alerts                                                     |
+| `app/watchlist/page.tsx`      | Watchlist + saved searches + new finds                                     |
+| `app/dashboard/page.tsx`      | Sales KPIs + charts + log sale                                             |
+| `app/history/page.tsx`        | Past analyses, search, filter                                              |
+| `components/Layout.tsx`       | Sidebar + topbar (shared)                                                  |
+| `components/KpiCard.tsx`      | Reusable metric card                                                       |
+| `components/DataTable.tsx`    | Sortable table                                                             |
+| `components/Scorecard.tsx`    | The analysis result card (format carried over from the original prototype) |
+| `components/SupplierCard.tsx` | One supplier row (store, rating, price, delivery)                          |
+| `components/charts/*`         | Line, Pie, Bar wrappers for Recharts                                       |
+| `components/ui/*`             | Button, Input, Badge, Card, Spinner, EmptyState, ConfirmDialog             |
+| `lib/api.ts`                  | One `apiFetch()` helper used by every page                                 |
+| `lib/types.ts`                | TypeScript interfaces matching every API response                          |
+| `lib/format.ts`               | `formatGBP()`, `formatPercent()`, `formatDate()`                           |
+| `tailwind.config.js`          | Dark theme tokens copied from `utils/theme.py`                             |
+| `.env.local`                  | `NEXT_PUBLIC_API_URL`                                                      |
 
 ---
 
@@ -181,7 +181,7 @@ GET    /api/export/json?type=sales|analysis
 - **Empty states get a real message**, not a blank area. Example: "No sales logged yet — use the form above to log your first sale."
 - **Loading states everywhere.** Skeleton placeholders while fetching; never a frozen screen.
 - **Keyboard shortcuts preserved:** Ctrl+1 through Ctrl+8 jump to the eight pages. Show a small hint under the header.
-- **The scorecard format from the Streamlit version is the reference.** Same sections, same order, same ⚠️ Unverified labels. Clients reviewing the old version must recognize the new one.
+- **The scorecard format from the original prototype is the reference.** Same sections, same order, same ⚠️ Unverified labels. Clients reviewing the old build approved this layout, so it is not up for redesign.
 
 ### Non-goals for v1 (explicitly out of scope)
 
@@ -207,7 +207,7 @@ GET    /api/export/json?type=sales|analysis
 
 CORS: backend must allow exactly `https://ebay-hunter.vercel.app` and `http://localhost:3000`.
 
-The legacy `app.py` (Streamlit) stays in the repo untouched until the new stack passes a full smoke test. Then it moves to `legacy/` — not deleted on day one.
+The legacy `app.py` (Streamlit) was retired once the Next.js stack replaced it: `start.ps1` had never launched it, no test covered it, and the shared pipeline it called is unchanged. Recover it with `git show dd84608^:app.py > app.py` — the whole history is in this repo.
 
 ---
 
@@ -215,7 +215,7 @@ The legacy `app.py` (Streamlit) stays in the repo untouched until the new stack 
 
 - [ ] Every endpoint in section 5 returns correct JSON from real (or empty) data
 - [ ] Every page in section 4 loads, submits, and renders results
-- [ ] Profit numbers on screen match the Streamlit version for the same query
+- [ ] Profit on screen matches `backend/engine/profit.py` for the same price pair
 - [ ] App usable on a phone (360px) without horizontal page scroll (tables may scroll inside their container)
 - [ ] Export CSV downloads a valid file that opens in Excel
 - [ ] Ollama offline → deep search still returns results with ⚠️ Unverified labels, no crash

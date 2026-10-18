@@ -650,7 +650,7 @@ class Pipeline:
         analysis,
         result: PipelineResult,
     ) -> str:
-        """Human-readable scorecard for Streamlit display."""
+        """Human-readable scorecard for terminal display."""
         lines = []
         v = result.verdict.get("verdict", "?").upper()
         lines.append(f"VERDICT: {v}")

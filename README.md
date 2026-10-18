@@ -71,8 +71,8 @@ Three services, one database, and a strict rule that business logic lives in exa
                         └────────────┬────────────┘
                                      │
                         ┌────────────▼────────────┐
-                        │  analysis_pipeline.py   │  ◄── shared by API
-                        │  6 sequential stages    │      and Streamlit
+                        │  analysis_pipeline.py   │  ◄── the single source of truth
+                        │  6 sequential stages    │      for the API layer
                         └────────────┬────────────┘
                                      │
       ┌──────────────┬───────────────┼───────────────┬──────────────┐

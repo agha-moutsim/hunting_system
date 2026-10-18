@@ -1,8 +1,9 @@
 """
-Shared analysis pipeline — extracted from app.py so both Streamlit and
-FastAPI call the exact same logic (single source of truth).
+Shared analysis pipeline — the single source of truth for analysis logic.
 
-No Streamlit imports in this module.
+Originally extracted from the Streamlit app so the two interfaces could not
+drift apart. That UI has since been removed, so this module is now the only
+implementation rather than the shared one.
 """
 
 import asyncio
