@@ -64,6 +64,16 @@ ensure_supplier_match_columns()
 # when genuinely missing: a no-op on every run after the first.
 _DEMAND_DATA_ADDITIONS = (
     ("sold_prices", "JSON"),
+    # 2026-10-19 - the SUPPLY-side evidence set. `active_listings_in_band` had
+    # been computed since Phase 1 and never persisted, so a live Analyze run
+    # carried it and a replayed History run did not: one product, two screens,
+    # two different answers. The prices join it because they describe the same
+    # rows and must survive or vanish together.
+    ("active_listings_in_band", "INTEGER"),
+    ("avg_active_price", "FLOAT"),
+    ("lowest_active_price", "FLOAT"),
+    ("highest_active_price", "FLOAT"),
+    ("active_prices", "JSON"),
 )
 
 

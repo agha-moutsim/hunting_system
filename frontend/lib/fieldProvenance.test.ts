@@ -87,10 +87,16 @@ describe("headerStamps", () => {
 
   it("covers every number the deep-search header actually renders", () => {
     // The meta line shows monthly sales, sold 30d and sold 7d; the tile
-    // row shows eBay avg, Range (min-max) and Best supplier; the chart
-    // caption adds the observation count (sold_prices) and restates avg
-    // and the range. A new header number added without a stamp here is a
-    // number shown bare.
+    // row shows the price average, Range (min-max) and Best supplier; the
+    // chart caption adds the observation count and restates avg and the
+    // range. A new header number added without a stamp here is a number
+    // shown bare.
+    //
+    // The caption's count stamp is sold_prices when the run observed sales
+    // and active_prices when all it holds is what live listings are asking
+    // — a bar chart labelled with the wrong list's provenance is the exact
+    // mislabelling the two-list split exists to prevent, so BOTH are
+    // required here.
     //
     // Compared in both directions: arrayContaining would let a number
     // reach the page with no entry at all, which is the whole failure
@@ -104,6 +110,7 @@ describe("headerStamps", () => {
       "ebay_price_max",
       "best_supplier_price",
       "sold_prices",
+      "active_prices",
     ];
 
     expect([...HEADER_FIELDS].sort()).toEqual([...rendered].sort());

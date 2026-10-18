@@ -41,6 +41,11 @@ export default function DeepSearchPage() {
   // C13 - every header number gets its stamp before it is rendered, so a
   // value can never reach this screen bare (see lib/fieldProvenance).
   const stamps = headerStamps(result?.provenance?.fields);
+  // Which price list this run actually holds. The sold/completed page is the
+  // only source of a SALE price; when it is unreachable the scrape falls back
+  // to live listings, so the tiles and the chart below say which list they are
+  // drawing rather than labelling both of them "sold".
+  const hasSoldPrices = (result?.sold_prices?.length ?? 0) > 0;
 
   useEffect(() => {
     apiFetch<FiltersResponse>("/api/filters")
@@ -259,12 +264,18 @@ export default function DeepSearchPage() {
               {(
                 [
                   {
-                    label: "eBay avg",
+                    // These figures are the SALE-price summary or the
+                    // ASKING-price summary depending on which list the scrape
+                    // returned, so the label follows the data instead of
+                    // asserting one of them.
+                    label: hasSoldPrices
+                      ? "Avg sold price"
+                      : "Avg asking price",
                     prov: stamps.ebay_avg_price,
                     value: formatGBP(result.ebay_avg_price),
                   },
                   {
-                    label: "Range",
+                    label: hasSoldPrices ? "Sold price range" : "Asking range",
                     prov: stamps.ebay_price_min,
                     value: `${formatGBP(result.ebay_price_min)} – ${formatGBP(result.ebay_price_max)}`,
                   },
@@ -316,20 +327,29 @@ export default function DeepSearchPage() {
               ))}
             </div>
 
-            {/* Goal 4 — the observations behind the "eBay avg" and "Range"
+            {/* Goal 4 - the observations behind the "eBay avg" and "Range"
               tiles, plotted from the SAME list that produced them, so the
               shape of the market is shown rather than asserted by three
-              numbers. Holds no per-sale prices and it says so instead of
-              drawing a bar over a gap. */}
+              numbers. WHICH list that is depends on what the scrape actually
+              returned: real sale prices when the sold page was reachable,
+              otherwise the ASKING prices of the live listings. The heading and
+              the count's stamp both name the list on screen — a "sold" caption
+              over a row of asking prices is worse than no chart at all. */}
             <div className="mt-3 bg-bg-surface border border-border rounded-control p-4">
               <div className="text-[11px] font-semibold uppercase tracking-wider text-text-dim mb-2">
-                Sold price distribution
+                {hasSoldPrices
+                  ? "Sold price distribution"
+                  : "Live listing price distribution"}
               </div>
               <SoldPriceDistribution
-                prices={result.sold_prices}
+                prices={
+                  hasSoldPrices ? result.sold_prices : result.active_prices
+                }
                 average={result.ebay_avg_price}
                 stamps={{
-                  count: stamps.sold_prices,
+                  count: hasSoldPrices
+                    ? stamps.sold_prices
+                    : stamps.active_prices,
                   avg: stamps.ebay_avg_price,
                   range: stamps.ebay_price_min,
                 }}

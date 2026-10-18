@@ -185,7 +185,25 @@ class DemandData:
     #: so a popular niche saturates and ties: it orders badly at the top and
     #: must never be presented or ranked as sales volume.
     active_listings_in_band: Optional[int] = None
+    #: The ASKING PRICES of exactly those live listings — the same rows
+    #: `active_listings_in_band` counts. Each one is a real price read from
+    #: eBay, but a LISTING price: nothing was sold to produce it. It is a
+    #: SUPPLY-side price picture — what it would cost to compete in the niche
+    #: today — and it is not, and cannot be made into, evidence of a sale.
+    #:
+    #: Until 2026-10-19 these numbers lived in `avg_sold_price` /
+    #: `lowest_sold_price` / `highest_sold_price` / `sold_prices`, which put a
+    #: "sold" label on a live asking price. That was the same defect as
+    #: `sold_count_30d` holding a listing count, one field over: the numbers
+    #: were real and the word describing them was not.
+    avg_active_price: Optional[float] = None
+    lowest_active_price: Optional[float] = None
+    highest_active_price: Optional[float] = None
     last_sale_date: Optional[str] = None
+    #: OBSERVED SALE PRICES and nothing else — what a buyer actually paid. Only
+    #: a purchase-history capture can supply these (see `utils.purchase_history`
+    #: and the P5 extension path), so None is the normal case and means "no sale
+    #: was read", never "the price was zero" (C1/C4).
     avg_sold_price: Optional[float] = None
     lowest_sold_price: Optional[float] = None
     highest_sold_price: Optional[float] = None
@@ -201,13 +219,21 @@ class DemandData:
     # object already ran, so Analyze/URL-hunt get stores for free instead
     # of paying for a second request. Normalised by engine.stores.
     top_sellers: list = field(default_factory=list)
-    # A3 - every individual price the sold query returned, observed in order.
-    # The min/avg/max above are already derived from this list and used to be
-    # all that survived: the list itself was computed and thrown away, which
-    # is why no chart could ever be drawn from real data. Empty means "we
-    # hold no per-sale observations", never "no sales" - sold_count_30d is
-    # the count, and the two are reported together, never substituted.
+    # A3 - every individual SALE price held for this query, in order. The
+    # min/avg/max above are derived from this list and used to be all that
+    # survived: the list itself was computed and thrown away, which is why no
+    # chart could ever be drawn from real data. Empty means "we hold no sale
+    # observations", never "no sales" - sold_count_30d is the count, and the
+    # two are reported together, never substituted.
+    #
+    # The LISTING-price observations live in `active_prices`. The two lists are
+    # never merged and never substituted for one another: a live asking price
+    # is not evidence of a sale, however many of them there are.
     sold_prices: list = field(default_factory=list)
+    #: The prices behind the three `*_active_price` figures above, in the order
+    #: eBay returned them. Carried rather than re-derived, so a chart plots
+    #: exactly the numbers the metrics show.
+    active_prices: list = field(default_factory=list)
 
 
 class BaseScraper(ABC):

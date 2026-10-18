@@ -42,14 +42,31 @@ class DemandData(Base):
     sold_count_30d = Column(Integer)
     sold_count_7d = Column(Integer)
     last_sale_date = Column(String(64))
+    # OBSERVED SALE PRICES only — what a buyer actually paid. Nothing this app
+    # can currently reach produces one, so these read NULL in practice, and
+    # NULL means "no sale was read", never "the price was zero".
     avg_sold_price = Column(Float)
     lowest_sold_price = Column(Float)
     highest_sold_price = Column(Float)
+    # SUPPLY-side evidence: the live in-band New listings a query returned and
+    # their ASKING prices. Real numbers with a different meaning, kept in their
+    # own columns so the two can never be read as one another. They shared the
+    # sold columns until 2026-10-19.
+    #
+    # `active_listings_in_band` was computed from the start but never written
+    # down, so a live Analyze run carried it and a replayed History run did not
+    # — the same product giving two answers on two screens.
+    active_listings_in_band = Column(Integer)
+    avg_active_price = Column(Float)
+    lowest_active_price = Column(Float)
+    highest_active_price = Column(Float)
     # A3 - the individual observed sale prices behind the three figures
     # above, kept so History can redraw the chart for a run long past. A
     # row written before this column existed reads NULL, which loads as
     # "no observations held" and renders no chart rather than a zeroed one.
     sold_prices = Column(JSON)
+    # The asking prices behind the `*_active_price` figures, same discipline.
+    active_prices = Column(JSON)
     data_source = Column(String(64), default="ebay_sold_listings")
     verified = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)

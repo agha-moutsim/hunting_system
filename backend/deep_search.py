@@ -125,11 +125,18 @@ class DeepSearchResult:
     ebay_price_min: float = 0.0
     ebay_price_max: float = 0.0
     ebay_price_median: float = 0.0
-    # The observations behind the price summary - the same list that
-    # produced min/max/avg/median (ebay_sold.py:417-430) - kept so the
-    # distribution can be PLOTTED rather than asserted by three numbers.
-    # Written only from real sold-query rows, never from the model.
+    # The observations behind the price summary - the same list that produced
+    # min/max/avg/median - kept so the distribution can be PLOTTED rather than
+    # asserted by three numbers. Written only from real eBay rows, never from
+    # the model.
+    #
+    # WHICH list they land in is decided by the scraped SOURCE, never by
+    # position: the sold/completed page yields SALE prices (`sold_prices`) and
+    # the Browse API yields ASKING prices on live listings (`active_prices`).
+    # Both are real prices from a real fetch; only one of them is a sale, and
+    # the chart has to be able to say which one it is drawing.
     sold_prices: List[float] = field(default_factory=list)
+    active_prices: List[float] = field(default_factory=list)
     ebay_total_sold_30d: int = 0
     # None = unknown (no parseable sale dates) â€” never an estimate (C1/C4).
     ebay_total_sold_7d: Optional[int] = None
@@ -734,12 +741,27 @@ def _stamp_provenance(result: "DeepSearchResult") -> None:
     if result.sold_prices:
         result.set_fact_provenance(
             "sold_prices", Provenance.VERIFIED,
-            source_name="eBay Browse API (conditions:{NEW})"
+            source_name="eBay sold listings (observed sales)"
         )
     else:
         result.set_fact_provenance(
             "sold_prices", Provenance.UNVERIFIED,
             reason="no per-sale prices were held for this run"
+        )
+    # The asking prices get their OWN stamp rather than borrowing the one
+    # above. They come from a real fetch, so they are verified AS PRICES; they
+    # are not sales, and a badge has to describe the number it sits beside —
+    # which is how a browse-sourced list came to be stamped
+    # "eBay Browse API (conditions:{NEW})" underneath a "sold" heading.
+    if result.active_prices:
+        result.set_fact_provenance(
+            "active_prices", Provenance.VERIFIED,
+            source_name="eBay Browse API (live listings, conditions:{NEW})"
+        )
+    else:
+        result.set_fact_provenance(
+            "active_prices", Provenance.UNVERIFIED,
+            reason="no live-listing prices were held for this run"
         )
     for sup in result.suppliers:
         sup.setdefault("provenance", Provenance.VERIFIED.value)
@@ -839,8 +861,21 @@ def deep_search_product(
             # the distribution can be PLOTTED instead of asserted by a
             # min/avg/max triple. Empty when nothing was observed.
             result.sold_prices = list(sold_data.sold_prices or [])
+            # The asking prices of the live listings, when that is what the
+            # scrape returned. Carried separately so the chart still has real
+            # points to plot without any of them being named a sale.
+            result.active_prices = list(
+                getattr(sold_data, "active_prices", None) or []
+            )
             result.ebay_top_sellers = sold_data.top_sellers
-            result.ebay_items_sold_month = f"{sold_data.total_sold_30d} items"
+            # None means no sale was observed and must render as NOTHING at
+            # all. Interpolated straight in it reads "None items" — a sold
+            # figure that looks present, and is not.
+            result.ebay_items_sold_month = (
+                f"{sold_data.total_sold_30d} items"
+                if sold_data.total_sold_30d is not None
+                else ""
+            )
             result.ebay_price_range = f"Â£{sold_data.price_min:.2f} - Â£{sold_data.price_max:.2f} (avg Â£{sold_data.price_avg:.2f})"
             result.sources.extend([item.url for item in sold_data.items[:5] if item.url])
     except Exception as e:
@@ -1124,8 +1159,21 @@ def deep_search_fast(
             # the distribution can be PLOTTED instead of asserted by a
             # min/avg/max triple. Empty when nothing was observed.
             result.sold_prices = list(sold_data.sold_prices or [])
+            # The asking prices of the live listings, when that is what the
+            # scrape returned. Carried separately so the chart still has real
+            # points to plot without any of them being named a sale.
+            result.active_prices = list(
+                getattr(sold_data, "active_prices", None) or []
+            )
             result.ebay_top_sellers = sold_data.top_sellers
-            result.ebay_items_sold_month = f"{sold_data.total_sold_30d} items"
+            # None means no sale was observed and must render as NOTHING at
+            # all. Interpolated straight in it reads "None items" — a sold
+            # figure that looks present, and is not.
+            result.ebay_items_sold_month = (
+                f"{sold_data.total_sold_30d} items"
+                if sold_data.total_sold_30d is not None
+                else ""
+            )
             result.ebay_price_range = f"Â£{sold_data.price_min:.2f} - Â£{sold_data.price_max:.2f} (avg Â£{sold_data.price_avg:.2f})"
             sources.extend([item.url for item in sold_data.items[:5] if item.url])
             print(f"[OK] eBay sold: {sold_data.total_sold_30d} items, avg Â£{sold_data.price_avg:.2f}")

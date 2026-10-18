@@ -108,8 +108,17 @@ def snapshot_query(
         if getattr(sold_data, "sold_count_7d", None) is not None
         else getattr(sold_data, "total_sold_7d", None)
     )
+    # `DemandSnapshot.avg_price` is "the price picture at this moment", and the
+    # trend it feeds is only meaningful if it reads the same KIND of figure
+    # every run. That is the ASKING price of the live listings — the one this
+    # app can observe on every single run. A sale price is the second choice and
+    # only a purchase-history capture supplies one, so it would appear on a
+    # handful of runs and break the series. `avg_sold_price` is still consulted
+    # for rows written before the split.
     avg_price = _positive_or_none(
-        getattr(sold_data, "avg_sold_price", None)
+        getattr(sold_data, "avg_active_price", None)
+        if getattr(sold_data, "avg_active_price", None) is not None
+        else getattr(sold_data, "avg_sold_price", None)
         if getattr(sold_data, "avg_sold_price", None) is not None
         else getattr(sold_data, "price_avg", None)
     )

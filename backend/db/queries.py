@@ -162,6 +162,22 @@ def save_demand_data(db: Session, product_id: int, demand: DemandDataDTO) -> Dem
     # rather than keep redrawing it.
     if hasattr(demand, "sold_prices"):
         data["sold_prices"] = list(demand.sold_prices or [])
+    # The SUPPLY-side set, written with the same all-or-nothing discipline: a
+    # DTO that carries a field writes it, including as None or [], so a re-run
+    # that observed nothing CLEARS the previous run instead of leaving stale
+    # evidence on screen. Each of these is a declared column; none is inferred
+    # from another, because a listing price and a sale price are not
+    # interchangeable and must be stored apart.
+    for _name in (
+        "active_listings_in_band",
+        "avg_active_price",
+        "lowest_active_price",
+        "highest_active_price",
+        "active_prices",
+    ):
+        if hasattr(demand, _name):
+            _value = getattr(demand, _name)
+            data[_name] = list(_value or []) if _name.endswith("_prices") else _value
     # P5: only written when the DTO carries a source string (e.g. the
     # "...+purchase_history" suffix set by analysis_pipeline) so the column
     # default keeps applying everywhere else.

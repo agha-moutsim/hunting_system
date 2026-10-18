@@ -661,7 +661,10 @@ class Pipeline:
         lines.append(f"eBay Price: GBP {product.price:.2f}")
         lines.append("")
 
-        # Demand
+        # Demand. Two kinds of evidence under two headings: a sale is demand, a
+        # live listing is supply. Merged under one "DEMAND" heading the reader
+        # cannot tell which is which, which is how a listing price came to be
+        # printed as an "Avg sold".
         if demand and demand.verified:
             lines.append("DEMAND")
             if demand.sold_count_30d is not None:
@@ -672,6 +675,11 @@ class Pipeline:
                 lines.append(f"  Avg sold:    GBP {demand.avg_sold_price:.2f}")
         else:
             lines.append("DEMAND: unverified")
+        if demand and demand.active_listings_in_band is not None:
+            lines.append("LIVE LISTINGS (supply, not sales)")
+            lines.append(f"  In band:     {demand.active_listings_in_band}")
+            if demand.avg_active_price is not None:
+                lines.append(f"  Avg asking:  GBP {demand.avg_active_price:.2f}")
         lines.append("")
 
         # LLM

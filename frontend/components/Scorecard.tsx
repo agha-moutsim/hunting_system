@@ -150,12 +150,28 @@ export default function Scorecard({
   provenance?: ProvenanceBlock;
 }) {
   const v = (verdict?.verdict || "pending").toLowerCase();
-  const priceRange =
+  // Two price ranges, kept apart. One is a SALE range and only exists when a
+  // sale was observed; the other is what live listings are ASKING right now.
+  // They are never merged, and each tile is labelled to match the range beside
+  // it — a figure built from asking prices is not captioned "sold".
+  const soldRange =
     demand &&
     demand.lowest_sold_price != null &&
     demand.highest_sold_price != null
       ? `${formatGBP(demand.lowest_sold_price)} – ${formatGBP(demand.highest_sold_price)}`
       : "⚠️ Unverified";
+  const activeRange =
+    demand &&
+    demand.lowest_active_price != null &&
+    demand.highest_active_price != null
+      ? `${formatGBP(demand.lowest_active_price)} – ${formatGBP(demand.highest_active_price)}`
+      : "⚠️ Unverified";
+  // Which KIND of evidence this run actually holds. Each block below renders
+  // only on its own evidence, so the screen can never put an empty "Sold" row
+  // beside a populated "Live listings" one and invite them to be read as the
+  // same measurement.
+  const hasSold = demand?.sold_count_30d != null;
+  const hasActive = demand?.active_listings_in_band != null;
 
   // Section-level stamp: the provenance block wins, else the demand object's
   // own tier. Undefined = no badge at all (never a fabricated one).
@@ -351,61 +367,123 @@ export default function Scorecard({
       {/* Demand                                                          */}
       {/* ---------------------------------------------------------------- */}
       <section>
-        <SectionTitle hint="last 30 days">Demand</SectionTitle>
-        {demand && demand.sold_count_30d != null ? (
+        <SectionTitle hint="eBay evidence">Demand</SectionTitle>
+        {hasSold || hasActive ? (
           <>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <Metric
-                label="Sold (30d)"
-                emphasis
-                prov={demandField("sold_count_30d")}
-                value={demand.sold_count_30d ?? 0}
-              />
-              <Metric
-                label="Sold (7d)"
-                prov={demandField("sold_count_7d")}
-                value={
-                  demand.sold_count_7d ?? (
-                    <span className="text-accent-amber">Not stated</span>
-                  )
-                }
-              />
-              <Metric
-                label="Avg sold price"
-                prov={demandField("avg_sold_price")}
-                value={
-                  demand.avg_sold_price != null
-                    ? formatGBP(demand.avg_sold_price)
-                    : "Not stated"
-                }
-              />
-              <Metric
-                label="Price range"
-                prov={demandField("price_range", "lowest_sold_price")}
-                value={priceRange}
-              />
-            </div>
+            {hasSold && (
+              <>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <Metric
+                    label="Sold (30d)"
+                    emphasis
+                    prov={demandField("sold_count_30d")}
+                    value={demand.sold_count_30d ?? 0}
+                  />
+                  <Metric
+                    label="Sold (7d)"
+                    prov={demandField("sold_count_7d")}
+                    value={
+                      demand.sold_count_7d ?? (
+                        <span className="text-accent-amber">Not stated</span>
+                      )
+                    }
+                  />
+                  <Metric
+                    label="Avg sold price"
+                    prov={demandField("avg_sold_price")}
+                    value={
+                      demand.avg_sold_price != null
+                        ? formatGBP(demand.avg_sold_price)
+                        : "Not stated"
+                    }
+                  />
+                  <Metric
+                    label="Sold price range"
+                    prov={demandField("price_range", "lowest_sold_price")}
+                    value={soldRange}
+                  />
+                </div>
 
-            {/* A3 — the observations behind the four tiles above. Plotted from
-              the SAME list that produced them, so the shape of the market is
-              shown rather than asserted by a min/avg/max triple. Runs saved
-              before sold_prices existed render nothing here. */}
-            {demand.sold_prices && demand.sold_prices.length > 0 && (
-              <figure className="mt-4 rounded-card border border-border/50 bg-bg-surface/40 p-4">
-                <figcaption className="mb-3 flex items-baseline gap-3">
+                {/* A3 — the observations behind the four tiles above. Plotted
+                  from the SAME list that produced them, so the shape of the
+                  market is shown rather than asserted by a min/avg/max triple.
+                  Runs saved before sold_prices existed render nothing here. */}
+                {demand.sold_prices && demand.sold_prices.length > 0 && (
+                  <figure className="mt-4 rounded-card border border-border/50 bg-bg-surface/40 p-4">
+                    <figcaption className="mb-3 flex items-baseline gap-3">
+                      <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-dim">
+                        Sold price distribution
+                      </span>
+                      <span className="h-px flex-1 bg-border/40" />
+                      <span className="text-[11px] text-text-dim">
+                        {demand.sold_prices.length} observed sales
+                      </span>
+                    </figcaption>
+                    <SoldPriceDistribution
+                      prices={demand.sold_prices}
+                      average={demand.avg_sold_price}
+                    />
+                  </figure>
+                )}
+              </>
+            )}
+
+            {/* SUPPLY, and named as such. These are asking prices on listings
+              that are still for sale — nothing in this block sold. Every figure
+              is real and was read from eBay, which is exactly why it must not
+              sit under a "sold" heading: it did until 2026-10-19, and a listing
+              price is not evidence of a sale however many of them there are. */}
+            {hasActive && (
+              <div className={hasSold ? "mt-5" : ""}>
+                <div className="mb-3 flex items-baseline gap-3">
                   <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-dim">
-                    Sold price distribution
+                    Live listings
                   </span>
                   <span className="h-px flex-1 bg-border/40" />
                   <span className="text-[11px] text-text-dim">
-                    {demand.sold_prices.length} observed sales
+                    supply, not sales
                   </span>
-                </figcaption>
-                <SoldPriceDistribution
-                  prices={demand.sold_prices}
-                  average={demand.avg_sold_price}
-                />
-              </figure>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <Metric
+                    label="In-band New listings"
+                    prov={demandField("active_listings_in_band")}
+                    value={demand.active_listings_in_band ?? 0}
+                  />
+                  <Metric
+                    label="Avg asking price"
+                    prov={demandField("avg_active_price")}
+                    value={
+                      demand.avg_active_price != null
+                        ? formatGBP(demand.avg_active_price)
+                        : "Not stated"
+                    }
+                  />
+                  <Metric
+                    label="Asking range"
+                    prov={demandField("lowest_active_price")}
+                    value={activeRange}
+                  />
+                </div>
+
+                {demand.active_prices && demand.active_prices.length > 0 && (
+                  <figure className="mt-4 rounded-card border border-border/50 bg-bg-surface/40 p-4">
+                    <figcaption className="mb-3 flex items-baseline gap-3">
+                      <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-dim">
+                        Asking price distribution
+                      </span>
+                      <span className="h-px flex-1 bg-border/40" />
+                      <span className="text-[11px] text-text-dim">
+                        {demand.active_prices.length} live listings
+                      </span>
+                    </figcaption>
+                    <SoldPriceDistribution
+                      prices={demand.active_prices}
+                      average={demand.avg_active_price}
+                    />
+                  </figure>
+                )}
+              </div>
             )}
           </>
         ) : (

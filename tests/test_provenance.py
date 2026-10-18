@@ -227,6 +227,11 @@ def full_deep_search(monkeypatch):
         # min 8, max 15, mean 59.5/5 = 11.9, median 11.5. The run reads it
         # to plot the distribution, so the fake must carry it.
         sold_prices = [8.0, 11.5, 11.5, 13.5, 15.0]
+        # This fake models the SOLD-page path — total_sold_30d is a real 42 —
+        # so the live-listing list is empty, exactly as the real dataclass
+        # leaves it. Present-but-empty rather than absent, so the stand-in
+        # keeps the same shape as EbaySoldData.
+        active_prices = []
 
     monkeypatch.setattr(EbaySoldScraper, "get_sold_data",
                         lambda self, q: _FullSold())

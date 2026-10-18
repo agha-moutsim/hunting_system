@@ -53,6 +53,14 @@ MOCK_DEMAND = DemandData(
     avg_sold_price=13.50,
     lowest_sold_price=9.99,
     highest_sold_price=18.99,
+    # The supply-side set. Mock data has to model the same split the real
+    # pipeline produces, or it teaches the screens a shape they never see — and
+    # a mock that fills only the sold fields would quietly keep the old
+    # mislabelling alive in every preview built on it.
+    active_listings_in_band=50,
+    avg_active_price=21.40,
+    lowest_active_price=6.75,
+    highest_active_price=44.00,
     verified=True,
 )
 

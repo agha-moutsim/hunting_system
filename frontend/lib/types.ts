@@ -186,12 +186,24 @@ export interface DemandData {
   lowest_sold_price?: number | null;
   highest_sold_price?: number | null;
   /**
-   * Every individual price the sold query observed. The source of the
-   * min/avg/max above — carried rather than re-derived so the chart plots
-   * exactly the figures the metrics show. Absent/empty on rows saved before
-   * it existed: no chart, never a fabricated one.
+   * Every individual SALE price observed. The source of the min/avg/max above
+   * — carried rather than re-derived so the chart plots exactly the figures
+   * the metrics show. Absent/empty on rows saved before it existed: no chart,
+   * never a fabricated one. A live listing's asking price never lands here.
    */
   sold_prices?: number[] | null;
+  /**
+   * SUPPLY, not demand: the in-band New listings eBay is showing right now,
+   * and their ASKING prices. Real numbers from a real fetch, and not evidence
+   * that anything sold — which is why they have their own fields instead of
+   * sharing the sold ones, as they did until 2026-10-19.
+   */
+  active_listings_in_band?: number | null;
+  avg_active_price?: number | null;
+  lowest_active_price?: number | null;
+  highest_active_price?: number | null;
+  /** The asking prices behind those figures, same discipline as sold_prices. */
+  active_prices?: number[] | null;
   verified?: boolean;
   provenance?: string;
   provenance_label?: string;
@@ -289,6 +301,10 @@ export interface DeepSearchResult {
   /** Per-sale prices behind the price summary. Empty when the run held
    *  none — the chart draws its honest empty state, never a stand-in. */
   sold_prices: number[];
+  /** ASKING prices of the live listings, for the runs where THAT is what the
+   *  scrape returned. Real prices, supply-side meaning: the chart names which
+   *  list it drew rather than calling every bar a sale. */
+  active_prices: number[];
   ebay_total_sold_30d: number;
   ebay_total_sold_7d: number | null; // null = unknown (never estimated)
   suppliers: SupplierInfo[];

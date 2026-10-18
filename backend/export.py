@@ -24,6 +24,13 @@ def export_to_csv(results: dict[str, Any], filepath: str) -> str:
         "sold_30d": results.get("demand", {}).get("sold_count_30d", 0),
         "sold_7d": results.get("demand", {}).get("sold_count_7d", 0),
         "avg_sold_price": results.get("demand", {}).get("avg_sold_price", 0),
+        # The supply-side figures, in their own columns. A spreadsheet can never
+        # sum a listing price into a sold one if the two are never in the same
+        # column.
+        "active_listings_in_band": results.get("demand", {}).get(
+            "active_listings_in_band", 0
+        ),
+        "avg_active_price": results.get("demand", {}).get("avg_active_price", 0),
         "best_supplier": "",
         "best_supplier_price": 0,
         "profit": 0,

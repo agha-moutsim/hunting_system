@@ -243,19 +243,29 @@ def _scraper(monkeypatch, payload):
 
 
 class TestTheScraperCarriesWhatItObserved:
-    def test_in_band_new_sales_become_chart_points(self, monkeypatch):
+    def test_in_band_new_listings_become_chart_points(self, monkeypatch):
+        """These are the asking prices of the LIVE listings the query returned,
+        so they become chart points under the active-price names — and every
+        sold-price field stays empty, because nothing sold."""
         scraper = _scraper(
             monkeypatch, _payload((9.99, "New"), (12.5, "New"), (30.0, "New"))
         )
 
         demand = scraper._get_sold_api("widget")
 
-        assert demand.sold_prices == [9.99, 12.5, 30.0]
-        assert demand.avg_sold_price == pytest.approx((9.99 + 12.5 + 30.0) / 3)
-        assert demand.lowest_sold_price == 9.99
-        assert demand.highest_sold_price == 30.0
+        assert demand.active_prices == [9.99, 12.5, 30.0]
+        assert demand.avg_active_price == pytest.approx((9.99 + 12.5 + 30.0) / 3)
+        assert demand.lowest_active_price == 9.99
+        assert demand.highest_active_price == 30.0
+        # The same three numbers must never appear as SOLD prices. This is the
+        # assertion that fails if anyone points the sold fields back at this
+        # list, which is what they held until 2026-10-19.
+        assert demand.sold_prices == []
+        assert demand.avg_sold_price is None
+        assert demand.lowest_sold_price is None
+        assert demand.highest_sold_price is None
 
-    def test_used_sales_are_not_chart_points(self, monkeypatch):
+    def test_used_listings_are_not_chart_points(self, monkeypatch):
         """C10 is absolute: a Used listing is not a New-condition listing, so
         it cannot become a point in a distribution labelled New."""
         scraper = _scraper(
@@ -264,7 +274,8 @@ class TestTheScraperCarriesWhatItObserved:
 
         demand = scraper._get_sold_api("widget")
 
-        assert demand.sold_prices == [9.99]
+        assert demand.active_prices == [9.99]
+        assert demand.sold_prices == []
         # One in-band New listing came back. That is a LISTING count, not a
         # sale: Browse cannot see sold items, so the sold count stays
         # unmeasured rather than borrowing this number (C1/C4). The old
@@ -274,25 +285,32 @@ class TestTheScraperCarriesWhatItObserved:
         assert demand.active_listings_in_band == 1
 
     def test_out_of_band_prices_are_not_chart_points(self, monkeypatch):
-        """The band (£5–£35) is what sold_count and avg were already built
-        on; a £99 sale plotted next to them would silently widen the axis."""
+        """The band (£5–£35) is what the listing count and the average were
+        already built on; a £99 listing plotted next to them would silently
+        widen the axis."""
         scraper = _scraper(
             monkeypatch, _payload((9.99, "New"), (99.0, "New"), (30.0, "New"))
         )
 
         demand = scraper._get_sold_api("widget")
 
-        assert demand.sold_prices == [9.99, 30.0]
+        assert demand.active_prices == [9.99, 30.0]
         assert demand.excluded_over_band == 1
 
-    def test_a_response_with_no_sales_holds_no_points(self, monkeypatch):
+    def test_a_response_with_no_listings_holds_no_points(self, monkeypatch):
         """Empty means "we hold no observations" — not "no sales". The
-        count and the list stay separate measures."""
+        count and the list stay separate measures, and an empty run leaves
+        BOTH lists empty rather than moving a price across to the other one."""
         scraper = _scraper(monkeypatch, {"itemSummaries": []})
 
         demand = scraper._get_sold_api("widget")
 
         assert demand.sold_prices == []
+        assert demand.active_prices == []
+        # An empty response is marked untrusted (verified=False) rather than
+        # read as "zero competition", so the count stays None — not measured —
+        # exactly as the sold count does. None never means zero (C1/C4).
+        assert demand.active_listings_in_band is None
         assert demand.sold_count_30d is None
 
 
@@ -344,3 +362,205 @@ class TestAListingCountIsNeverASoldCount:
         label = demand.data_source.lower()
         assert "active" in label           # says what the count IS
         assert "not sales" in label        # says what it is NOT
+
+
+# ---------------------------------------------------------------------------
+# 3. The asking prices, and the columns they used to be written into
+# ---------------------------------------------------------------------------
+
+def _save_browse_demand(factory, count, prices):
+    """A demand row exactly as the Browse path writes it: the live-listing
+    evidence in the active columns, and nothing at all in the sold ones."""
+    from db.queries import save_demand_data, save_product
+    from scrapers.base import DemandData, ScrapedProduct
+
+    db = factory()
+    try:
+        product_id = save_product(db, ScrapedProduct(
+            source="ebay_uk", title="Generic widget", price=12.0,
+            url="https://www.ebay.co.uk/itm/1", condition="New", verified=True,
+        ))
+        save_demand_data(db, product_id, DemandData(
+            active_listings_in_band=count,
+            avg_active_price=(sum(prices) / len(prices)) if prices else None,
+            lowest_active_price=min(prices) if prices else None,
+            highest_active_price=max(prices) if prices else None,
+            active_prices=list(prices),
+            verified=False,
+            data_source="eBay Browse API (active listings, not sales)",
+        ))
+        return product_id
+    finally:
+        db.close()
+
+
+class TestTheAskingPricesAreStoredApart:
+    """`_get_sold_api` used to write the live listings' ASKING prices into
+    `avg_sold_price` / `lowest_sold_price` / `highest_sold_price` /
+    `sold_prices`. Every number was real; the word describing it was not. It
+    is the same defect Phase 1 fixed for the count, one field over, and it is
+    fixed the same way: the value moves to a name that says what it is, and
+    the sold field is left empty rather than merely renamed."""
+
+    def test_the_asking_set_lands_in_its_own_columns(
+        self, tmp_path, monkeypatch
+    ):
+        factory, engine = _session(tmp_path, monkeypatch)
+
+        product_id = _save_browse_demand(factory, 50, PRICES)
+
+        with engine.connect() as conn:
+            row = conn.execute(
+                text(
+                    "SELECT active_prices, avg_active_price,"
+                    " lowest_active_price, highest_active_price,"
+                    " active_listings_in_band FROM demand_data"
+                    " WHERE product_id = :p"
+                ),
+                {"p": product_id},
+            ).fetchone()
+        assert json.loads(row[0]) == PRICES
+        assert row[1] == pytest.approx(sum(PRICES) / len(PRICES))
+        assert row[2] == min(PRICES)
+        assert row[3] == max(PRICES)
+        assert row[4] == 50
+
+    def test_nothing_reaches_the_sold_columns(self, tmp_path, monkeypatch):
+        """The half that is easy to forget: the sold columns must stay EMPTY.
+        Copying the prices across as well would leave the same numbers sitting
+        under a name that claims a sale happened, and the sold chart — which
+        is the one a reader trusts — would plot live asking prices."""
+        factory, engine = _session(tmp_path, monkeypatch)
+
+        product_id = _save_browse_demand(factory, 50, PRICES)
+
+        with engine.connect() as conn:
+            row = conn.execute(
+                text(
+                    "SELECT avg_sold_price, lowest_sold_price,"
+                    " highest_sold_price, sold_prices, sold_count_30d"
+                    " FROM demand_data WHERE product_id = :p"
+                ),
+                {"p": product_id},
+            ).fetchone()
+        assert row[0] is None
+        assert row[1] is None
+        assert row[2] is None
+        # The list is present and EMPTY rather than NULL: nothing was observed,
+        # and an empty list is how that is recorded. Both shapes render no
+        # chart (see TestHistoryReplay), so neither can invent one.
+        assert json.loads(row[3]) == []
+        assert row[4] is None
+
+    def test_the_listing_count_survives_storage(self, tmp_path, monkeypatch):
+        """Phase 1 computed `active_listings_in_band` and never persisted it,
+        so a live Analyze run carried the count and a replayed History run did
+        not — one product, two screens, two different answers."""
+        from api.history import product_detail
+
+        factory, _ = _session(tmp_path, monkeypatch)
+        product_id = _save_browse_demand(factory, 50, PRICES)
+
+        demand = product_detail(product_id)["demand"]
+
+        assert demand["active_listings_in_band"] == 50
+        assert demand["avg_active_price"] == pytest.approx(
+            sum(PRICES) / len(PRICES)
+        )
+        assert demand["lowest_active_price"] == min(PRICES)
+        assert demand["highest_active_price"] == max(PRICES)
+        assert demand["active_prices"] == PRICES
+        # ...and the sold set still reads as unmeasured, not as the same data
+        # arriving a second time under a different name.
+        assert demand["sold_prices"] == []
+        assert demand["avg_sold_price"] is None
+
+    def test_a_rescrape_that_saw_nothing_clears_the_asking_set(
+        self, tmp_path, monkeypatch
+    ):
+        """The same all-or-nothing rule the sold list follows: an old
+        asking-price chart beside a count of zero is a lie about today."""
+        factory, engine = _session(tmp_path, monkeypatch)
+        product_id = _save_browse_demand(factory, 50, PRICES)
+
+        _save_browse_demand(factory, 0, [])
+
+        with engine.connect() as conn:
+            row = conn.execute(
+                text(
+                    "SELECT active_prices, active_listings_in_band"
+                    " FROM demand_data WHERE product_id = :p"
+                ),
+                {"p": product_id},
+            ).fetchone()
+        assert json.loads(row[0]) == []
+        assert row[1] == 0
+
+
+# ---------------------------------------------------------------------------
+# 4. Which list a price belongs to is decided by its SOURCE
+# ---------------------------------------------------------------------------
+
+class TestTheScraperSortsPricesBySource:
+    """`_calculate_stats` is handed one `items` list that means two different
+    things depending on where it came from, so the prices are sorted by
+    `items_source` rather than by position — exactly as the count already
+    was."""
+
+    def _stats(self, source, prices):
+        from scrapers.ebay_sold import (
+            EbaySoldData, EbaySoldItem, EbaySoldScraper,
+        )
+
+        result = EbaySoldData(
+            product_name="widget",
+            query="widget",
+            items_source=source,
+            items=[
+                EbaySoldItem(
+                    title="Generic widget", price=price,
+                    url=f"https://www.ebay.co.uk/itm/{i}",
+                    seller="", seller_url="", sold_date="",
+                )
+                for i, price in enumerate(prices)
+            ],
+        )
+        EbaySoldScraper()._calculate_stats(result)
+        return result
+
+    def test_live_listings_become_asking_prices(self):
+        result = self._stats("ebay_browse_active", [9.99, 12.5, 30.0])
+
+        assert result.active_prices == [9.99, 12.5, 30.0]
+        assert result.sold_prices == []
+        assert result.total_sold_30d is None
+        assert result.active_listings_in_band == 3
+
+    def test_scraped_sales_become_sold_prices(self):
+        result = self._stats("ebay_sold_scrape", [9.99, 12.5, 30.0])
+
+        assert result.sold_prices == [9.99, 12.5, 30.0]
+        assert result.active_prices == []
+        assert result.total_sold_30d == 3
+        assert result.active_listings_in_band is None
+
+    def test_an_unlabelled_source_is_not_read_as_sales(self):
+        """`items_source` defaults to "" — an unknown origin. The prices still
+        have to go somewhere, and the safe direction is the one that does not
+        assert a sale. If this inverts, every price from an unlabelled source
+        becomes a "sold" price on screen."""
+        result = self._stats("", [9.99, 12.5])
+
+        assert result.sold_prices == []
+        assert result.active_prices == [9.99, 12.5]
+        assert result.total_sold_30d is None
+
+    def test_the_summary_describes_whichever_list_was_filled(self):
+        """price_min/max/avg/median come from the same list the chart draws,
+        so the tiles and the distribution can never describe two different
+        markets."""
+        result = self._stats("ebay_browse_active", [8.0, 11.5, 15.0])
+
+        assert (result.price_min, result.price_max) == (8.0, 15.0)
+        assert result.price_avg == pytest.approx((8.0 + 11.5 + 15.0) / 3)
+        assert result.price_median == 11.5

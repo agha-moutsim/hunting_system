@@ -52,7 +52,19 @@ def format_scorecard(
         if demand_data.last_sale_date:
             lines.append(f"  Last sale:  {demand_data.last_sale_date}")
     else:
-        lines.append("  No demand data available")
+        lines.append("  No sold data available")
+
+    # Supply-side evidence under its OWN heading. These are real prices read
+    # from eBay, but they are ASKING prices on live listings — a useful picture
+    # of what it costs to compete, and not a sale. Printing them under DEMAND is
+    # what let a listing price read as an "Avg sold".
+    if demand_data and demand_data.active_listings_in_band is not None:
+        lines.append("")
+        lines.append("LIVE LISTINGS (supply, not sales)")
+        lines.append("-" * 55)
+        lines.append(f"  In band:    {demand_data.active_listings_in_band}")
+        if demand_data.avg_active_price is not None:
+            lines.append(f"  Avg asking: \u00a3{demand_data.avg_active_price:.2f}")
     lines.append("")
 
     # --- Supplier matches ---

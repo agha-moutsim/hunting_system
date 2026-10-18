@@ -111,7 +111,15 @@ class EbaySoldData:
     #: and never assumed, because the same `len(items)` means two different
     #: things depending on where the items came from.
     items_source: str = ""
+    #: SALE prices only — what a buyer actually paid. Only the sold/completed
+    #: page can produce a genuine one, so this stays EMPTY on the Browse path
+    #: and the prices go to `active_prices` instead. A live listing's asking
+    #: price is not a sale price, and the same `prices` list means two
+    #: different things depending on where the items came from.
     sold_prices: list[float] = field(default_factory=list)
+    #: The prices of the live listings, when that is what `items` holds. Real
+    #: prices read from eBay, but SUPPLY-side in meaning.
+    active_prices: list[float] = field(default_factory=list)
     price_min: float = 0.0
     price_max: float = 0.0
     price_avg: float = 0.0
@@ -498,9 +506,18 @@ class EbaySoldScraper:
         if not result.items:
             return
 
-        # Prices
+        # Prices. WHICH list these belong in depends on where `items` came
+        # from, so it is decided by `items_source` and never assumed — the same
+        # way the count below is. Every price here is real and was read from
+        # eBay; the difference is whether anybody bought at it, and that is
+        # exactly the difference the two field names have to carry.
         prices = [item.price for item in result.items if item.price > 0]
-        result.sold_prices = prices
+        if result.items_source == "ebay_sold_scrape":
+            result.sold_prices = prices
+            result.active_prices = []
+        else:
+            result.sold_prices = []
+            result.active_prices = prices
 
         if prices:
             result.price_min = min(prices)

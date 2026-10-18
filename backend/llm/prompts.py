@@ -33,7 +33,10 @@ eBay listing
   Price: GBP {price} | Condition: {condition} | Seller: {seller}
 
 Demand, last 30 days
-  sold {sold_30d} (7d {sold_7d}) | avg GBP {avg_price} | range GBP {low_price}-{high_price}
+  sold {sold_30d} (7d {sold_7d}) | avg sold price GBP {avg_price} | sold range GBP {low_price}-{high_price}
+
+Live listings competing right now — SUPPLY, not sales. Nothing in this block sold.
+  {active_listings} in-band New listings | avg asking GBP {avg_active_price} | asking range GBP {low_active_price}-{high_active_price}
 
 Supplier matches{supplier_block}
 
@@ -92,5 +95,12 @@ def build_analysis_prompt(
         avg_price=demand.get("avg_sold_price", "unknown"),
         low_price=demand.get("lowest_sold_price", "unknown"),
         high_price=demand.get("highest_sold_price", "unknown"),
+        # The supply-side block, named apart from the sold figures above so the
+        # model cannot read a live asking price as evidence that something sold
+        # — which is what the previous single "avg ... range" line invited.
+        active_listings=demand.get("active_listings_in_band", "unknown"),
+        avg_active_price=demand.get("avg_active_price", "unknown"),
+        low_active_price=demand.get("lowest_active_price", "unknown"),
+        high_active_price=demand.get("highest_active_price", "unknown"),
         supplier_block=supplier_block,
     )

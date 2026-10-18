@@ -112,6 +112,16 @@ def product_detail(product_id: int):
                 # simply does not render; it never falls back to invented
                 # points.
                 "sold_prices": list(demand.sold_prices or []),
+                # The SUPPLY-side set, replayed beside the sold one and kept
+                # separate in the payload for the same reason it is separate in
+                # the table. A live run and a replayed one now report the same
+                # value for each, which they did not while
+                # `active_listings_in_band` went unwritten.
+                "active_listings_in_band": demand.active_listings_in_band,
+                "avg_active_price": _stat(demand.avg_active_price),
+                "lowest_active_price": _stat(demand.lowest_active_price),
+                "highest_active_price": _stat(demand.highest_active_price),
+                "active_prices": list(demand.active_prices or []),
                 "data_source": demand.data_source,
                 "verified": demand.verified,
             } if demand else None,

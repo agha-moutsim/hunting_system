@@ -477,13 +477,21 @@ class EbayScraper:
             active_listings_in_band=len(sold_items),
             sold_count_30d=None,
             sold_count_7d=None,
-            avg_sold_price=sum(prices) / len(prices) if prices else None,
-            lowest_sold_price=min(prices) if prices else None,
-            highest_sold_price=max(prices) if prices else None,
-            # A3 - the observations behind the three figures above. Carried
-            # rather than re-derived so the chart plots exactly the same
-            # numbers the metrics show.
-            sold_prices=prices,
+            # ASKING prices of the listings above, not sale prices. These used
+            # to be written into avg_sold_price / lowest_sold_price /
+            # highest_sold_price / sold_prices, which is how a live listing's
+            # price came to be shown as the price something SOLD for.
+            avg_active_price=sum(prices) / len(prices) if prices else None,
+            lowest_active_price=min(prices) if prices else None,
+            highest_active_price=max(prices) if prices else None,
+            # A3 - the observations behind those three figures. Carried rather
+            # than re-derived so the chart plots exactly the same numbers the
+            # metrics show.
+            active_prices=prices,
+            # No sale was read, so there is no sale price to report — not even a
+            # summary one. An empty list is the honest value, and it is what
+            # stops a sold-price chart being drawn out of asking prices.
+            sold_prices=[],
             # No sale was read, so there is no verified demand evidence here
             # however many listings came back.
             verified=False,

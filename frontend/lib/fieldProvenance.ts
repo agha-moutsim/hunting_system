@@ -29,6 +29,7 @@ export const HEADER_FIELDS = [
   "ebay_price_max",
   "best_supplier_price",
   "sold_prices",
+  "active_prices",
 ] as const;
 
 export type HeaderField = (typeof HEADER_FIELDS)[number];
