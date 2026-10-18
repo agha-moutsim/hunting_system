@@ -221,7 +221,10 @@ export default function Layout({ children }: { children: ReactNode }) {
         </nav>
 
         <div className="p-3 border-t border-border text-[10px] text-text-dim text-center">
-          Ctrl+1…8 shortcuts
+          {/* Derived from NAV rather than written out: it said "Ctrl+1…8"
+              after a ninth entry was added, which is the kind of label that
+              quietly stops being true. */}
+          Ctrl+1…{NAV.length} shortcuts
         </div>
       </aside>
 

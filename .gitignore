@@ -38,3 +38,8 @@ node_modules/
 
 # runtime logs written by start.ps1
 .logs/
+
+# Written by `next dev` (Next 16 agentRules) and regenerated on every run,
+# so they are deliberately not committed.
+frontend/AGENTS.md
+frontend/CLAUDE.md
