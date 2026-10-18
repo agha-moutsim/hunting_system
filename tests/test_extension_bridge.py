@@ -335,6 +335,76 @@ class TestSoldHistoryEndpoint:
         assert body["captured_at"] == "2026-09-20T10:30:00"
 
 
+# ── status endpoint (what the extension popup shows) ─────────────────────
+
+def _fresh_payload(item_id):
+    """A payload with no `captured_at`, so the endpoint stamps the real clock.
+
+    `_payload` pins captured_at to NOW (a fixed 2026-09-20) to keep the parser
+    windows deterministic. The status endpoint's 24-hour window is about the
+    server's clock instead, so these cases must not inherit that pin.
+    """
+    row = (
+        f"{datetime.utcnow() - timedelta(days=2):%d/%m/%Y}",
+        "£12.99",
+        "Generic widget",
+    )
+    return {
+        "item_id": item_id,
+        "url": f"https://www.ebay.co.uk/itm/{item_id}",
+        "html": _table_html([row]),
+    }
+
+
+class TestExtensionStatus:
+    def test_empty_database_reports_zero_not_unknown(self, ext_client):
+        body = ext_client.get("/api/extension/status").json()
+        assert body["items_captured"] == 0
+        assert body["items_captured_24h"] == 0
+        assert body["last_capture_at"] is None
+
+    def test_counts_stored_rows_and_the_last_24_hours(self, ext_client):
+        ext_client.post("/api/extension/sold-history", json=_fresh_payload("111000111"))
+        ext_client.post("/api/extension/sold-history", json=_fresh_payload("222000222"))
+
+        body = ext_client.get("/api/extension/status").json()
+        assert body["items_captured"] == 2
+        assert body["items_captured_24h"] == 2
+        assert body["last_capture_at"] is not None
+
+    def test_re_capturing_an_item_does_not_inflate_the_count(self, ext_client):
+        ext_client.post("/api/extension/sold-history", json=_fresh_payload("333000333"))
+        ext_client.post("/api/extension/sold-history", json=_fresh_payload("333000333"))
+
+        body = ext_client.get("/api/extension/status").json()
+        assert body["items_captured"] == 1
+
+    def test_a_refused_capture_is_never_counted(self, ext_client):
+        resp = ext_client.post(
+            "/api/extension/sold-history",
+            json={
+                "item_id": "444000444",
+                "html": "<html><body>nothing here</body></html>",
+            },
+        )
+        assert resp.json()["stored"] is False
+
+        # The popup must never be able to show a number the dataset lacks.
+        body = ext_client.get("/api/extension/status").json()
+        assert body["items_captured"] == 0
+        assert body["last_capture_at"] is None
+
+    def test_captures_older_than_24h_stay_counted_but_leave_the_window(
+        self, ext_client, capture_factory
+    ):
+        capture_factory("555000555", captured_at=datetime.utcnow() - timedelta(hours=30))
+        ext_client.post("/api/extension/sold-history", json=_fresh_payload("666000666"))
+
+        body = ext_client.get("/api/extension/status").json()
+        assert body["items_captured"] == 2
+        assert body["items_captured_24h"] == 1
+
+
 # ── pipeline override (the TDD seam: apply_purchase_history) ─────────────
 
 @pytest.fixture()

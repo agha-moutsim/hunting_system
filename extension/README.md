@@ -1,33 +1,84 @@
 # eBay Sold History Button (MV3)
 
 Browser extension that captures eBay UK's **login-required** purchase-history
-page for the item you are viewing and posts its raw HTML to the backend, so
-the system gets **verified 7-day sales data** (CONSTRAINTS.md C4). Plain JS —
-no build step.
+page while you browse listings, and posts its raw HTML to the backend, so the
+system gets **verified 7-day sales data** (CONSTRAINTS.md C4). Plain JS — no
+build step.
 
-## Why login is required
+## Two ways a capture happens
 
-`https://www.ebay.co.uk/bin/purchaseHistory?item={id}` only renders for a
-signed-in buyer. The backend cannot fetch it (and we never fabricate data —
-C1), so the extension runs inside **your** logged-in eBay session and hands
-the page to the API.
+| Path    | Trigger                                | Limited by                 |
+| ------- | -------------------------------------- | -------------------------- |
+| Passive | You open a listing (`/itm/…`)          | dedupe window + hourly cap |
+| Manual  | **Capture this item now** in the popup | the same hourly cap only   |
+
+Passive capture is the point of this version: the three-click ritual was the
+reason the dataset held a single row.
+
+## What it will not do
+
+- It never navigates or crawls. It reads the purchase-history page for a
+  listing you already opened, nothing else. Automating an account's own
+  navigation is how accounts get restricted, and a restricted account loses the
+  data source.
+- It never guesses. If the page cannot be read, the backend stores nothing and
+  says why.
+- It never runs unattended. **Quiet mode** stops everything, automatic and
+  manual alike, and the badge reads `off`.
+
+## Safety limits, and why they are tested
+
+`logic.js` holds both rules as pure functions and
+`frontend/lib/extensionLogic.test.ts` covers them: a rate limiter nobody tests
+is a rate limiter that has quietly stopped working.
+
+- `DEDUPE_MS` — one request per item per 6 hours.
+- `MAX_PER_HOUR` — 60 requests an hour, counted as _attempts_, so a page that
+  fails to parse is not retried on every later view either.
+- A failed attempt still writes the dedupe marker, because the request was
+  still made. The popup's manual button is the deliberate way past it; only the
+  hourly cap is absolute.
+
+## What the popup shows
+
+- **Stored today** — captures this extension made that the backend saved.
+- **Requests this hour** — attempts, against the cap.
+- **Items captured** — the backend's own row count from
+  `GET /api/extension/status`, so the popup cannot overstate the dataset.
+- **Last request** — when, and the backend's own words about how it went.
+
+An attempt is not a row: the badge and "stored today" move only when the
+backend answers `stored: true`.
 
 ## Load unpacked (Chrome / Edge / Brave)
 
 1. Open `chrome://extensions`.
 2. Enable **Developer mode** (top right).
 3. Click **Load unpacked** and select this `extension/` folder.
-4. Sign in to `ebay.co.uk`, open an item listing (`/itm/1234567890`), click
-   the extension icon, then **Capture sold history**.
+4. Sign in to `ebay.co.uk` and browse listings. Reload the extension on the
+   extensions page (`↻`) to pick up this version. No new permissions are
+   requested — the content script is scoped to `/itm/*` only.
 
 ## Where to change the backend URL (`apiBase`)
 
-- Default: `http://localhost:8000` (used by `background.js` and `popup.js`).
-- Change it in the popup itself (field "Backend base URL") — it is saved to
-  `chrome.storage.sync` under the key `apiBase`.
-- To change the hard-coded default, edit `chrome.storage.sync.get({apiBase: …})`
-  in `background.js` and `popup.js`.
+- Default: `http://localhost:8000`, read by `background.js` and editable in the
+  popup footer.
+- Saved to `chrome.storage.sync` under the key `apiBase`.
 
-The backend endpoint is `POST /api/extension/sold-history`
-(`{item_id, url, html}`); results can be read back with
-`GET /api/extension/sold-history/{item_id}`.
+## Files
+
+| File                      | Role                                            |
+| ------------------------- | ----------------------------------------------- |
+| `manifest.json`           | MV3 manifest; content script scoped to `/itm/*` |
+| `logic.js`                | Pure decision logic — no `chrome.*`, no network |
+| `content.js`              | Reports the listing on screen; holds no policy  |
+| `background.js`           | Owns state, rate limits and every network call  |
+| `popup.html` / `popup.js` | Status, quiet toggle, manual capture            |
+
+## API
+
+- `POST /api/extension/sold-history` — `{item_id, url, html}`; answers
+  `{stored, sold_7d, sold_30d, captured_at}` or `{stored: false, reason}`.
+- `GET /api/extension/sold-history/{item_id}` — latest capture, or 404.
+- `GET /api/extension/status` — stored row counts for the popup. Read-only;
+  it fetches nothing.

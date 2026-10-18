@@ -3,6 +3,8 @@ Common database queries.
 """
 
 from datetime import datetime, timedelta
+
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from db.models import Product, DemandData, SupplierMatch, Analysis, Verdict, PurchaseCapture
@@ -354,3 +356,29 @@ def upsert_purchase_capture(
     db.commit()
     db.refresh(row)
     return row
+
+
+def purchase_capture_stats(db: Session, *, now: datetime | None = None) -> dict:
+    """How much verified purchase-history data is actually stored.
+
+    A read-only count for the extension popup, which shows it beside the
+    extension's own local counter so a capture the popup *thought* it made can
+    never be mistaken for a row that exists.
+
+    The window is "last 24 hours" rather than "today" on purpose: captured_at
+    is naive UTC and the person reading the popup is not, so a calendar day
+    would be wrong by an hour and would read as a bug.
+    """
+    now = now or datetime.utcnow()
+    cutoff = now - timedelta(hours=24)
+    last_capture_at = db.query(func.max(PurchaseCapture.captured_at)).scalar()
+    return {
+        "items_captured": int(db.query(func.count(PurchaseCapture.id)).scalar() or 0),
+        "items_captured_24h": int(
+            db.query(func.count(PurchaseCapture.id))
+            .filter(PurchaseCapture.captured_at >= cutoff)
+            .scalar()
+            or 0
+        ),
+        "last_capture_at": last_capture_at.isoformat() if last_capture_at else None,
+    }

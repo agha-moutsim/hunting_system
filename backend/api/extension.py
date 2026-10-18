@@ -119,3 +119,20 @@ def get_sold_history(item_id: str):
         "url": row.url,
         "source": row.source,
     }
+
+
+@router.get("/extension/status")
+def extension_status():
+    """What the dataset actually holds — a pure read, nothing is fetched here.
+
+    Exists so the extension popup can state the stored row count instead of
+    inferring it from its own request counter.
+    """
+    from db.database import SessionLocal
+    from db.queries import purchase_capture_stats
+
+    db = SessionLocal()
+    try:
+        return purchase_capture_stats(db)
+    finally:
+        db.close()

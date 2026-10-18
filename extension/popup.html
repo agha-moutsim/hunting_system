@@ -2,98 +2,225 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>eBay Sold History Button</title>
+    <title>eBay Sold History</title>
     <style>
-      body {
-        margin: 0;
-        width: 300px;
-        background: #27233f;
-        color: #ffffff;
-        font-family: "Segoe UI", system-ui, sans-serif;
-        font-size: 13px;
-        padding: 14px;
+      :root {
+        --bg: #27233f;
+        --sidebar: #211e35;
+        --surface: #3b3560;
+        --border: #4b525e;
+        --text: #ffffff;
+        --muted: #9aa0b0;
+        --lime: #cbfd03;
+        --blue: #6d7bff;
+        --red: #ff5c5c;
+        --amber: #ffc857;
+      }
+      * {
         box-sizing: border-box;
       }
-      h1 {
-        font-size: 14px;
-        margin: 0 0 4px;
-        color: #cbfd03;
+      body {
+        margin: 0;
+        width: 320px;
+        background: var(--bg);
+        color: var(--text);
+        font-family:
+          "Segoe UI",
+          system-ui,
+          -apple-system,
+          sans-serif;
+        font-size: 12.5px;
+        line-height: 1.45;
       }
-      p.hint {
-        margin: 0 0 12px;
-        color: #9aa0b0;
-        line-height: 1.4;
+      header {
+        padding: 14px 16px 12px;
+        border-bottom: 1px solid var(--border);
+      }
+      h1 {
+        font-size: 13px;
+        letter-spacing: 0.02em;
+        margin: 0 0 3px;
+        color: var(--lime);
+      }
+      p.sub {
+        margin: 0;
+        color: var(--muted);
+        font-size: 11.5px;
+      }
+      .body {
+        padding: 12px 16px 14px;
+      }
+      .toggle {
+        display: flex;
+        align-items: flex-start;
+        gap: 9px;
+        padding: 9px 10px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--surface);
+        cursor: pointer;
+      }
+      .toggle input {
+        margin: 2px 0 0;
+        accent-color: var(--lime);
+        width: 14px;
+        height: 14px;
+        flex: 0 0 auto;
+      }
+      .toggle span.label {
+        font-weight: 600;
+      }
+      .toggle span.note {
+        display: block;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 400;
+      }
+      dl.stats {
+        margin: 12px 0 0;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+      dl.stats > div {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 8px 10px;
+        background: var(--sidebar);
+      }
+      dt {
+        color: var(--muted);
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+      dd {
+        margin: 2px 0 0;
+        font-size: 15px;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+      }
+      dd.small {
+        font-size: 12px;
+        font-weight: 600;
+      }
+      #status {
+        display: none;
+        margin-top: 11px;
+        padding: 9px 10px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--sidebar);
+        white-space: pre-wrap;
+        font-size: 11.5px;
+      }
+      #status.ok {
+        border-color: #4f7d1f;
+      }
+      #status.warn {
+        border-color: #8a6b1e;
+        color: var(--amber);
+      }
+      #status.err {
+        border-color: #7d2f2f;
+        color: var(--red);
       }
       button {
         width: 100%;
+        margin-top: 12px;
         padding: 10px 12px;
         border: none;
         border-radius: 6px;
-        background: #cbfd03;
-        color: #27233f;
+        background: var(--lime);
+        color: var(--bg);
         font-weight: 700;
-        font-size: 13px;
+        font-size: 12.5px;
+        font-family: inherit;
         cursor: pointer;
       }
       button:hover {
         background: #b8e800;
       }
       button:disabled {
-        opacity: 0.6;
+        opacity: 0.5;
         cursor: default;
       }
-      #status {
-        margin-top: 12px;
-        padding: 10px;
-        border-radius: 6px;
-        background: #1d1a33;
-        line-height: 1.5;
-        display: none;
-        white-space: pre-wrap;
-        word-break: break-word;
+      footer {
+        border-top: 1px solid var(--border);
+        padding: 10px 16px 12px;
       }
-      #status.ok {
-        border-left: 3px solid #cbfd03;
-      }
-      #status.err {
-        border-left: 3px solid #ff5c5c;
-      }
-      #status.warn {
-        border-left: 3px solid #ffc857;
-      }
-      .num {
-        font-family: "JetBrains Mono", monospace;
-        color: #cbfd03;
-      }
-      label.api {
+      footer label {
         display: block;
-        margin-top: 12px;
-        color: #9aa0b0;
-        font-size: 11px;
+        color: var(--muted);
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-bottom: 4px;
       }
-      input.api {
+      input#apiBase {
         width: 100%;
-        margin-top: 4px;
         padding: 6px 8px;
-        box-sizing: border-box;
-        border: 1px solid #4b525e;
         border-radius: 6px;
-        background: #1d1a33;
-        color: #ffffff;
-        font-size: 12px;
+        border: 1px solid var(--border);
+        background: var(--sidebar);
+        color: var(--text);
+        font-size: 11.5px;
+        font-family: ui-monospace, "Cascadia Mono", monospace;
+      }
+      input#apiBase:focus {
+        outline: 1px solid var(--blue);
       }
     </style>
   </head>
   <body>
-    <h1>eBay Sold History</h1>
-    <p class="hint">
-      Open an eBay item listing, then capture its login-required purchase
-      history for verified 7-day sales data.
-    </p>
-    <button id="capture">Capture sold history</button>
-    <div id="status"></div>
-    <label class="api">Backend base URL (apiBase)</label>
-    <input class="api" id="apiBase" value="http://localhost:8000" />
+    <header>
+      <h1>eBay Sold History</h1>
+      <p class="sub">
+        Reads the purchase-history page for items you view. Verified sales only
+        — nothing is estimated.
+      </p>
+    </header>
+
+    <div class="body">
+      <label class="toggle" for="quiet">
+        <input type="checkbox" id="quiet" />
+        <span>
+          <span class="label">Quiet mode</span>
+          <span class="note">
+            Captures nothing: not on page view, not from the button below.
+          </span>
+        </span>
+      </label>
+
+      <dl class="stats">
+        <div>
+          <dt>Stored today</dt>
+          <dd id="dayCount">—</dd>
+        </div>
+        <div>
+          <dt>Requests this hour</dt>
+          <dd id="hourCount">—</dd>
+        </div>
+        <div>
+          <dt>Items captured</dt>
+          <dd id="backendCount">—</dd>
+        </div>
+        <div>
+          <dt>Last request</dt>
+          <dd id="lastAt" class="small">—</dd>
+        </div>
+      </dl>
+
+      <div id="status"></div>
+
+      <button id="capture">Capture this item now</button>
+    </div>
+
+    <footer>
+      <label for="apiBase">API base</label>
+      <input id="apiBase" type="text" spellcheck="false" />
+    </footer>
+
     <script src="popup.js"></script>
   </body>
 </html>
