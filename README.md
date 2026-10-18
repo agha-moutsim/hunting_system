@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="assets/brand/hero.svg" width="100%" alt="A field of scattered particles on deep indigo, with a band of lime light sweeping across it; where the band passes, the particles resolve into an evenly spaced grid of bright points. Blue topographic contours recede behind.">
+
 # eBay Hunter
 
 **Sourcing intelligence for eBay UK resellers.**

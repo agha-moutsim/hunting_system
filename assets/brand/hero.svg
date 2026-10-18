@@ -1,0 +1,190 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="2560" height="640" viewBox="0 0 2560 640" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <!-- ============ NOISE ============
+         Turbulence -> alpha lifted from the red channel -> discrete quantisation.
+         The table is zero across the lower bins so only the tail of the noise
+         distribution survives: sparse dots rather than a solid wash. The top
+         bin reaches alpha 1.0, because at 0.7 the field was measurably too dim
+         to read against the base (it lifted luminance by only ~8 of 255). -->
+    <filter id="fNoiseA" filterUnits="userSpaceOnUse" x="0" y="0" width="2560" height="640" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.24" numOctaves="2" seed="7" result="t"/>
+      <feColorMatrix in="t" type="matrix" values="0 0 0 0 0.545  0 0 0 0 0.361  0 0 0 0 0.965  1 0 0 0 0" result="m"/>
+      <feComponentTransfer in="m">
+        <feFuncA type="discrete" tableValues="0 0 0 0 0 0 0 0 0.6 0.85 1 1"/>
+      </feComponentTransfer>
+    </filter>
+    <filter id="fNoiseB" filterUnits="userSpaceOnUse" x="0" y="0" width="2560" height="640" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.13" numOctaves="2" seed="23" result="t"/>
+      <feColorMatrix in="t" type="matrix" values="0 0 0 0 0.545  0 0 0 0 0.361  0 0 0 0 0.965  1 0 0 0 0" result="m"/>
+      <feComponentTransfer in="m">
+        <feFuncA type="discrete" tableValues="0 0 0 0 0 0 0 0 0 0 0.5 0.9"/>
+      </feComponentTransfer>
+    </filter>
+
+    <!-- Coarser accent particles, so the field has depth rather than one grain size -->
+    <filter id="fNoiseC" filterUnits="userSpaceOnUse" x="0" y="0" width="2560" height="640" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.062" numOctaves="1" seed="41" result="t"/>
+      <feColorMatrix in="t" type="matrix" values="0 0 0 0 0.620  0 0 0 0 0.478  0 0 0 0 0.980  1 0 0 0 0" result="m"/>
+      <feComponentTransfer in="m">
+        <feFuncA type="discrete" tableValues="0 0 0 0 0 0 0 0 0 0 0.55 1"/>
+      </feComponentTransfer>
+    </filter>
+
+    <filter id="fGrain" filterUnits="userSpaceOnUse" x="0" y="0" width="2560" height="640" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="3" result="t"/>
+      <feColorMatrix in="t" type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  2 0 0 0 -0.5"/>
+    </filter>
+
+    <!-- Bloom for the band's halo -->
+    <filter id="fBloom" filterUnits="userSpaceOnUse" x="-200" y="180" width="2960" height="440">
+      <feGaussianBlur stdDeviation="24"/>
+    </filter>
+
+    <!-- ============ BAND PROFILE ============
+         Two axes, which a single gradient cannot express:
+           gBandV  vertical   - hot core fading to nothing, so the band reads as
+                                emitted light instead of a filled rectangle
+           gBandH  horizontal - dissolves at both ends so it reads as a sweep
+                                crossing the frame rather than a UI divider -->
+    <linearGradient id="gBandV" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0"    stop-color="#CBFD03" stop-opacity="0"/>
+      <stop offset="0.26" stop-color="#CBFD03" stop-opacity="0.22"/>
+      <stop offset="0.42" stop-color="#D9FF4A" stop-opacity="0.66"/>
+      <stop offset="0.50" stop-color="#E8FF86" stop-opacity="0.86"/>
+      <stop offset="0.58" stop-color="#D9FF4A" stop-opacity="0.66"/>
+      <stop offset="0.74" stop-color="#CBFD03" stop-opacity="0.22"/>
+      <stop offset="1"    stop-color="#CBFD03" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="gBandH" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0"    stop-color="#FFFFFF" stop-opacity="0"/>
+      <stop offset="0.10" stop-color="#FFFFFF" stop-opacity="0.16"/>
+      <stop offset="0.30" stop-color="#FFFFFF" stop-opacity="0.58"/>
+      <stop offset="0.55" stop-color="#FFFFFF" stop-opacity="1"/>
+      <stop offset="0.80" stop-color="#FFFFFF" stop-opacity="0.70"/>
+      <stop offset="1"    stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- ============ SNAPPED NODE ============
+         Pure white core on a wide lime corolla. The previous version put a dark
+         ring under a lime core, which on a lime band rendered as a punched
+         eyelet; the core is now the brightest value in the image instead. -->
+    <radialGradient id="rNode" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0"    stop-color="#FFFFFF" stop-opacity="0.85"/>
+      <stop offset="0.22" stop-color="#F2FFB0" stop-opacity="0.55"/>
+      <stop offset="0.55" stop-color="#CBFD03" stop-opacity="0.18"/>
+      <stop offset="1"    stop-color="#CBFD03" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- ============ MASKS ============ -->
+    <!-- Horizontal weighting for the noise: clean on the left for a wordmark,
+         full density on the right. -->
+    <linearGradient id="gH" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0"    stop-color="#FFFFFF" stop-opacity="0.02"/>
+      <stop offset="0.28" stop-color="#FFFFFF" stop-opacity="0.10"/>
+      <stop offset="0.50" stop-color="#FFFFFF" stop-opacity="0.42"/>
+      <stop offset="0.72" stop-color="#FFFFFF" stop-opacity="0.88"/>
+      <stop offset="1"    stop-color="#FFFFFF" stop-opacity="1"/>
+    </linearGradient>
+    <!-- Vertical weighting: dense above, cleared out across the band, faint below. -->
+    <linearGradient id="gV" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0"    stop-color="#FFFFFF" stop-opacity="0.85"/>
+      <stop offset="0.30" stop-color="#FFFFFF" stop-opacity="1"/>
+      <stop offset="0.48" stop-color="#FFFFFF" stop-opacity="0.75"/>
+      <stop offset="0.56" stop-color="#FFFFFF" stop-opacity="0.06"/>
+      <stop offset="0.66" stop-color="#FFFFFF" stop-opacity="0.04"/>
+      <stop offset="0.80" stop-color="#FFFFFF" stop-opacity="0.14"/>
+      <stop offset="1"    stop-color="#FFFFFF" stop-opacity="0.22"/>
+    </linearGradient>
+    <mask id="mNoise" maskUnits="userSpaceOnUse" x="0" y="0" width="2560" height="640">
+      <rect x="0" y="0" width="2560" height="640" fill="url(#gH)"/>
+    </mask>
+    <mask id="mNoiseV" maskUnits="userSpaceOnUse" x="0" y="0" width="2560" height="640">
+      <rect x="0" y="0" width="2560" height="640" fill="url(#gV)"/>
+    </mask>
+
+    <mask id="mBandH" maskUnits="userSpaceOnUse" x="0" y="0" width="2560" height="640">
+      <rect x="0" y="0" width="2560" height="640" fill="url(#gBandH)"/>
+    </mask>
+
+    <!-- The approach rows brighten as they near the band, which is what makes
+         the alignment read as a phase change rather than a decorative fringe. -->
+    <linearGradient id="gApproach" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0"   stop-color="#FFFFFF" stop-opacity="0"/>
+      <stop offset="1"   stop-color="#FFFFFF" stop-opacity="0.75"/>
+    </linearGradient>
+    <mask id="mApproach" maskUnits="userSpaceOnUse" x="0" y="0" width="2560" height="72">
+      <rect x="0" y="0" width="2560" height="72" fill="url(#gApproach)"/>
+    </mask>
+    <mask id="mLimeApproach" maskUnits="userSpaceOnUse" x="0" y="0" width="2560" height="28">
+      <rect x="0" y="0" width="2560" height="28" fill="url(#gApproach)"/>
+    </mask>
+    <!-- Node chain dissolves at the edges, matching the band it rides. -->
+    <linearGradient id="gNodeFade" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0"    stop-color="#FFFFFF" stop-opacity="0"/>
+      <stop offset="0.14" stop-color="#FFFFFF" stop-opacity="0.30"/>
+      <stop offset="0.50" stop-color="#FFFFFF" stop-opacity="1"/>
+      <stop offset="0.88" stop-color="#FFFFFF" stop-opacity="0.80"/>
+      <stop offset="1"    stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <mask id="mNodeFade" maskUnits="userSpaceOnUse" x="0" y="0" width="2560" height="640">
+      <rect x="0" y="0" width="2560" height="640" fill="url(#gNodeFade)"/>
+    </mask>
+
+    <!-- ============ PATTERNS ============ -->
+    <pattern id="pApproach" patternUnits="userSpaceOnUse" x="0" y="0" width="32" height="14">
+      <circle cx="16" cy="7" r="1.6" fill="#8B5CF6" fill-opacity="0.85"/>
+    </pattern>
+    <pattern id="pLimeApproach" patternUnits="userSpaceOnUse" x="0" y="0" width="32" height="12">
+      <circle cx="16" cy="6" r="1.5" fill="#CBFD03" fill-opacity="0.9"/>
+    </pattern>
+    <pattern id="pNodes" patternUnits="userSpaceOnUse" x="0" y="384" width="32" height="32">
+      <circle cx="16" cy="16" r="16" fill="url(#rNode)"/>
+      <circle cx="16" cy="16" r="2.6" fill="#FFFFFF" fill-opacity="0.94"/>
+      <circle cx="16" cy="16" r="1.1" fill="#FFFFFF"/>
+    </pattern>
+  </defs>
+
+  <!-- 1. Base -->
+  <rect x="0" y="0" width="2560" height="640" fill="#27233F"/>
+
+  <!-- 2. Contours.
+       Raised from 0.12-0.22: electric blue is luminance 79 against a 45.7 base,
+       so at the original opacity the delta was under 7 per channel and did not
+       survive on screen at all. -->
+  <g fill="none" stroke="#0D1CC4" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M-40 520 C300 470 520 560 860 480 S1500 330 1900 360 S2400 250 2620 120" stroke-opacity="0.30"/>
+    <path d="M-40 420 C260 380 560 440 900 360 S1480 210 1880 240 S2380 120 2620 20" stroke-opacity="0.34"/>
+    <path d="M-40 300 C300 260 640 320 980 240 S1560 100 1960 130 S2400 30 2620 -40" stroke-opacity="0.38"/>
+    <path d="M700 640 C1000 560 1300 560 1600 470 S2100 420 2300 300 S2560 260 2620 220" stroke-opacity="0.42"/>
+    <path d="M1300 -20 C1400 120 1700 90 1900 190 S2100 330 2620 330" stroke-opacity="0.46"/>
+    <path d="M1750 -20 C1850 80 2100 60 2200 150 S2400 260 2620 270" stroke-opacity="0.50"/>
+    <path d="M2050 60 C2150 0 2350 10 2440 90 C2520 170 2430 250 2300 250 C2150 250 1980 150 2050 60 Z" stroke-opacity="0.52"/>
+    <path d="M1860 30 C1930 -10 2060 -5 2120 55 C2170 110 2110 160 2020 158 C1920 155 1810 85 1860 30 Z" stroke-opacity="0.44"/>
+  </g>
+
+  <!-- 3. Particle field -->
+  <g mask="url(#mNoise)">
+    <g mask="url(#mNoiseV)">
+      <rect x="0" y="0" width="2560" height="640" fill="#27233F" filter="url(#fNoiseA)"/>
+      <rect x="0" y="0" width="2560" height="640" fill="#27233F" filter="url(#fNoiseB)"/>
+      <rect x="0" y="0" width="2560" height="640" fill="#27233F" filter="url(#fNoiseC)"/>
+    </g>
+
+    <!-- 4. Alignment: scattered noise resolving into columns, then into lime,
+         as it approaches the band. -->
+    <rect x="0" y="300" width="2560" height="72" fill="url(#pApproach)" mask="url(#mApproach)"/>
+    <rect x="0" y="344" width="2560" height="28" fill="url(#pLimeApproach)" mask="url(#mLimeApproach)"/>
+  </g>
+
+  <!-- 5. The band: bloom first, then the core, both under the same end-fade. -->
+  <g mask="url(#mBandH)">
+    <rect x="0" y="352" width="2560" height="96" fill="url(#gBandV)" filter="url(#fBloom)"/>
+    <rect x="0" y="352" width="2560" height="96" fill="url(#gBandV)"/>
+  </g>
+
+  <!-- 6. The snapped row: the signal resolved into discrete nodes. -->
+  <rect x="0" y="384" width="2560" height="32" fill="url(#pNodes)" mask="url(#mNodeFade)"/>
+
+  <!-- 7. Grain -->
+  <rect x="0" y="0" width="2560" height="640" fill="#27233F" opacity="0.055" filter="url(#fGrain)"/>
+</svg>
