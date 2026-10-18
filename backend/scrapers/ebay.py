@@ -17,6 +17,7 @@ from config import (
 )
 from engine.price_gate import active_bounds, in_band, in_band_range
 from engine.condition_gate import api_condition_filter, html_condition_param, is_new
+from scrapers.browse_fields import SOURCE_ITEM, SOURCE_SUMMARY, listing_id_of
 
 # Query-time New-only (C10). Composed at CALL TIME so a changed active
 # condition reaches the very next request — never an import-time literal.
@@ -76,6 +77,39 @@ class EbayScraper:
         })
         self._token = None
         self._token_expiry = 0
+        #: (listing_id, payload, source) for every Browse payload this scraper
+        #: reads. Drained by whichever caller holds a database session - see
+        #: analysis_pipeline.save_analysis_to_db. Kept as a plain list rather
+        #: than a callback so the scraper stays free of database knowledge and
+        #: a failed write cannot fail a scrape.
+        self.observations: list[tuple[str, dict, str]] = []
+
+    def _observe(self, payload: dict, source: str) -> None:
+        """Keep one Browse payload as a reading rather than dropping it.
+
+        Every field kept here was already in hand - the response was read
+        before this was called - so this spends no API call. A payload that
+        cannot name its listing is skipped: there would be nothing to file the
+        reading under (see browse_fields.listing_id_of).
+
+        Deliberately not inside the per-item loops. The price-band and condition
+        gates decide what counts as a competitor for THIS analysis, but they do
+        not make the other listings un-read. What eBay returned is what was
+        measured; which part of it was eligible is a property of the analysis,
+        and it is already recorded there.
+        """
+        listing_id = listing_id_of(payload)
+        if listing_id:
+            self.observations.append((listing_id, payload, source))
+
+    def _observe_summaries(self, data: dict, source: str) -> None:
+        """Offer every summary in a Browse response to the readings list."""
+        if not isinstance(data, dict):
+            return
+        summaries = data.get("itemSummaries")
+        if isinstance(summaries, list):
+            for summary in summaries:
+                self._observe(summary, source)
 
     def _get_token(self) -> str:
         """Get OAuth token via Client Credentials flow."""
@@ -166,6 +200,12 @@ class EbayScraper:
         )
         resp.raise_for_status()
         data = resp.json()
+
+        # Phase B - the search response carries a creation date, seller
+        # feedback, region, postage and category for every listing below. Kept
+        # before the gates, so an out-of-band or Used listing is still a real
+        # reading of a real listing.
+        self._observe_summaries(data, SOURCE_SUMMARY)
 
         results = []
         for item in data.get("itemSummaries", []):
@@ -328,6 +368,10 @@ class EbayScraper:
                 "404 Client Error: item not found", response=resp
             )
         item = resp.json()
+        # Phase B - kept before the C10 condition gate below: a Used listing is
+        # still a listing that was read, and this reading claims nothing about
+        # whether it qualifies.
+        self._observe(item, SOURCE_ITEM)
         price = item.get("price", {})
         image = item.get("image", {})
         seller = item.get("seller", {})
@@ -426,6 +470,9 @@ class EbayScraper:
         )
         resp.raise_for_status()
         data = resp.json()
+
+        # Phase B - the fifty summaries this query returned, kept in full.
+        self._observe_summaries(data, SOURCE_SUMMARY)
 
         items = data.get("itemSummaries", [])
         if not items:

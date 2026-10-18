@@ -421,17 +421,27 @@ def save_listing_observations(
     nothing here is ever updated or deleted, because the value of the table is
     the sequence.
 
-    Three outcomes, all counted, because a refresh should report what it
-    actually recorded rather than imply that every card produced a row:
+    Four outcomes, all counted, because a refresh should report what it actually
+    recorded rather than imply that every card produced a row:
 
     * `recorded`  - differs from the last reading for that listing, so stored.
     * `unchanged` - repeats the last reading, so not stored again.
+    * `duplicate` - the listing was already read earlier in THIS batch. Only the
+      first is kept. MEASURED: the same listing came back from two different
+      Browse queries in one refresh reporting `priorityListing` True in one and
+      False in the other. Writing both put two rows in the table with the same
+      `observed_at` contradicting each other - a change that never happened,
+      since no time passed - and because each then differed from the latest row,
+      every later refresh wrote two more, forever. Two readings taken at the
+      same moment are one reading.
     * `empty`     - every field came back None. That payload was not a usable
       listing, and writing it would claim eBay reported nothing when in fact
-      nothing was read (C1).
+      nothing was read (C1). Checked BEFORE the duplicate rule, so an
+      unreadable report cannot shadow a readable one for the same listing.
     """
     stamped = observed_at or datetime.utcnow()
-    recorded = unchanged = empty = 0
+    recorded = unchanged = empty = duplicate = 0
+    read_this_batch: set[str] = set()
 
     for listing_id, payload, source in readings:
         listing_id = str(listing_id)
@@ -440,6 +450,11 @@ def save_listing_observations(
         if not any(value is not None for value in fields.values()):
             empty += 1
             continue
+
+        if listing_id in read_this_batch:
+            duplicate += 1
+            continue
+        read_this_batch.add(listing_id)
 
         fields["source"] = source
         latest = (
@@ -462,10 +477,11 @@ def save_listing_observations(
 
     db.commit()
     return {
-        "readings": recorded + unchanged + empty,
+        "readings": recorded + unchanged + empty + duplicate,
         "recorded": recorded,
         "unchanged": unchanged,
         "empty": empty,
+        "duplicate": duplicate,
     }
 
 

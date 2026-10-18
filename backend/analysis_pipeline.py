@@ -18,6 +18,7 @@ from config import MAX_SUPPLIERS
 from db.database import SessionLocal
 from db.queries import (
     clear_analysis_data,
+    save_listing_observations,
     save_product,
     save_demand_data,
     save_supplier_match_data,
@@ -350,6 +351,11 @@ async def run_analysis_pipeline(
         "verdict": None,
         "scorecard": "",
         "errors": [],
+        # Phase B - the Browse readings this run's scrape took. ALIASED, not
+        # copied: `ebay.observations` is appended to in place as payloads
+        # arrive, so a run that bails early (over-band URL, a Used listing, a
+        # timeout) still carries everything it read before it bailed.
+        "observations": ebay.observations,
         # C11 — every analysis returns a competitor-store list, even when
         # discovery found nothing. Present-but-empty + an UNVERIFIED stamp
         # is the honest answer; an absent key would read as "not applicable".
@@ -685,6 +691,37 @@ _MATCH_TIER_TO_CONFIDENCE = {
 }
 
 
+def _save_observations(db: Session, results: dict) -> None:
+    """Store the Browse readings this analysis' scrape took.
+
+    Runs AFTER the analysis is committed, in its own transaction, because these
+    rows are evidence about listings rather than part of the analysis: if they
+    fail to write, the analysis must still be there. It cannot pass silently
+    either - a failure here looks exactly like "these listings had not been
+    seen before", so it is logged.
+
+    Nothing is written when the run took no readings (no API keys, or a scrape
+    that failed before its first response), because there is then nothing that
+    was measured.
+    """
+    readings = results.get("observations") or []
+    if not readings:
+        return
+    try:
+        stored = save_listing_observations(db, readings)
+        logger.info(
+            "Listing observations: %s recorded, %s unchanged, %s repeated in "
+            "batch, %s unreadable",
+            stored["recorded"],
+            stored["unchanged"],
+            stored["duplicate"],
+            stored["empty"],
+        )
+    except Exception as exc:  # noqa: BLE001 - reported, never raised upward
+        db.rollback()
+        logger.warning("Listing observations not stored: %s", exc)
+
+
 def save_analysis_to_db(results: dict):
     """Persist analysis results to the database."""
     db: Session = SessionLocal()
@@ -772,6 +809,7 @@ def save_analysis_to_db(results: dict):
             })
 
         db.commit()
+        _save_observations(db, results)
     except Exception as e:
         db.rollback()
         logger.exception("Failed to save to database: %s", e)

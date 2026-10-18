@@ -12,10 +12,12 @@ asserts that "eBay did not return this" never turns into 0, False or an epoch.
 """
 
 import json
+import time
 from datetime import datetime
 
 import pytest
 
+from scrapers.base import ScrapedProduct
 from scrapers.browse_fields import (
     COMPARED,
     FIELDS,
@@ -23,6 +25,7 @@ from scrapers.browse_fields import (
     SOURCE_SUMMARY,
     extract_observation,
     is_change,
+    listing_id_of,
 )
 from scrapers.ebay_deals import DealItem, EbayDealsScraper
 
@@ -251,6 +254,7 @@ class TestTheStore:
                 "recorded": 1,
                 "unchanged": 0,
                 "empty": 0,
+                "duplicate": 0,
             }
 
             rows = get_listing_observations(session, "116529177245")
@@ -364,6 +368,78 @@ class TestTheStore:
             assert counts["empty"] == 2
             assert counts["recorded"] == 0
             assert session.query(ListingObservation).count() == 0
+        finally:
+            session.close()
+
+    def test_one_listing_is_read_once_per_batch(self, tmp_path):
+        """MEASURED on live data, and the reason this rule exists.
+
+        The same listing came back from two different Browse queries in one
+        refresh, reporting `priorityListing` True in one and False in the other.
+        Both were stored with the same `observed_at` - a change that never
+        happened, because no time passed - and each then differed from the
+        latest row, so every later refresh wrote two more rows, forever.
+        """
+        from db.models import ListingObservation
+        from db.queries import get_listing_observations, save_listing_observations
+
+        session = _fresh_session_factory(tmp_path)()
+        try:
+            reported_promoted = {**LIVE_PAYLOAD, "priorityListing": True}
+            reported_organic = {**LIVE_PAYLOAD, "priorityListing": False}
+            batch = [
+                ("116529177245", reported_promoted, SOURCE_SUMMARY),
+                ("116529177245", reported_organic, SOURCE_SUMMARY),
+            ]
+
+            first = save_listing_observations(
+                session, batch, observed_at=datetime(2026, 10, 19, 12, 0, 0)
+            )
+            assert first["recorded"] == 1
+            assert first["duplicate"] == 1
+
+            rows = get_listing_observations(session, "116529177245")
+            assert len(rows) == 1
+            # The first reading of the listing is the one kept.
+            assert rows[0].priority_listing is True
+
+            # The same refresh again changes nothing - which is the whole point,
+            # because this listing is on the board every hour.
+            again = save_listing_observations(
+                session, batch, observed_at=datetime(2026, 10, 19, 13, 0, 0)
+            )
+            assert again == {
+                "readings": 2,
+                "recorded": 0,
+                "unchanged": 1,
+                "empty": 0,
+                "duplicate": 1,
+            }
+            assert session.query(ListingObservation).count() == 1
+        finally:
+            session.close()
+
+    def test_an_unreadable_report_cannot_shadow_a_readable_one(self, tmp_path):
+        """The duplicate rule only claims a listing once something readable has
+        been extracted for it, so a junk payload cannot block the real one."""
+        from db.queries import get_listing_observations, save_listing_observations
+
+        session = _fresh_session_factory(tmp_path)()
+        try:
+            counts = save_listing_observations(
+                session,
+                [
+                    ("116529177245", {"errors": []}, SOURCE_SUMMARY),
+                    ("116529177245", LIVE_PAYLOAD, SOURCE_ITEM),
+                ],
+            )
+            assert counts["empty"] == 1
+            assert counts["recorded"] == 1
+            assert counts["duplicate"] == 0
+
+            rows = get_listing_observations(session, "116529177245")
+            assert len(rows) == 1
+            assert rows[0].source == SOURCE_ITEM
         finally:
             session.close()
 
@@ -645,6 +721,7 @@ class TestTheRefreshStoresWhatItRead:
                 "recorded": 0,
                 "unchanged": 0,
                 "empty": 1,
+                "duplicate": 0,
             }
         finally:
             session.close()
@@ -773,3 +850,248 @@ class TestHistoryReplaysWhatWasMeasured:
 
         block = client.get(f"/api/history/{product_id}").json()["observations"]
         assert block == {"listing_id": "", "returned": 0, "readings": []}
+
+
+# ---------------------------------------------------------------------------
+# 7. Which listing a payload belongs to
+# ---------------------------------------------------------------------------
+
+class TestListingIdOf:
+    def test_the_bare_legacy_id_is_used_when_eBay_sends_it(self):
+        assert listing_id_of({"legacyItemId": "116529177245"}) == "116529177245"
+
+    def test_the_restful_item_id_yields_its_middle_segment(self):
+        """`itemId` is `v1|<legacy id>|0`, so a reader that took the whole
+        string would file the reading under a key no other surface uses."""
+        assert listing_id_of({"itemId": "v1|116529177245|0"}) == "116529177245"
+        assert listing_id_of({"itemId": "116529177245"}) == "116529177245"
+
+    def test_the_legacy_id_wins_when_both_are_present(self):
+        both = {"itemId": "v1|999999999999|0", "legacyItemId": "116529177245"}
+        assert listing_id_of(both) == "116529177245"
+
+    def test_a_payload_that_cannot_name_its_listing_is_skipped(self):
+        """None rather than a placeholder: two unnameable listings must not end
+        up filed under the same row."""
+        for payload in ({}, {"itemId": "v1|abc|0"}, {"legacyItemId": ""}, None, []):
+            assert listing_id_of(payload) is None
+
+    def test_a_non_numeric_legacy_id_falls_back_to_the_item_id(self):
+        assert listing_id_of({"legacyItemId": "junk", "itemId": "v1|123|0"}) == "123"
+
+
+# ---------------------------------------------------------------------------
+# 8. The analysis scraper keeps what it read
+# ---------------------------------------------------------------------------
+
+class _FakeResponse:
+    """Enough of a `requests.Response` for a Browse read to proceed."""
+
+    def __init__(self, payload, status_code=200):
+        self._payload = payload
+        self.status_code = status_code
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self._payload
+
+
+def _stub_get(monkeypatch, payload):
+    monkeypatch.setattr(
+        "scrapers.ebay.requests.get", lambda *a, **k: _FakeResponse(payload)
+    )
+
+
+def _authed_scraper():
+    """A scraper with a token already in hand, so no request goes out to get
+    one and the tests touch no network at all."""
+    from scrapers.ebay import EbayScraper
+
+    scraper = EbayScraper()
+    scraper._token = "test-token"
+    scraper._token_expiry = time.time() + 3600
+    return scraper
+
+
+class TestTheAnalysisScraperKeepsItsReadings:
+    def test_the_search_keeps_every_listing_it_was_handed(self, monkeypatch):
+        scraper = _authed_scraper()
+        usable = {**LIVE_PAYLOAD, "legacyItemId": "111111111111", "condition": "New"}
+        _stub_get(monkeypatch, {"itemSummaries": [usable, LIVE_PAYLOAD]})
+
+        scraper._search_api("dyson ball animal", limit=10, price_band=None)
+
+        assert [r[0] for r in scraper.observations] == [
+            "111111111111",
+            "116529177245",
+        ]
+        assert all(r[2] == SOURCE_SUMMARY for r in scraper.observations)
+
+    def test_the_search_still_gates_what_it_returns(self, monkeypatch):
+        """Keeping readings must not have moved the C10 gate: the refurbished
+        listing is still not a result, even though it is now a reading."""
+        scraper = _authed_scraper()
+        usable = {
+            **LIVE_PAYLOAD,
+            "legacyItemId": "111111111111",
+            "condition": "New",
+            "title": "The New One",
+        }
+        _stub_get(monkeypatch, {"itemSummaries": [usable, LIVE_PAYLOAD]})
+
+        results = scraper._search_api("dyson ball animal", limit=10, price_band=None)
+
+        assert [p.title for p in results] == ["The New One"]
+
+    def test_the_sold_query_keeps_listings_its_own_gates_reject(self, monkeypatch):
+        """The band and condition gates decide what competes with this product.
+        They do not make a listing un-read: eBay returned it, so it was seen."""
+        scraper = _authed_scraper()
+        used_and_way_over_band = {
+            **LIVE_PAYLOAD,
+            "condition": "Used",
+            "price": {"value": "99999.00", "currency": "GBP"},
+        }
+        _stub_get(monkeypatch, {"itemSummaries": [used_and_way_over_band]})
+
+        demand = scraper._get_sold_api("dyson ball animal")
+
+        assert [r[0] for r in scraper.observations] == ["116529177245"]
+        assert demand.active_listings_in_band == 0
+
+    def test_the_url_detail_path_keeps_the_listing_before_the_condition_gate(
+        self, monkeypatch
+    ):
+        """C10 refuses a Used listing entry into an analysis. The reading is
+        taken first, because the listing was genuinely read either way."""
+        scraper = _authed_scraper()
+        _stub_get(monkeypatch, LIVE_PAYLOAD)  # Very Good - Refurbished
+
+        with pytest.raises(ValueError):
+            scraper._get_details_api("116529177245")
+
+        assert [r[0] for r in scraper.observations] == ["116529177245"]
+        assert scraper.observations[0][2] == SOURCE_ITEM
+
+    def test_a_payload_with_no_usable_id_is_not_kept(self, monkeypatch):
+        scraper = _authed_scraper()
+        _stub_get(monkeypatch, {"itemSummaries": [{"title": "no id at all"}]})
+
+        scraper._search_api("dyson ball animal", limit=10, price_band=None)
+
+        assert scraper.observations == []
+
+    def test_a_scraper_that_read_nothing_offers_nothing(self):
+        assert _authed_scraper().observations == []
+
+
+# ---------------------------------------------------------------------------
+# 9. The pipeline drain - one place, where the session already exists
+# ---------------------------------------------------------------------------
+
+def _analysis_results(**overrides) -> dict:
+    """The smallest `results` dict `save_analysis_to_db` will accept."""
+    product = ScrapedProduct(
+        source="ebay_uk",
+        title="Dyson Ball Animal - Refurbished",
+        price=169.0,
+        url="https://www.ebay.co.uk/itm/116529177245",
+        condition="New",
+        verified=True,
+    )
+    results = {
+        "ebay_product": product,
+        "demand": None,
+        "supplier_matches": [],
+        "llm_analysis": None,
+        "verdict": None,
+        "observations": [("116529177245", LIVE_PAYLOAD, SOURCE_ITEM)],
+    }
+    results.update(overrides)
+    return results
+
+
+class TestThePipelineStoresItsReadings:
+    def test_a_saved_analysis_stores_the_readings_it_took(self, tmp_path, monkeypatch):
+        from analysis_pipeline import save_analysis_to_db
+        from db.queries import get_listing_observations
+
+        factory = _fresh_session_factory(tmp_path)
+        monkeypatch.setattr("analysis_pipeline.SessionLocal", factory)
+
+        save_analysis_to_db(_analysis_results())
+
+        session = factory()
+        try:
+            rows = get_listing_observations(session, "116529177245")
+            assert len(rows) == 1
+            assert rows[0].seller_account_type == "BUSINESS"
+        finally:
+            session.close()
+
+    def test_a_failing_reading_write_leaves_the_analysis_in_place(
+        self, tmp_path, monkeypatch
+    ):
+        """The readings are evidence about listings, not part of the analysis:
+        if they cannot be written, the analysis must still be there - and it
+        must not pass in silence, because that would look like "never seen"."""
+        from analysis_pipeline import save_analysis_to_db
+        from db.models import Product
+
+        def boom(db, readings, observed_at=None):
+            raise RuntimeError("disk full")
+
+        factory = _fresh_session_factory(tmp_path)
+        monkeypatch.setattr("analysis_pipeline.SessionLocal", factory)
+        monkeypatch.setattr("analysis_pipeline.save_listing_observations", boom)
+
+        save_analysis_to_db(_analysis_results())
+
+        session = factory()
+        try:
+            assert session.query(Product).count() == 1
+        finally:
+            session.close()
+
+    def test_a_run_that_took_no_readings_writes_nothing(self, tmp_path, monkeypatch):
+        from analysis_pipeline import save_analysis_to_db
+        from db.models import ListingObservation
+
+        factory = _fresh_session_factory(tmp_path)
+        monkeypatch.setattr("analysis_pipeline.SessionLocal", factory)
+
+        save_analysis_to_db(_analysis_results(observations=[]))
+
+        session = factory()
+        try:
+            assert session.query(ListingObservation).count() == 0
+        finally:
+            session.close()
+
+    def test_the_reading_list_is_the_scrapers_own(self, tmp_path, monkeypatch):
+        """The pipeline aliases the scraper's list rather than copying it, so a
+        run that bails early still carries everything it read first. Pinned
+        here because it is one line of aliasing that an innocent copy would
+        silently break."""
+        from analysis_pipeline import save_analysis_to_db
+        from scrapers.ebay import EbayScraper
+
+        factory = _fresh_session_factory(tmp_path)
+        monkeypatch.setattr("analysis_pipeline.SessionLocal", factory)
+
+        scraper = EbayScraper()
+        results = _analysis_results(observations=scraper.observations)
+        # Appended AFTER the results dict was built, the way the scrape does it.
+        scraper.observations.append(("204925572731", LIVE_PAYLOAD, SOURCE_ITEM))
+
+        save_analysis_to_db(results)
+
+        from db.queries import get_listing_observations
+
+        session = factory()
+        try:
+            assert len(get_listing_observations(session, "204925572731")) == 1
+        finally:
+            session.close()

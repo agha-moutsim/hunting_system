@@ -91,6 +91,11 @@ COMPARED: tuple[str, ...] = FIELDS + ("source",)
 SOURCE_ITEM = "browse_api_item"
 SOURCE_SUMMARY = "browse_api_summary"
 
+#: `itemId` is the RESTful form ("v1|116529177245|0") and its MIDDLE segment is
+#: the legacy id; `legacyItemId` is that id on its own. Both appear in real
+#: responses, so both are read.
+_ITEM_ID_RE = re.compile(r"^(?:v\d+\|)?(\d+)(?:\|\d+)?$")
+
 
 def _text(value: Any) -> Optional[str]:
     """A non-empty string, or None. ``""`` collapses to None (see module doc)."""
@@ -264,6 +269,31 @@ def extract_observation(payload: Any) -> dict:
         "shipping_currency": shipping_currency,
         "shipping_type": shipping_type,
     }
+
+
+def listing_id_of(payload: Any) -> Optional[str]:
+    """The listing id inside a Browse payload, or None.
+
+    A payload that cannot name its listing cannot be observed: there would be
+    nothing to attach the reading to, and inventing a key would file two
+    different listings under the same row. So this returns None rather than a
+    placeholder, and the caller skips it.
+
+    `legacyItemId` is the bare id and the RESTful `itemId` is the fallback -
+    measured present on both the item payload and search summaries.
+    """
+    if not isinstance(payload, dict):
+        return None
+
+    legacy = _text(payload.get("legacyItemId"))
+    if legacy and legacy.isdigit():
+        return legacy
+
+    raw = _text(payload.get("itemId"))
+    if not raw:
+        return None
+    match = _ITEM_ID_RE.match(raw)
+    return match.group(1) if match else None
 
 
 def is_change(previous: Optional[dict], current: dict) -> bool:

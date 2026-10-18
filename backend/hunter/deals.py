@@ -206,7 +206,13 @@ def _record_observations(session, readings: list[tuple]) -> dict:
     "nothing about these listings changed".
     """
     if not readings:
-        return {"readings": 0, "recorded": 0, "unchanged": 0, "empty": 0}
+        return {
+            "readings": 0,
+            "recorded": 0,
+            "unchanged": 0,
+            "empty": 0,
+            "duplicate": 0,
+        }
     try:
         return save_listing_observations(session, readings)
     except Exception as exc:  # noqa: BLE001 - reported, never raised upward
