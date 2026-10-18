@@ -686,3 +686,58 @@ export interface ProductDetail {
     scorecard?: string;
   } | null;
 }
+
+// ---------------------------------------------------------------------------
+// Deals board.
+//
+// Every field traces to eBay: either its own curated deals page, or the Browse
+// API keyed by that card's listing id. There is deliberately NO sold count and
+// NO popularity figure, because neither is measurable from this app — see
+// backend/scrapers/ebay_deals.py for the list of sources that were tried and
+// rejected before this board was built this way.
+// ---------------------------------------------------------------------------
+
+export interface DealItem {
+  listing_id: string;
+  title: string;
+  image_url: string;
+  item_url: string;
+  /** Real price read from the Browse API, or null when it could not be read. */
+  price: number | null;
+  currency: string;
+  /** Pre-formatted, and "" when the price was not read. Never "£0.00". */
+  price_label: string;
+  price_read: boolean;
+  seller: string;
+  store_name: string;
+  store_url: string;
+  /** True only for a storefront link eBay itself rendered. */
+  store_verified: boolean;
+  condition: string;
+  /** Position on eBay's own page — an observation, never a rank by sales. */
+  position: number;
+  source: string;
+  source_label: string;
+  fetched_at: string;
+}
+
+export interface DealsMeta {
+  total: number;
+  priced: number;
+  unpriced: number;
+  last_fetched: string;
+  /** Seconds since the last refresh, or null when one has never run. */
+  age_seconds: number | null;
+  stale: boolean;
+  refresh_interval_seconds: number;
+  source: string;
+  source_label: string;
+  auto_refresh: boolean;
+  refresh_started?: boolean;
+}
+
+export interface DealsResponse {
+  meta: DealsMeta;
+  count: number;
+  items: DealItem[];
+}

@@ -12,6 +12,7 @@ import IconPricing from "@/components/icons/IconPricing";
 import IconWishlist from "@/components/icons/IconWishlist";
 import IconDashboard from "@/components/icons/IconDashboard";
 import IconHistory from "@/components/icons/IconHistory";
+import IconDeals from "@/components/icons/IconDeals";
 
 type NavIcon = (props: { className?: string }) => ReactNode;
 
@@ -78,6 +79,18 @@ const NAV: {
     group: "Review",
     Icon: IconHistory,
   },
+  // Appended LAST on purpose: the Ctrl+number handler above indexes this array
+  // positionally (NAV[Number - 1]), so the entry for ^9 has to be the ninth
+  // one. It is grouped under Research because that is where it belongs on
+  // screen, not because of where it sits in the array — the two are separate,
+  // and the render below filters by `group`.
+  {
+    href: "/deals",
+    label: "Deals",
+    key: "9",
+    group: "Research",
+    Icon: IconDeals,
+  },
 ];
 
 function Brand() {
@@ -128,7 +141,7 @@ export default function Layout({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key >= "1" && e.key <= "8") {
+      if (e.ctrlKey && e.key >= "1" && e.key <= "9") {
         e.preventDefault();
         const item = NAV[parseInt(e.key) - 1];
         if (item) window.location.href = item.href;

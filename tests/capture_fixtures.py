@@ -128,8 +128,42 @@ def capture_serpapi(query: str = "greenhouse 6ft", keep: int = 4) -> dict:
     return data
 
 
+def capture_ebay_deals() -> str:
+    """Real card objects from eBay's own deals page.
+
+    Stored as a TEXT fragment, not re-serialised JSON. The cards are fragments
+    of a much larger HTML payload and sit among thousands of other tags, so the
+    thing worth pinning is that the parser finds them inside that payload at
+    all. Tidying them into clean JSON first would test the parser against a
+    shape eBay never serves, which is the exact failure this directory exists
+    to prevent.
+    """
+    from scrapers.ebay_deals import EbayDealsScraper, _CARD_RE
+
+    html = EbayDealsScraper().fetch_page()
+    cards = [match.group(0) for match in _CARD_RE.finditer(html)]
+    if not cards:
+        raise SystemExit(
+            "no deal cards found on the deals page - the payload shape has "
+            "changed, and scrapers/ebay_deals.py needs looking at"
+        )
+
+    header = (
+        "<!-- Real card objects captured verbatim from "
+        "https://www.ebay.co.uk/deals.\n"
+        "     Key order in this payload is NOT stable between renders, which is\n"
+        "     why the parser matches the object first and each field inside it\n"
+        "     separately. Captured by tests/capture_fixtures.py. -->\n"
+    )
+    return header + "<script>\n" + ",\n".join(cards) + "\n</script>\n"
+
+
 def main() -> None:
     FIXTURES.mkdir(parents=True, exist_ok=True)
+
+    deals = capture_ebay_deals()
+    (FIXTURES / "ebay_deals_cards.html").write_text(deals, encoding="utf-8", newline="\n")
+    print(f"ebay_deals_cards.html: {deals.count('listingId')} cards")
 
     ebay = capture_ebay()
     (FIXTURES / "ebay_browse_search.json").write_text(

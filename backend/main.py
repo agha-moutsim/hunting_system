@@ -26,6 +26,7 @@ from api import (
     analyze,
     bulk,
     dashboard,
+    deals,
     demand_monitor,
     deep_search,
     export_api,
@@ -96,6 +97,7 @@ app.include_router(demand_monitor.router, prefix="/api", tags=["demand-monitor"]
 app.include_router(filters.router, prefix="/api", tags=["filters"])
 app.include_router(export_api.router, prefix="/api", tags=["export"])
 app.include_router(extension.router, prefix="/api", tags=["extension"])
+app.include_router(deals.router, prefix="/api", tags=["deals"])
 
 
 @app.get("/api/health", tags=["status"])

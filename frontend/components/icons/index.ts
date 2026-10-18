@@ -6,3 +6,4 @@ export { default as IconBulk } from "./IconBulk";
 export { default as IconHistory } from "./IconHistory";
 export { default as IconWishlist } from "./IconWishlist";
 export { default as IconPricing } from "./IconPricing";
+export { default as IconDeals } from "./IconDeals";

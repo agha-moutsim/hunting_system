@@ -7,7 +7,7 @@ from sqlalchemy import (
     Column, Integer, String, Float, Boolean, Text, ForeignKey, JSON, DateTime
 )
 from sqlalchemy.orm import relationship
-from db.database import Base
+from db.database import Base, ensure_deal_items_table
 from config import FILTERS
 
 
@@ -285,3 +285,57 @@ class MonthlyStat(Base):
     total_sales = Column(Integer, default=0)
     avg_margin = Column(Float, default=0.0)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class DealItem(Base):
+    """One listing eBay is currently merchandising on its own deals page.
+
+    Refreshed wholesale. A row is here only because the page showed it, so an
+    item eBay has stopped featuring leaves the board rather than lingering as a
+    stale "deal". `fetched_at` is the refresh that produced the row, which is
+    what lets the board report its own age instead of implying the prices are
+    live.
+
+    There is deliberately NO sold count and NO popularity column. eBay
+    publishes neither to this app (see scrapers/ebay_deals.py for what was
+    measured), and a column would only be an invitation to fill one in.
+    """
+    __tablename__ = "deal_items"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    listing_id = Column(String(32), nullable=False, unique=True, index=True)
+    title = Column(Text, nullable=False)
+    item_url = Column(Text, nullable=False)
+    image_url = Column(Text, default="")
+    # NULL is load-bearing: it means the price was not read. A real price of 0
+    # is possible, so "unread" and "free" must not share a representation, and
+    # the UI renders them differently.
+    price = Column(Float)
+    currency = Column(String(8), default="")
+    seller = Column(String(64), default="")
+    store_name = Column(String(128), default="")
+    store_url = Column(Text, default="")
+    # True only for a storefront link eBay itself rendered (engine.stores).
+    store_verified = Column(Boolean, default=False)
+    condition = Column(String(64), default="")
+    # Position on eBay's page. A real observation about the page's own order,
+    # never a rank by sales.
+    position = Column(Integer, default=0)
+    source = Column(String(32), default="ebay_deals")
+    source_label = Column(String(128), default="")
+    fetched_at = Column(
+        DateTime, nullable=False, default=datetime.utcnow, index=True
+    )
+
+
+# ---------------------------------------------------------------------------
+# The board's table has to exist before anything can read it, and table
+# creation otherwise only happens in the manual `python -m db.init_db` step.
+# So a database created before this table existed would raise "no such table:
+# deal_items" the first time the board was opened. Same self-healing stance as
+# the column ALTERs in db/database.py.
+#
+# Called here, at the END of the module, because the helper creates the table
+# from the model class above: running it earlier would find no such model.
+# ---------------------------------------------------------------------------
+ensure_deal_items_table()

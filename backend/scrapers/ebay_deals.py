@@ -1,0 +1,378 @@
+"""eBay's own Deals page — the only merchandising surface this app can read.
+
+WHY THIS EXISTS
+---------------
+The board this feeds was going to rank products by "hotness". That plan was
+measured against the live account and abandoned, because eBay offers this app
+no best-seller or sold-volume data at all:
+
+  * getMostWatchedItems (Merchandising API) — deprecated 2024-07-29,
+    decommissioned 2025-01-06.
+  * findCompletedItems (Finding API)        — decommissioned 2025-02-04.
+  * Marketplace Insights                    — HTTP 403, scope not granted, and
+                                              closed to new applications.
+  * Deals API                               — HTTP 400, scope not granted.
+  * Browse API                              — returns no watchCount, no
+                                              quantitySold and no bidCount, and
+                                              silently ignores every `sort`
+                                              that could proxy for popularity.
+                                              (Nineteen such values were tried
+                                              and returned byte-identical
+                                              ordering to no sort at all.)
+
+Ranking by anything else would have been ranking by supply while claiming
+demand. So the board reads a surface that genuinely is real: eBay's own
+curated discount page, `https://www.ebay.co.uk/deals`, which answers HTTP 200
+to a plain request with no ScrapingBee credit.
+
+Every card on it is a real live listing. Every claim this app makes about a
+card comes either from eBay's own page or from the Browse API keyed by that
+card's listing id.
+
+HONESTY (C13)
+-------------
+The board built on this module must say "curated by eBay". eBay selects these
+items; this app does not know, and must never imply, which items sell best.
+No sold count is ever attached to a deal, because no sold count was measured.
+
+PRICES ARE NOT ON THE DEALS PAGE
+--------------------------------
+The page's embedded payload carries the merchandised cards with `listingId`,
+`imageUrl` and `title` and nothing else — no price. Prices are filled in one
+listing at a time from the Browse API via `get_item_by_legacy_id`. A card
+whose price could not be read keeps `price = None` and is still shown, because
+the card itself is real; what it must never do is display a 0 or a guess.
+
+That is ~73 calls per refresh against a 5,000/day Browse allowance, which is
+why refresh is scheduled hourly rather than continuously. The allowance is the
+reason this is a scheduled job and not a request-time fetch.
+"""
+
+from __future__ import annotations
+
+import base64
+import json
+import re
+import time
+from dataclasses import dataclass, field
+from typing import Callable, Optional
+
+import requests
+
+from config import (
+    EBAY_API_BASE,
+    EBAY_CLIENT_ID,
+    EBAY_CLIENT_SECRET,
+    EBAY_MARKETPLACE,
+    EBAY_UK_BASE,
+    SCRAPE_CONFIG,
+)
+from engine.stores import is_observed_store_url, seller_profile_url
+
+DEALS_URL = f"{EBAY_UK_BASE}/deals"
+
+#: The one label this board is allowed to wear. eBay curates the page; the
+#: word "popular" or "best selling" would be a claim nobody measured.
+SOURCE = "ebay_deals"
+SOURCE_LABEL = "eBay Deals — curated by eBay"
+
+#: A merchandised card in the page's embedded payload.
+#:
+#: Key ORDER is not stable between renders, so the object body is matched first
+#: and each field is then pulled out of that body on its own. The body cannot
+#: cross a brace: these objects are flat, and `[^{}]` is what keeps a match
+#: inside one object instead of running into the next.
+_CARD_RE = re.compile(r'\{[^{}]{0,1200}?"listingId"\s*:\s*"(\d{9,15})"[^{}]{0,1200}?\}')
+_TITLE_RE = re.compile(r'"(?:title|itemTitle)"\s*:\s*"((?:[^"\\]|\\.)*)"')
+_IMAGE_RE = re.compile(r'"(?:imageUrl|imageURL)"\s*:\s*"([^"]+)"')
+_ITEM_URL_RE = re.compile(r'"(?:itemWebUrl|itemUrl)"\s*:\s*"([^"]+)"')
+
+#: eBay serves image URLs at whatever size the page asked for. The card wants a
+#: fixed box, and eBay's own convention is that the `s-lNNN` segment sets the
+#: longest edge, so it is rewritten rather than cropped in CSS — a 225px source
+#: stretched into a 400px box is the blurry look this avoids.
+_IMAGE_SIZE_RE = re.compile(r"/s-l\d+\.(jpg|jpeg|png|webp)$", re.I)
+
+
+def _upgrade_image(url: str, size: int = 500) -> str:
+    """Ask eBay for a larger render of the same image, or leave the URL alone."""
+    if not url:
+        return ""
+    return _IMAGE_SIZE_RE.sub(rf"/s-l{size}.\1", url)
+
+
+def _decode(raw: str) -> str:
+    """Decode a JSON string body, falling back to the raw text.
+
+    Titles carry ™, ®, curly quotes and escaped slashes. Decoding through json
+    is what renders them as eBay wrote them. When eBay serves a fragment that
+    is not valid JSON the raw text is still a real title, so it is kept rather
+    than dropping a genuine listing over a cosmetic problem.
+    """
+    try:
+        return json.loads(f'"{raw}"')
+    except Exception:
+        return raw
+
+
+@dataclass
+class DealItem:
+    """One real listing eBay has chosen to merchandise on its deals page."""
+
+    listing_id: str
+    title: str
+    #: Position on eBay's page, 0-based. Recorded because it is a real
+    #: observation about the page, not because it means "ranked by sales".
+    position: int = 0
+    image_url: str = ""
+    #: Canonical item URL. Built from the listing id when the API did not hand
+    #: one back, which is the same form the API returns.
+    item_url: str = ""
+    #: Real price read from the Browse API, or None when it could not be read.
+    #: None is rendered as "see price on eBay" — never as 0, never as a guess.
+    price: Optional[float] = None
+    currency: str = ""
+    seller: str = ""
+    store_name: str = ""
+    #: The seller's storefront, and whether eBay itself rendered that link.
+    #: Kept apart for the same reason `engine.stores` does it: a username is
+    #: not a store slug, and only an observed `/str/` URL may claim to be one.
+    store_url: str = ""
+    store_verified: bool = False
+    condition: str = ""
+    #: Which refresh produced this row, so a stale row is visibly stale.
+    fetched_at: Optional[str] = None
+    source: str = SOURCE
+    source_label: str = SOURCE_LABEL
+    #: False while the card carries only what the deals page itself gave us.
+    price_read: bool = False
+
+
+def parse_deals_page(html: str) -> list[DealItem]:
+    """Pull the merchandised cards out of an eBay deals page.
+
+    Pure: no network, no globals, so the parser can be pinned against a saved
+    page. Returns the cards in page order, de-duplicated by listing id — the
+    page repeats entries across its sections and a duplicated card would
+    otherwise occupy two slots in the rotation.
+    """
+    if not html:
+        return []
+
+    seen: dict[str, DealItem] = {}
+    for position, match in enumerate(_CARD_RE.finditer(html)):
+        listing_id = match.group(1)
+        body = match.group(0)
+
+        title_match = _TITLE_RE.search(body)
+        if not title_match:
+            # A card with no title cannot be shown honestly, so it is not
+            # shown at all rather than rendered as a blank placeholder.
+            continue
+        title = _decode(title_match.group(1)).strip()
+        if not title:
+            continue
+
+        image_match = _IMAGE_RE.search(body)
+        url_match = _ITEM_URL_RE.search(body)
+        item = DealItem(
+            listing_id=listing_id,
+            title=title,
+            position=position,
+            image_url=_upgrade_image(image_match.group(1)) if image_match else "",
+            item_url=(url_match.group(1) if url_match else "") or "",
+        )
+        if not item.item_url:
+            item.item_url = f"{EBAY_UK_BASE}/itm/{listing_id}"
+
+        # First occurrence wins: the earliest slot is where eBay put it.
+        seen.setdefault(listing_id, item)
+
+    return list(seen.values())
+
+
+def _price_of(payload: dict) -> tuple[Optional[float], str]:
+    """Read `price` whether it arrives as an object or a bare string.
+
+    eBay is not consistent about this between the two item endpoints, and the
+    difference has to be absorbed here or a real price silently becomes None.
+    """
+    raw = payload.get("price")
+    if isinstance(raw, dict):
+        value = raw.get("value")
+        currency = str(raw.get("currency") or "")
+    elif isinstance(raw, str) and raw.strip():
+        text = raw.strip()
+        match = re.search(r"([\d.,]+)", text)
+        value = match.group(1).replace(",", "") if match else None
+        currency = "GBP" if "£" in text else ""
+    else:
+        return None, ""
+    if value is None:
+        return None, currency
+    try:
+        return float(value), currency
+    except (TypeError, ValueError):
+        return None, currency
+
+
+class EbayDealsScraper:
+    """Read eBay's own deals page, then price its cards from the Browse API."""
+
+    def __init__(self) -> None:
+        self.session = requests.Session()
+        self.session.headers.update({
+            "User-Agent": SCRAPE_CONFIG["user_agent"],
+            "Accept-Language": SCRAPE_CONFIG["accept_language"],
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        })
+        self._token: Optional[str] = None
+        self._token_expiry = 0.0
+        self._api_calls = 0
+        self._price_failures = 0
+
+    # -- Browse API ---------------------------------------------------------
+
+    def _get_token(self) -> str:
+        """Application token via the client-credentials flow."""
+        now = time.time()
+        if self._token and now < self._token_expiry:
+            return self._token
+        if not EBAY_CLIENT_ID or not EBAY_CLIENT_SECRET:
+            raise ValueError("EBAY_CLIENT_ID and EBAY_CLIENT_SECRET required")
+        credentials = f"{EBAY_CLIENT_ID}:{EBAY_CLIENT_SECRET}".encode()
+        resp = requests.post(
+            f"{EBAY_API_BASE}/identity/v1/oauth2/token",
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Authorization": "Basic " + base64.b64encode(credentials).decode(),
+            },
+            data={
+                "grant_type": "client_credentials",
+                "scope": "https://api.ebay.com/oauth/api_scope",
+            },
+            timeout=20,
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+        self._token = payload["access_token"]
+        self._token_expiry = now + payload.get("expires_in", 7200) - 300
+        return self._token
+
+    def enrich(self, item: DealItem) -> bool:
+        """Fill one card's price and seller from the Browse API.
+
+        Returns True when a price was read. Failures are counted, never
+        guessed: a card that cannot be priced keeps `price = None` and stays on
+        the board, because the listing is real either way.
+        """
+        try:
+            resp = requests.get(
+                f"{EBAY_API_BASE}/buy/browse/v1/item/get_item_by_legacy_id",
+                params={"legacy_item_id": item.listing_id},
+                headers={
+                    "Authorization": f"Bearer {self._get_token()}",
+                    "X-EBAY-C-MARKETPLACE-ID": EBAY_MARKETPLACE,
+                    "Accept": "application/json",
+                },
+                timeout=20,
+            )
+            self._api_calls += 1
+            if resp.status_code == 429:
+                # Out of allowance. Stop rather than hammer: the remaining
+                # cards are still real, they simply keep no price this round.
+                raise QuotaExhausted()
+            if resp.status_code != 200:
+                self._price_failures += 1
+                return False
+            payload = resp.json()
+        except QuotaExhausted:
+            raise
+        except Exception:
+            self._price_failures += 1
+            return False
+
+        price, currency = _price_of(payload)
+        if price is None:
+            self._price_failures += 1
+            return False
+
+        item.price = price
+        item.currency = currency
+        item.price_read = True
+
+        seller = payload.get("seller") or {}
+        item.seller = str(seller.get("username") or "")
+        item.store_name = str(seller.get("storeName") or "")
+
+        # The store ladder, reused rather than reinvented: an eBay-rendered
+        # `/str/` URL is an observed storefront, anything else falls back to the
+        # seller's profile, which claims nothing about owning a store.
+        observed = str(seller.get("storeUrl") or "")
+        if is_observed_store_url(observed):
+            item.store_url = observed
+            item.store_verified = True
+        else:
+            item.store_url = seller_profile_url(item.seller)
+            item.store_verified = False
+
+        if payload.get("condition"):
+            item.condition = str(payload["condition"])
+        if payload.get("itemWebUrl"):
+            item.item_url = str(payload["itemWebUrl"])
+        image = (payload.get("image") or {}).get("imageUrl")
+        if image:
+            item.image_url = _upgrade_image(str(image))
+        return True
+
+    # -- Page ---------------------------------------------------------------
+
+    def fetch_page(self, url: str = DEALS_URL) -> str:
+        """Fetch the deals page. Raises on a non-200 rather than parsing HTML
+        that is really an error page — a 403 body would otherwise parse to
+        zero cards and read as "eBay has no deals today"."""
+        resp = self.session.get(url, timeout=30)
+        if resp.status_code != 200:
+            raise RuntimeError(f"eBay deals page returned HTTP {resp.status_code}")
+        return resp.text
+
+    def fetch_deals(
+        self,
+        limit: Optional[int] = None,
+        enrich: bool = True,
+        on_progress: Optional[Callable[[int, int], None]] = None,
+    ) -> list[DealItem]:
+        """Fetch the page, then price up to `limit` of its cards.
+
+        `limit` exists for a cheap partial refresh and for tests; the scheduled
+        job passes None and prices the whole page.
+        """
+        items = parse_deals_page(self.fetch_page())
+        if not enrich:
+            return items[:limit] if limit else items
+
+        targets = items[:limit] if limit else items
+        for index, item in enumerate(targets):
+            try:
+                self.enrich(item)
+            except QuotaExhausted:
+                # Recorded honestly: the rest keep no price this refresh.
+                break
+            if on_progress:
+                on_progress(index + 1, len(targets))
+        return items
+
+    # -- Reporting ----------------------------------------------------------
+
+    @property
+    def api_calls(self) -> int:
+        """Browse calls spent, so a run can be checked against the allowance."""
+        return self._api_calls
+
+    @property
+    def price_failures(self) -> int:
+        return self._price_failures
+
+
+class QuotaExhausted(RuntimeError):
+    """The Browse allowance is spent; stop asking for prices this run."""

@@ -92,6 +92,28 @@ def ensure_demand_data_columns() -> list[str]:
 ensure_demand_data_columns()
 
 
+# The deals board reads a table nothing else creates on the way in, so it
+# self-heals exactly the way the column ALTERs above do.
+def ensure_deal_items_table() -> bool:
+    """Create `deal_items` if it is missing. True when it had to be created.
+
+    CALLED FROM THE BOTTOM OF db/models.py rather than from here, because the
+    table is built from the model class and must not be created before that
+    class exists. Doing it there also keeps both import orders safe: importing
+    `db.models` first still finds this function defined, since database.py
+    finishes loading before models.py reaches its last line.
+
+    Built from Base.metadata rather than raw DDL so the model stays the single
+    definition of the table and the two can never drift apart.
+    """
+    inspector = inspect(engine)
+    if inspector.has_table("deal_items"):
+        return False
+    from db.models import DealItem  # deferred: db.models imports this module
+    Base.metadata.create_all(bind=engine, tables=[DealItem.__table__])
+    return True
+
+
 def get_db():
     """Dependency for FastAPI routes."""
     db = SessionLocal()
