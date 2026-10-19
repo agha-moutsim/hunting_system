@@ -8,6 +8,7 @@ the apply_purchase_history seam with an injected session.
 
 import json
 from datetime import date, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -516,16 +517,55 @@ class TestPipelineOverride:
         db = bridge_sessions()
         try:
             product_id = save_product(db, _product())
+            # The sentence analysis_pipeline builds, not the old "+purchase_history"
+            # suffix: it names the source that produced the figure.
+            sentence = (
+                "ebay_browse_active_listings: in-band New ACTIVE listings the "
+                "search returned. | 7-day sold figure: eBay purchase history, "
+                "read 2026-10-19 19:15 UTC"
+            )
             demand = DemandData(
                 sold_count_30d=40,
                 sold_count_7d=9,
                 verified=False,
                 verified_7d=True,
-                data_source="ebay_sold_listings+purchase_history",
+                data_source=sentence,
             )
             row = save_demand_data(db, product_id, demand)
             assert row.sold_count_7d == 9
-            assert row.data_source == "ebay_sold_listings+purchase_history"
+            assert row.data_source == sentence
             assert row.verified is False   # original source's status is kept
         finally:
             db.close()
+
+
+class TestTheExtensionSendsItsReadTime:
+    """The capture's timestamp is the moment the page was READ.
+
+    The backend stamps its own clock when a payload omits `captured_at`, which
+    is right for a capture posted immediately and wrong for one that waited in a
+    queue or was retried — and that timestamp is now rendered beside a verified
+    sold figure, so a wrong one is a wrong fact on screen rather than a detail
+    nobody sees. The browser worker cannot be unit-tested here, so the seam it
+    crosses is pinned instead: the shape of the request it builds.
+    """
+
+    SOURCE = Path("extension/background.js")
+
+    @staticmethod
+    def _source() -> str:
+        return TestTheExtensionSendsItsReadTime.SOURCE.read_text(encoding="utf-8")
+
+    def test_the_capture_request_carries_the_moment_the_page_was_read(self):
+        assert "captured_at: readAt" in self._source()
+
+    def test_that_moment_comes_from_the_browser_clock_with_its_zone(self):
+        """`toISOString` always carries one. A naive local string would be read
+        as UTC by the backend and land the capture hours out."""
+        assert "readAt = new Date().toISOString()" in self._source()
+
+    def test_it_is_taken_after_the_page_body_arrives(self):
+        """The moment the evidence landed, not the moment the request went out:
+        a slow page would otherwise be stamped before anything was read."""
+        src = self._source()
+        assert src.index("html = await resp.text()") < src.index("readAt = new Date()")

@@ -121,6 +121,7 @@ async function captureItem(itemId, pageUrl, { force = false } = {}) {
     "https://www.ebay.co.uk/bin/purchaseHistory?item=" + itemId;
 
   let html;
+  let readAt = "";
   try {
     const resp = await fetch(historyUrl, {
       credentials: "include",
@@ -136,6 +137,13 @@ async function captureItem(itemId, pageUrl, { force = false } = {}) {
       return { ok: false, status: resp.status, body: { error: message } };
     }
     html = await resp.text();
+    // When the EVIDENCE was observed, not when the upload landed. The backend
+    // stamps its own clock for a payload that omits this, which is right for a
+    // capture posted immediately and wrong for one that waited in a queue or
+    // was retried: the stored read time would drift to whenever the request
+    // finally got through, and that time is now shown next to a verified sold
+    // figure. Sent as ISO-8601 with a zone; the backend normalises to UTC.
+    readAt = new Date().toISOString();
   } catch (err) {
     const message = "Could not fetch the purchase-history page: " + err.message;
     next = noteResult(next, { ok: false, message: message });
@@ -148,7 +156,12 @@ async function captureItem(itemId, pageUrl, { force = false } = {}) {
     const resp = await fetch(base + "/api/extension/sold-history", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ item_id: itemId, url: pageUrl, html: html }),
+      body: JSON.stringify({
+        item_id: itemId,
+        url: pageUrl,
+        html: html,
+        captured_at: readAt,
+      }),
     });
     const body = await resp.json().catch(() => ({
       error: "Backend returned HTTP " + resp.status + " with a non-JSON body.",
