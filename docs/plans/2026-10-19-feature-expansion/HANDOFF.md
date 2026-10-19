@@ -56,9 +56,12 @@ always reported.
 
 ## Security - outstanding user action
 
-- The GitHub token used in earlier sessions was exposed and **must be rotated**. Git pushes
-  now authenticate through `gh` (keyring, account `agha-moutsim`); never put a token in a
-  command or a file.
+- The GitHub token used in earlier sessions was exposed and **must be rotated**.
+- Git pushes: `gh` is authenticated (account `agha-moutsim`) but its token is read-only for
+  this repo - a plain `git push` returns 403. Pushes need a write credential; the previous
+  sessions used an inline classic token. After rotating, store the new token with
+  `git credential approve` (or re-auth `gh` with write access), then push normally. Never
+  put a token in a commit, a tracked file, or a shell command that is logged.
 - The ScrapingBee key was exposed too. Rotate it in `backend/.env` (never committed).
 
 ## How to run and verify

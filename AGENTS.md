@@ -11,8 +11,9 @@ current phase, live state, blockers and the next move. Phase specs and rules are
 - Never fabricate a price, fee, margin or count. Absent stays `None`, and a refusal carries
   a sentence. Read `CONSTRAINTS.md` before touching money or verdict logic.
 - The work is scoped to the ten planned features, not the whole product.
-- Never write credentials into the repo or a command line. Git pushes authenticate through
-  `gh` (keyring). If a key was exposed, rotate it - do not reuse it.
+- Never write credentials into the repo or a command line. `gh` is authenticated for reads,
+  but its token cannot push to this repo (403); pushes need the user's write credential.
+  If a key was exposed, rotate it - do not reuse it.
 
 ## Checks before pushing
 
