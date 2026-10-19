@@ -255,3 +255,330 @@ class TestRateLabelsNeverFlattenATieredRate:
         for entry in rows:
             assert entry["key"] and entry["name"] and entry["rate_label"]
             assert entry["category_ids"]
+
+
+# ---------------------------------------------------------------------------
+# The forward calculation
+# ---------------------------------------------------------------------------
+
+
+def _business(sale_price, **kw):
+    kw.setdefault("seller_type", "business")
+    return fees.calculate_fees(sale_price, **kw)
+
+
+class TestTheAcceptanceCaseIsArithmeticallyConsistent:
+    """Phase D's acceptance example: a business seller at GBP 24.99 with 2%
+    promoted and GBP 3.20 postage paid, no category given (so the stated
+    default rate applies). Every expected value is recomputed from the
+    published rule, not copied from the implementation."""
+
+    @pytest.fixture()
+    def result(self):
+        return fees.calculate_fees(
+            24.99,
+            postage_charged=0.0,
+            promoted_rate=2.0,
+            seller_type="business",
+            listing_fee=0.0,
+        )
+
+    def test_every_line_follows_the_published_rule(self, result):
+        total = 24.99
+        assert result["fvf"] == pytest.approx(round(total * 0.129, 2), abs=0.01)
+        assert result["per_order_fee"] == 0.40
+        assert result["regulatory_fee"] == pytest.approx(
+            round(total * 0.0035, 2), abs=0.01
+        )
+        assert result["promoted_fee"] == pytest.approx(round(total * 0.02, 2), abs=0.01)
+
+    def test_the_quoted_total_is_the_sum_of_its_lines(self, result):
+        lines = [
+            result["fvf"],
+            result["per_order_fee"],
+            result["regulatory_fee"],
+            result["promoted_fee"],
+        ]
+        assert sum(lines) == pytest.approx(result["fees_quoted_total"], abs=0.01)
+
+    def test_vat_is_added_to_the_fee_lines_and_the_gross_is_consistent(self, result):
+        assert result["vat_on_fees"] == pytest.approx(
+            result["fees_quoted_total"] * 0.20, abs=0.01
+        )
+        assert result["fees_gross_total"] == pytest.approx(
+            result["fees_quoted_total"] + result["vat_on_fees"], abs=0.01
+        )
+
+    def test_a_default_category_announces_itself(self, result):
+        assert result["category"]["known"] is False
+        assert result["category"]["key"] == fees.DEFAULT_CATEGORY_KEY
+        assert any("stated default" in line for line in result["assumptions"])
+
+    def test_the_response_states_the_table_it_used(self, result):
+        assert result["fee_table"]["key"] == fees.RATE_CARD_TABLE
+        assert result["fee_table"]["version"]
+        assert result["fee_table"]["currency"] == "GBP"
+
+    def test_the_worked_breakdown_holds_together(self, result):
+        """One hand-computable statement of the whole thing: 24.99 item,
+        Everything Else 12.9% + 40p + 0.35% + 2% promoted, +20% VAT."""
+        assert result["fvf"] == 3.22
+        assert result["per_order_fee"] == 0.40
+        assert result["regulatory_fee"] == 0.09
+        assert result["promoted_fee"] == 0.50
+        assert result["fees_quoted_total"] == 4.21
+        assert result["vat_on_fees"] == 0.84
+        assert result["fees_gross_total"] == 5.05
+        assert result["fees_cost_total"] == 5.05
+
+
+class TestThePerOrderFeeSteps:
+    def test_at_ten_pounds_the_lower_fee_applies(self):
+        assert _business(10.00)["per_order_fee"] == 0.30
+
+    def test_above_ten_pounds_the_higher_fee_applies(self):
+        assert _business(10.01)["per_order_fee"] == 0.40
+
+    def test_the_step_is_measured_on_the_total_including_postage(self):
+        """The rate card defines an order as everything checked out together:
+        postage pushes an order across the step like anything else."""
+        under = _business(9.50, postage_charged=0.50)
+        over = _business(9.50, postage_charged=0.51)
+        assert under["per_order_fee"] == 0.30
+        assert over["per_order_fee"] == 0.40
+
+
+class TestTieredCategoryRates:
+    def test_at_the_tier_limit_the_lower_rate_has_not_started(self):
+        result = _business(1000.0, category="jewellery-watches")
+        assert result["fvf"] == pytest.approx(149.00, abs=0.01)
+
+    def test_above_the_limit_only_the_portion_above_is_reduced(self):
+        result = _business(1200.0, category="jewellery-watches")
+        assert result["fvf"] == pytest.approx(149.00 + 8.00, abs=0.01)
+
+    def test_a_second_tiered_shape_behaves_the_same_way(self):
+        at_limit = _business(450.0, category="coins")
+        above = _business(500.0, category="coins")
+        assert at_limit["fvf"] == pytest.approx(49.05, abs=0.01)
+        assert above["fvf"] == pytest.approx(49.05 + 1.50, abs=0.01)
+
+    def test_the_label_names_the_rate_actually_applied(self):
+        result = _business(100.0, category="jewellery-watches")
+        assert "14.9%" in result["fvf_rate"]
+        assert result["category"]["rate_label"] == result["fvf_rate"]
+
+
+class TestTheTrainersSwitch:
+    def test_below_the_threshold_the_normal_rate_applies(self):
+        result = _business(99.99, category="clothes-trainers")
+        assert result["fvf"] == pytest.approx(99.99 * 0.119, abs=0.01)
+
+    def test_at_the_threshold_the_switched_rate_applies(self):
+        result = _business(100.00, category="clothes-trainers")
+        assert result["fvf"] == pytest.approx(100.00 * 0.07, abs=0.01)
+        assert "7%" in result["fvf_rate"]
+
+    def test_the_threshold_uses_the_item_price_not_the_total(self):
+        """The card says the selling price excludes postage - so postage
+        must not push a listing across the switch."""
+        result = _business(99.99, postage_charged=10.00, category="clothes-trainers")
+        expected = (99.99 + 10.00) * 0.119
+        assert result["fvf"] == pytest.approx(expected, abs=0.01)
+
+
+class TestVatTreatment:
+    def test_an_unregistered_business_seller_bears_the_vat(self):
+        result = _business(100.0, vat_registered=False)
+        assert result["vat_recoverable"] is False
+        assert result["fees_cost_total"] == pytest.approx(
+            result["fees_gross_total"], abs=0.01
+        )
+
+    def test_a_registered_business_seller_recovers_the_vat(self):
+        result = _business(100.0, vat_registered=True)
+        assert result["vat_recoverable"] is True
+        assert result["fees_cost_total"] == pytest.approx(
+            result["fees_quoted_total"], abs=0.01
+        )
+        # eBay still invoices the gross; only the cost view changes.
+        assert result["fees_gross_total"] > result["fees_cost_total"]
+        assert "recoverable" in result["vat_note"]
+
+    def test_a_private_seller_gets_no_vat_line_and_is_told_why(self):
+        result = fees.calculate_fees(100.0, seller_type="private")
+        assert result["vat_on_fees"] is None
+        assert "inclusive" in result["vat_note"]
+
+
+class TestBusinessVersusPrivate:
+    def test_a_uk_private_seller_pays_no_final_value_fee(self):
+        result = fees.calculate_fees(100.0, seller_type="private")
+        assert result["fvf"] == 0.0
+        assert result["fvf_rate"] == "0%"
+
+    def test_a_uk_private_seller_pays_no_regulatory_fee_and_that_is_a_zero(self):
+        """The private page states the fee is not charged. That is a
+        documented zero, not the absence of a fee - the two must not look
+        alike (v1-static has no regulatory fee at all; see the other test)."""
+        result = fees.calculate_fees(100.0, seller_type="private")
+        assert result["regulatory_fee"] == 0.0
+
+    def test_nothing_the_private_card_does_not_charge_appears_as_a_fee(self):
+        result = fees.calculate_fees(100.0, seller_type="private")
+        assert result["fees_quoted_total"] == 0.0
+        assert result["fees_gross_total"] == 0.0
+        assert result["fees_cost_total"] == 0.0
+
+    def test_promoted_applies_to_private_sellers_too(self):
+        result = fees.calculate_fees(50.0, seller_type="private", promoted_rate=4.0)
+        assert result["promoted_fee"] == pytest.approx(2.00, abs=0.01)
+
+    def test_a_non_uk_private_seller_gets_the_documented_schedule(self):
+        result = fees.calculate_fees(
+            6000.0, seller_type="private", uk_resident=False
+        )
+        expected_fvf = 5000 * 0.128 + 1000 * 0.03
+        assert result["fvf"] == pytest.approx(expected_fvf, abs=0.02)
+        assert result["per_order_fee"] == 0.30
+        assert result["regulatory_fee"] == pytest.approx(6000 * 0.0042, abs=0.01)
+
+    def test_the_uk_schedule_is_not_applied_to_a_non_uk_seller(self):
+        """The two schedules must not share a code path by accident: a UK
+        private seller pays 0, the non-UK schedule pays 12.8%."""
+        uk = fees.calculate_fees(100.0, seller_type="private")
+        abroad = fees.calculate_fees(100.0, seller_type="private", uk_resident=False)
+        assert uk["fvf"] == 0.0
+        assert abroad["fvf"] == pytest.approx(12.80, abs=0.01)
+
+
+class TestTheV1TableComputesOnTheItemPriceOnly:
+    def test_postage_does_not_enter_the_old_basis(self):
+        result = _business(
+            100.0, postage_charged=10.0, fee_table=fees.V1_STATIC_TABLE
+        )
+        assert result["fvf"] == pytest.approx(13.50, abs=0.01)
+        # the v1 listing component is a percent of the item price:
+        assert result["listing_fee"] == pytest.approx(0.03, abs=0.005)
+        assert result["fee_basis"] == "item_price"
+
+    def test_the_old_listing_percent_appears_in_the_quoted_total(self):
+        result = _business(100.0, fee_table=fees.V1_STATIC_TABLE)
+        # 13.5% + 0.03% of the item price
+        assert result["fees_quoted_total"] == pytest.approx(13.53, abs=0.01)
+
+    def test_fees_the_old_model_never_had_stay_absent(self):
+        result = _business(100.0, fee_table=fees.V1_STATIC_TABLE)
+        assert result["per_order_fee"] is None
+        assert result["regulatory_fee"] is None
+
+
+class TestInternationalFee:
+    def test_a_uk_buyer_incurs_no_international_fee(self):
+        result = _business(100.0, buyer_region="uk")
+        assert result["international_fee"] is None
+
+    def test_each_documented_region_gets_its_documented_rate(self):
+        rates = {"eu_northern_europe": 1.05, "us_canada": 1.8, "rest_of_world": 2.0}
+        for region, rate in rates.items():
+            result = _business(200.0, buyer_region=region)
+            assert result["international_fee"] == pytest.approx(200.0 * rate / 100, abs=0.01), region
+
+    def test_a_private_seller_ships_abroad_at_three_percent(self):
+        result = fees.calculate_fees(
+            100.0, seller_type="private", buyer_region="rest_of_world"
+        )
+        assert result["international_fee"] == pytest.approx(3.00, abs=0.01)
+
+    def test_international_fees_carry_vat_for_a_business_seller(self):
+        result = _business(100.0, buyer_region="us_canada")
+        gross = result["fees_quoted_total"] * 1.2
+        assert result["fees_gross_total"] == pytest.approx(gross, abs=0.02)
+
+
+class TestPromotedIsOnlyShownWhenStated:
+    def test_zero_promoted_is_no_line_at_all(self):
+        assert _business(100.0)["promoted_fee"] is None
+
+    def test_a_stated_rate_charges_on_the_total_including_postage(self):
+        result = _business(20.0, postage_charged=5.0, promoted_rate=2.0)
+        assert result["promoted_fee"] == pytest.approx(0.50, abs=0.005)
+
+
+class TestRefusalsAreErrorsNotZeros:
+    def test_an_unread_price_is_refused_with_the_reason(self):
+        with pytest.raises(ValueError) as err:
+            fees.calculate_fees(None)
+        assert "unread" in str(err.value).lower()
+
+    def test_a_zero_price_is_refused(self):
+        with pytest.raises(ValueError):
+            fees.calculate_fees(0)
+
+    def test_a_negative_price_is_refused(self):
+        with pytest.raises(ValueError):
+            fees.calculate_fees(-5.0)
+
+    def test_nan_is_refused(self):
+        with pytest.raises(ValueError):
+            fees.calculate_fees(float("nan"))
+
+    def test_a_ludicrous_promoted_rate_is_refused(self):
+        with pytest.raises(ValueError):
+            fees.calculate_fees(10.0, promoted_rate=100.0)
+
+    def test_a_negative_promoted_rate_is_refused(self):
+        with pytest.raises(ValueError):
+            fees.calculate_fees(10.0, promoted_rate=-1.0)
+
+    def test_a_negative_postage_charged_is_refused(self):
+        with pytest.raises(ValueError):
+            fees.calculate_fees(10.0, postage_charged=-0.01)
+
+    def test_a_negative_listing_fee_is_refused(self):
+        with pytest.raises(ValueError):
+            fees.calculate_fees(10.0, listing_fee=-0.30)
+
+    def test_an_unknown_buyer_region_is_refused(self):
+        with pytest.raises(ValueError):
+            fees.calculate_fees(10.0, buyer_region="mars")
+
+    def test_an_unknown_seller_type_is_refused(self):
+        with pytest.raises(ValueError):
+            fees.calculate_fees(10.0, seller_type="robot")
+
+
+class TestListingFeeIsShownWhenSupplied:
+    def test_zero_assumes_and_says_what_a_listing_costs(self):
+        result = _business(100.0)
+        assert result["listing_fee"] is None
+        assert any("30p" in line or "35p" in line for line in result["assumptions"])
+
+    def test_a_supplied_listing_fee_reaches_every_total(self):
+        result = _business(100.0, listing_fee=0.30)
+        assert result["listing_fee"] == 0.30
+        assert result["fees_quoted_total"] == pytest.approx(
+            result["fvf"] + result["per_order_fee"] + result["regulatory_fee"] + 0.30,
+            abs=0.01,
+        )
+
+
+class TestAssumptionsAreStated:
+    def test_the_fee_basis_is_stated_as_a_sentence(self):
+        result = _business(24.99, postage_charged=3.99)
+        assert any("total amount of the sale" in a for a in result["assumptions"])
+        assert any("3.99" in a for a in result["assumptions"])
+
+    def test_the_domestic_default_is_stated(self):
+        result = _business(10.0)
+        assert any("UK delivery address" in a for a in result["assumptions"])
+
+    def test_the_gross_and_cost_views_never_disagree_silently(self):
+        """Every combination of the flag must be explained by a sentence."""
+        for registered in (True, False):
+            result = _business(50.0, vat_registered=registered)
+            assert result["vat_note"]
+            if registered:
+                assert "recoverable" in result["vat_note"]
+            else:
+                assert "not VAT registered" in result["vat_note"]

@@ -197,6 +197,7 @@ _UK_RATE_CARD = {
     "sources": [_SOURCES["business"], _SOURCES["private"]],
     "business": {
         "fees_include_vat": False,
+        "fee_basis": "total_amount_of_sale",
         "categories": _UK_BUSINESS_CATEGORIES,
         "per_order_fee": {
             "at_or_below": 10.0,
@@ -227,6 +228,7 @@ _UK_RATE_CARD = {
         # UK-resident private sellers (the paragraph the page leads with).
         "uk_resident": True,
         "fees_include_vat": True,
+        "fee_basis": "total_amount_of_sale",
         "fvf_percent": 0.0,
         "regulatory_fee_percent": 0.0,
         "free_listings_per_month": 300,
@@ -275,6 +277,7 @@ _V1_STATIC = {
     ],
     "business": {
         "fees_include_vat": False,
+        "fee_basis": "item_price",
         "categories": None,  # no category model - everything gets the flat rate
         "fvf_percent": 13.5,
         "listing_fee_percent": 0.03,
@@ -285,6 +288,7 @@ _V1_STATIC = {
     "private": {
         "uk_resident": True,
         "fees_include_vat": False,
+        "fee_basis": "item_price",
         "fvf_percent": 13.5,
         "listing_fee_percent": 0.03,
         "regulatory_fee_percent": None,
@@ -378,22 +382,24 @@ def _default_row(categories: list[dict]) -> dict:
     raise KeyError(f"rate card has no {DEFAULT_CATEGORY_KEY!r} row to default to")
 
 
-def rate_label(row: dict, currency: str = "GBP") -> str:
-    """A human-readable statement of a category row's rate(s).
-
-    Kept next to the data so the UI and the tests describe the rate the
-    same way - and so a tiered rate can never render as if it were flat.
-    """
+def tiers_label(tiers: list, currency: str = "GBP") -> str:
+    """A human-readable statement of a tier list, so a tiered rate can never
+    render as if it were flat."""
     parts: list[str] = []
     lower = 0.0
-    for upper, percent in row["tiers"]:
+    for upper, percent in tiers:
         pct = f"{percent:g}%"
         if upper is None:
             parts.append(pct if not parts else f"{pct} above {currency} {lower:,.0f}")
         else:
             parts.append(f"{pct} up to {currency} {upper:,.0f}")
             lower = upper
-    label = ", then ".join(parts)
+    return ", then ".join(parts)
+
+
+def rate_label(row: dict, currency: str = "GBP") -> str:
+    """A category row's rate(s), including its rate switch when it has one."""
+    label = tiers_label(row["tiers"], currency)
     switch = row.get("rate_switch")
     if switch:
         label += (
@@ -417,3 +423,298 @@ def list_categories(table: Optional[dict] = None) -> list[dict]:
         }
         for row in categories
     ]
+
+
+# ---------------------------------------------------------------------------
+# Calculation
+# ---------------------------------------------------------------------------
+
+BUYER_REGIONS = {
+    "uk": "UK",
+    "eu_northern_europe": "Eurozone & Northern Europe",
+    "us_canada": "US & Canada",
+    "rest_of_world": "all other countries",
+}
+
+
+def _as_amount(value, field: str, *, minimum: float = 0.0) -> float:
+    """A money amount from a caller. Refuses None - an unread price is not a
+    zero price - and refuses NaN, which would poison every downstream sum."""
+    if value is None:
+        raise ValueError(
+            f"{field} is required - an unread price is not a zero price"
+        )
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{field} must be a number, got {value!r}")
+    if number != number:  # NaN
+        raise ValueError(f"{field} must be a number, got NaN")
+    if number < minimum:
+        raise ValueError(f"{field} must be at least {minimum:g}, got {number:g}")
+    return number
+
+
+def _tier_fee(tiers: list, amount: float) -> float:
+    """Fee from (upper_limit, percent) pairs applied to an amount. Raw."""
+    fee = 0.0
+    lower = 0.0
+    for upper, percent in tiers:
+        if upper is None:
+            fee += max(0.0, amount - lower) * percent / 100.0
+            break
+        fee += max(0.0, min(amount, upper) - lower) * percent / 100.0
+        lower = upper
+    return fee
+
+
+def calculate_fees(
+    sale_price,
+    *,
+    postage_charged: float = 0.0,
+    category=None,
+    promoted_rate: float = 0.0,
+    seller_type: str = "business",
+    uk_resident: bool = True,
+    vat_registered: bool = False,
+    listing_fee: float = 0.0,
+    buyer_region: str = "uk",
+    fee_table: Optional[str] = None,
+) -> dict:
+    """The eBay fees on one sale. Every fee figure in the product comes from
+    here (one implementation per calculation - constraints.md section 5).
+
+    Raises ValueError, never prints a guess:
+
+      - sale_price None/<= 0        there is no such sale to price
+      - promoted_rate < 0 or >= 100 not a rate, an input error
+      - unknown seller_type         business or private only
+      - unknown buyer_region        one of BUYER_REGIONS
+
+    A fee the table does not carry is absent (None), not zero. A fee the
+    table carries as zero - a UK private seller's final value fee - is a
+    stated zero and stays a number. The two must not look alike (C1).
+    """
+    price = _as_amount(sale_price, "sale_price")
+    if price <= 0:
+        raise ValueError(
+            "sale_price must be greater than zero; a zero-priced sale is not "
+            "a sale, and zero fees on it would read as a measurement"
+        )
+    postage = _as_amount(postage_charged, "postage_charged")
+    listing = _as_amount(listing_fee, "listing_fee")
+    promoted = _as_amount(promoted_rate, "promoted_rate")
+    if promoted >= 100:
+        raise ValueError(
+            f"promoted_rate must be below 100 (a percentage of the sale), got {promoted:g}"
+        )
+    if buyer_region not in BUYER_REGIONS:
+        raise ValueError(
+            f"unknown buyer_region {buyer_region!r}; expected one of {sorted(BUYER_REGIONS)}"
+        )
+
+    tbl = get_fee_table(fee_table)
+    side = seller_side(tbl, seller_type, uk_resident=uk_resident)
+    currency = tbl["currency"]
+    basis = side.get("fee_basis", "total_amount_of_sale")
+    total = price + postage if basis == "total_amount_of_sale" else price
+
+    assumptions: list[str] = []
+    notes: list[str] = []
+
+    # --- Final value fee ---
+    category_info: Optional[dict] = None
+    if side.get("categories"):
+        row, known = resolve_category(category, tbl)
+        label = rate_label(row, currency)
+        switch = row.get("rate_switch")
+        if switch and price >= switch["item_price_at_least"]:
+            fvf = total * switch["percent"] / 100.0
+            applied = (
+                f"{switch['percent']:g}% (item price {currency} "
+                f"{switch['item_price_at_least']:,.0f} or more, excluding postage)"
+            )
+        else:
+            fvf = _tier_fee(row["tiers"], total)
+            applied = label
+        category_info = {
+            "key": row["key"],
+            "name": row["name"],
+            "category_ids": row["category_ids"],
+            "known": known,
+            "rate_label": label,
+            "rate_applied": applied,
+        }
+        notes.extend(row.get("notes", []))
+        if not known:
+            assumptions.append(
+                f"No category identified; using {row['name']} ({label}) - a "
+                "stated default, not a reading of your category."
+            )
+    elif side.get("fvf_tiers"):
+        fvf = _tier_fee(side["fvf_tiers"], total)
+        applied = tiers_label(side["fvf_tiers"], currency)
+    else:
+        fvf = total * side["fvf_percent"] / 100.0
+        applied = f"{side['fvf_percent']:g}%"
+
+    # --- Per-order fee: a published step, so the boundary is inclusive ---
+    pof = side.get("per_order_fee")
+    if isinstance(pof, dict):
+        per_order: Optional[float] = (
+            pof["fee_at_or_below"] if total <= pof["at_or_below"] else pof["fee_above"]
+        )
+    elif pof is not None:
+        per_order = float(pof)
+    else:
+        per_order = None
+
+    # --- Regulatory operating fee ---
+    reg_percent = side.get("regulatory_fee_percent")
+    regulatory = total * reg_percent / 100.0 if reg_percent is not None else None
+
+    # --- Promoted listings: a chosen ad rate, applied when stated ---
+    promoted_fee = total * promoted / 100.0 if promoted > 0 else None
+
+    # v1-static models a listing component as a percent of the sale; the
+    # published card charges per listing instead (the `listing_fee` input).
+    listing_percent = side.get("listing_fee_percent")
+    listing_percent_fee = total * listing_percent / 100.0 if listing_percent else None
+
+    # --- International fee: only for a non-UK delivery address ---
+    intl = side.get("international_fee_percent")
+    if isinstance(intl, dict):
+        intl_rate: Optional[float] = intl.get(buyer_region)
+    elif intl is not None:
+        intl_rate = 0.0 if buyer_region == "uk" else float(intl)
+    else:
+        intl_rate = None
+    international = (
+        total * intl_rate / 100.0 if intl_rate is not None and intl_rate > 0 else None
+    )
+    if buyer_region != "uk" and intl_rate is None:
+        notes.append(
+            "The international fee for this seller type is not on the rate "
+            "card section used here; check your local fee page."
+        )
+
+    fee_lines_raw = [
+        value
+        for value in (
+            fvf,
+            per_order,
+            regulatory,
+            promoted_fee,
+            international,
+            listing if listing > 0 else None,
+            listing_percent_fee,
+        )
+        if value is not None
+    ]
+    quoted_raw = sum(fee_lines_raw)
+
+    # --- VAT: the two rate cards quote VAT differently, and that difference
+    # is itself published - do not normalise it away ---
+    vat_raw: Optional[float]
+    if side.get("fees_include_vat"):
+        vat_raw = None
+        vat_recoverable: Optional[bool] = False
+        vat_note = (
+            "Private seller fees are quoted inclusive of VAT at "
+            f"{tbl['vat_rate']:g}% on the private rate card; no VAT is added."
+        )
+        cost_raw = quoted_raw
+    else:
+        vat_raw = quoted_raw * tbl["vat_rate"] / 100.0
+        vat_recoverable = bool(vat_registered) if seller_type == "business" else False
+        cost_raw = quoted_raw if vat_recoverable else quoted_raw + vat_raw
+        if seller_type == "business":
+            if vat_recoverable:
+                vat_note = (
+                    f"{tbl['vat_rate']:g}% VAT is added to eBay's fees and shown "
+                    "as recoverable (seller is VAT registered), so it is excluded "
+                    "from the cost total. VAT charged on your own sale price is "
+                    "out of scope of this calculator."
+                )
+            else:
+                vat_note = (
+                    f"{tbl['vat_rate']:g}% VAT is added to eBay's fees and is part "
+                    "of the cost total (seller is not VAT registered)."
+                )
+        else:
+            vat_note = (
+                f"{tbl['vat_rate']:g}% VAT is added to eBay's fees on this schedule."
+            )
+
+    # --- Assumptions: stated so a default can never hide inside a total ---
+    if basis == "total_amount_of_sale":
+        assumptions.append(
+            "Fees are calculated on the total amount of the sale: item "
+            f"{currency} {price:,.2f} + postage charged {currency} {postage:,.2f}."
+        )
+    else:
+        assumptions.append(
+            "Fees are calculated on the item price only - this table predates "
+            "postage-inclusive fee bases; the published rate card charges on "
+            "the total amount of the sale."
+        )
+    if buyer_region == "uk":
+        assumptions.append(
+            "A UK delivery address is assumed; eBay's international fee is not included."
+        )
+    else:
+        assumptions.append(
+            f"Buyer region: {BUYER_REGIONS[buyer_region]}; the international fee "
+            "above applies to deliveries outside the UK."
+        )
+    if listing <= 0 and listing_percent_fee is None:
+        guidance = (tbl.get("business") or {}).get("listing_fee_guidance")
+        guidance_text = f" {guidance['note']}" if guidance else ""
+        assumptions.append(
+            "Per-listing fees are not included (0.00 assumed)." + guidance_text
+        )
+
+    return {
+        "ok": True,
+        "fee_table": {
+            "key": tbl["key"],
+            "version": tbl["version"],
+            "currency": currency,
+        },
+        "seller": {
+            "type": seller_type,
+            "uk_resident": bool(uk_resident) if seller_type == "private" else None,
+            "vat_registered": bool(vat_registered) if seller_type == "business" else None,
+        },
+        "buyer_region": buyer_region,
+        "category": category_info,
+        "fee_basis": basis,
+        "total_amount_of_sale": round(price + postage, 2),
+        "fvf": round(fvf, 2),
+        "fvf_rate": applied,
+        "per_order_fee": round(per_order, 2) if per_order is not None else None,
+        "regulatory_fee": round(regulatory, 2) if regulatory is not None else None,
+        "promoted_fee": round(promoted_fee, 2) if promoted_fee is not None else None,
+        "international_fee": round(international, 2) if international is not None else None,
+        "listing_fee": (
+            round(listing, 2)
+            if listing > 0
+            else (round(listing_percent_fee, 2) if listing_percent_fee is not None else None)
+        ),
+        "vat_on_fees": round(vat_raw, 2) if vat_raw is not None else None,
+        "vat_recoverable": vat_recoverable,
+        "vat_note": vat_note,
+        "fees_quoted_total": round(quoted_raw, 2),
+        "fees_gross_total": (
+            round(quoted_raw + vat_raw, 2) if vat_raw is not None else round(quoted_raw, 2)
+        ),
+        "fees_cost_total": round(cost_raw, 2),
+        # Raw, unrounded cost - engine-internal callers (profit, solver) use
+        # this so rounding happens once, at the edge. The underscore marks it
+        # as not part of the response contract.
+        "_fees_cost_raw": cost_raw,
+        "_total_amount_raw": total,
+        "assumptions": assumptions,
+        "notes": notes,
+    }
+
