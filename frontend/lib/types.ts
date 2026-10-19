@@ -616,6 +616,52 @@ export interface SearchResult {
   found_at?: string | null;
 }
 
+export interface AlertListResponse {
+  alerts: PriceAlert[];
+  count: number;
+  total: number;
+  unread: number;
+}
+
+export interface AlertCountResponse {
+  unread: number;
+}
+
+export interface AlertReadResponse {
+  ok: boolean;
+  unread: number;
+  /** Present on /alerts/read-all: how many rows the call flipped. */
+  marked?: number;
+}
+
+export interface SavedSearchListResponse {
+  searches: SavedSearch[];
+}
+
+export interface NewMatchesResponse {
+  results: SearchResult[];
+  unread_count: number;
+  range_filter: PriceRange;
+}
+
+/** POST /api/searches/{id}/run - what one saved-search run did, and cost. */
+export interface SearchRunResponse {
+  found: number;
+  error: string | null;
+  reason: string | null;
+  browse_calls: number;
+}
+
+/** POST /api/searches/run-all - a pass with its stated Browse budget. */
+export interface SearchPassResponse {
+  searches_run: number;
+  searches_stored: number;
+  searches_not_run: number;
+  total_found: number;
+  browse_calls: number;
+  reasons: string[];
+}
+
 // ── Dashboard ───────────────────────────────────────────────────
 
 export interface Kpis {
