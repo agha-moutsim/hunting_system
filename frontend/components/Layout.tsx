@@ -13,6 +13,7 @@ import IconWishlist from "@/components/icons/IconWishlist";
 import IconDashboard from "@/components/icons/IconDashboard";
 import IconHistory from "@/components/icons/IconHistory";
 import IconDeals from "@/components/icons/IconDeals";
+import IconFees from "@/components/icons/IconFees";
 
 type NavIcon = (props: { className?: string }) => ReactNode;
 
@@ -91,6 +92,16 @@ const NAV: {
     group: "Research",
     Icon: IconDeals,
   },
+  // The tenth entry, appended for the same positional reason as ^9 above:
+  // Ctrl+0 opens it (the handler maps "0" to index 9), so the shortcut and
+  // the on-screen group stay decoupled.
+  {
+    href: "/fees",
+    label: "Fee Calculator",
+    key: "0",
+    group: "Research",
+    Icon: IconFees,
+  },
 ];
 
 function Brand() {
@@ -141,9 +152,10 @@ export default function Layout({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key >= "1" && e.key <= "9") {
+      if (e.ctrlKey && e.key >= "0" && e.key <= "9") {
         e.preventDefault();
-        const item = NAV[parseInt(e.key) - 1];
+        // "0" is the tenth entry (index 9); 1-9 index positionally as before.
+        const item = NAV[e.key === "0" ? 9 : parseInt(e.key) - 1];
         if (item) window.location.href = item.href;
       }
     };
