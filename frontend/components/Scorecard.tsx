@@ -13,7 +13,8 @@ import OutsideBandBadge from "@/components/ui/OutsideBandBadge";
 import ProvenanceBadge from "@/components/ui/ProvenanceBadge";
 import FilterChecks from "@/components/FilterChecks";
 import { fieldProvenance, infoTitle } from "@/lib/provenance";
-import { formatGBP, formatPercent } from "@/lib/format";
+import { saleEvidence } from "@/lib/saleEvidence";
+import { formatGBP, formatObservedAt, formatPercent } from "@/lib/format";
 import { SoldPriceDistribution } from "@/components/charts";
 import SupplierCard from "@/components/SupplierCard";
 
@@ -64,6 +65,31 @@ function Metric({
         {value}
       </div>
     </div>
+  );
+}
+
+/**
+ * PHASE C — stated wherever a search-page count is what the reader is looking
+ * at, and nowhere else.
+ *
+ * The count above it is real: it is how many live listings an eBay search
+ * returned. The sentence exists because a count of listings is the one number
+ * on this screen a reader is most likely to read as a count of sales, and this
+ * app cannot turn one into the other — it has no sold-listing search at all.
+ */
+function NoSalesTotalNote({ className = "" }: { className?: string }) {
+  return (
+    <p
+      className={`rounded-card border border-border/40 bg-bg-surface/30 px-4 py-3 text-[12px] leading-relaxed text-text-dim ${className}`}
+    >
+      <span className="font-medium text-text-secondary">
+        That is a search-page count.
+      </span>{" "}
+      It is how many live listings eBay returned, not how many sold. No sales
+      figure is held for this product, and one cannot be derived from listings:
+      an asking price is not evidence of a sale. A sale can only be verified
+      from your own eBay purchase history.
+    </p>
   );
 }
 
@@ -170,8 +196,17 @@ export default function Scorecard({
   // only on its own evidence, so the screen can never put an empty "Sold" row
   // beside a populated "Live listings" one and invite them to be read as the
   // same measurement.
-  const hasSold = demand?.sold_count_30d != null;
-  const hasActive = demand?.active_listings_in_band != null;
+  //
+  // PHASE C — the rules that decide which figure is primary, whether it may be
+  // called verified, and whether the reader is owed the search-page note live
+  // in `lib/saleEvidence.ts`, where they can be tested. The sales block used to
+  // be gated on `sold_count_30d`, a figure no source this app can reach
+  // produces, so a captured 7-day sale was stored and then never shown.
+  const sale = saleEvidence(demand);
+  const { figure: saleFigure, stamp: saleStamp, verified: saleVerified } = sale;
+  const soldCount30d = demand?.sold_count_30d ?? null;
+  const hasSaleEvidence = sale.hasSaleEvidence;
+  const hasActive = sale.hasSearchCount;
 
   // Section-level stamp: the provenance block wins, else the demand object's
   // own tier. Undefined = no badge at all (never a fabricated one).
@@ -368,31 +403,45 @@ export default function Scorecard({
       {/* ---------------------------------------------------------------- */}
       <section>
         <SectionTitle hint="eBay evidence">Demand</SectionTitle>
-        {hasSold || hasActive ? (
+        {hasSaleEvidence || hasActive ? (
           <>
-            {hasSold && (
-              <>
+            {hasSaleEvidence && (
+              <div className="rounded-card border border-brand-lime/25 bg-brand-lime/[0.03] p-4">
+                <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                  <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-brand-lime/90">
+                    {sale.title}
+                  </span>
+                  <span className="h-px flex-1 bg-border/40" />
+                  <span className="text-[11px] text-text-dim">
+                    {sale.readAt
+                      ? `read ${formatObservedAt(sale.readAt)}`
+                      : "read time not recorded"}
+                  </span>
+                </div>
+
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                   <Metric
-                    label="Sold (30d)"
-                    emphasis
-                    prov={demandField("sold_count_30d")}
-                    value={demand.sold_count_30d ?? 0}
-                  />
-                  <Metric
                     label="Sold (7d)"
-                    prov={demandField("sold_count_7d")}
+                    emphasis
+                    prov={saleStamp ?? undefined}
                     value={
-                      demand.sold_count_7d ?? (
+                      saleFigure?.value ?? (
                         <span className="text-accent-amber">Not stated</span>
                       )
                     }
                   />
+                  {soldCount30d != null && (
+                    <Metric
+                      label="Sold (30d)"
+                      prov={demandField("sold_count_30d")}
+                      value={soldCount30d}
+                    />
+                  )}
                   <Metric
                     label="Avg sold price"
                     prov={demandField("avg_sold_price")}
                     value={
-                      demand.avg_sold_price != null
+                      demand?.avg_sold_price != null
                         ? formatGBP(demand.avg_sold_price)
                         : "Not stated"
                     }
@@ -404,11 +453,20 @@ export default function Scorecard({
                   />
                 </div>
 
-                {/* A3 — the observations behind the four tiles above. Plotted
-                  from the SAME list that produced them, so the shape of the
-                  market is shown rather than asserted by a min/avg/max triple.
-                  Runs saved before sold_prices existed render nothing here. */}
-                {demand.sold_prices && demand.sold_prices.length > 0 && (
+                {/* Only a purchase-history capture can produce a sale price, so
+                  this sentence is a statement about where the numbers above
+                  come from, not decoration. */}
+                <p className="mt-3 text-[12px] leading-relaxed text-text-dim">
+                  {saleVerified
+                    ? "Read by the capture extension from your own eBay purchase history, in your own signed-in session. Not modelled, not estimated, and not a count of live listings."
+                    : "This row holds a sales figure without recording which source produced it, so it is shown as unverified rather than given a source it did not name."}
+                </p>
+
+                {/* A3 — the observations behind the tiles above. Plotted from
+                  the SAME list that produced them, so the shape of the market is
+                  shown rather than asserted by a min/avg/max triple. Runs saved
+                  before sold_prices existed render nothing here. */}
+                {demand?.sold_prices && demand.sold_prices.length > 0 && (
                   <figure className="mt-4 rounded-card border border-border/50 bg-bg-surface/40 p-4">
                     <figcaption className="mb-3 flex items-baseline gap-3">
                       <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-dim">
@@ -425,19 +483,21 @@ export default function Scorecard({
                     />
                   </figure>
                 )}
-              </>
+              </div>
             )}
 
-            {/* SUPPLY, and named as such. These are asking prices on listings
-              that are still for sale — nothing in this block sold. Every figure
-              is real and was read from eBay, which is exactly why it must not
-              sit under a "sold" heading: it did until 2026-10-19, and a listing
-              price is not evidence of a sale however many of them there are. */}
+            {/* SUPPLY, and named as such — and, since PHASE C, named as the
+              search-page count it actually is. These are asking prices on
+              listings that are still for sale: nothing in this block sold. Every
+              figure is real and was read from eBay, which is exactly why it must
+              not sit under a "sold" heading: it did until 2026-10-19, and a
+              listing price is not evidence of a sale however many of them there
+              are. */}
             {hasActive && (
-              <div className={hasSold ? "mt-5" : ""}>
-                <div className="mb-3 flex items-baseline gap-3">
+              <div className={hasSaleEvidence ? "mt-5" : ""}>
+                <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
                   <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-dim">
-                    Live listings
+                    Search-page count
                   </span>
                   <span className="h-px flex-1 bg-border/40" />
                   <span className="text-[11px] text-text-dim">
@@ -448,13 +508,13 @@ export default function Scorecard({
                   <Metric
                     label="In-band New listings"
                     prov={demandField("active_listings_in_band")}
-                    value={demand.active_listings_in_band ?? 0}
+                    value={demand?.active_listings_in_band ?? 0}
                   />
                   <Metric
                     label="Avg asking price"
                     prov={demandField("avg_active_price")}
                     value={
-                      demand.avg_active_price != null
+                      demand?.avg_active_price != null
                         ? formatGBP(demand.avg_active_price)
                         : "Not stated"
                     }
@@ -466,7 +526,7 @@ export default function Scorecard({
                   />
                 </div>
 
-                {demand.active_prices && demand.active_prices.length > 0 && (
+                {demand?.active_prices && demand.active_prices.length > 0 && (
                   <figure className="mt-4 rounded-card border border-border/50 bg-bg-surface/40 p-4">
                     <figcaption className="mb-3 flex items-baseline gap-3">
                       <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-dim">
@@ -485,15 +545,22 @@ export default function Scorecard({
                 )}
               </div>
             )}
+
+            {/* Shown whenever a search count is what the reader is looking at,
+              and only then: with a verified sale above it, the number has an
+              owner and needs no disclaimer. */}
+            {sale.showsSearchCountNote && <NoSalesTotalNote className="mt-4" />}
           </>
         ) : (
           <div className="rounded-card border border-border/50 border-dashed bg-bg-surface/30 px-5 py-8 text-center">
             <p className="text-sm font-medium text-text-secondary">
-              No demand data for this product
+              No eBay evidence stored for this product
             </p>
-            <p className="mt-1 text-[13px] text-text-dim">
-              eBay returned too few completed sales to measure demand. These
-              figures are marked unverified rather than estimated.
+            <p className="mt-2 mx-auto max-w-xl text-[13px] leading-relaxed text-text-dim">
+              No search-page count and no sales reading were recorded for this
+              product. A sale can only be verified from your own eBay purchase
+              history, which the capture extension reads in your own signed-in
+              session — nothing here estimates one instead.
             </p>
           </div>
         )}
