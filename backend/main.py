@@ -23,6 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from llm.prewarm import schedule_prewarm
 from api import (
+    alerts,
     analyze,
     bulk,
     dashboard,
@@ -100,6 +101,7 @@ app.include_router(export_api.router, prefix="/api", tags=["export"])
 app.include_router(extension.router, prefix="/api", tags=["extension"])
 app.include_router(deals.router, prefix="/api", tags=["deals"])
 app.include_router(fees.router, prefix="/api", tags=["fees"])
+app.include_router(alerts.router, prefix="/api", tags=["alerts"])
 
 
 @app.get("/api/health", tags=["status"])
