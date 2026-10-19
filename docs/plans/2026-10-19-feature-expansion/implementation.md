@@ -203,6 +203,33 @@ The same acceptance inputs through the pipeline verdict return the same profit (
 Change a tracked price; a `price_alerts` row appears with old and new values and renders in the
 inbox. Run a saved search; `search_results` rows appear.
 
+### Shipped 2026-10-20
+
+Beyond the file table: `backend/scripts/run_alerts.cmd` and `backend/scripts/schedule_alerts.xml` (the hourly Windows task, registered and run - Last Result 0), `frontend/lib/alerts.ts` with 18 vitest cases, and `tests/test_alerts_api.py`, `tests/test_alerts_schedule.py`, `tests/test_saved_searches.py`. The saved-search routes already existed on `api/watchlist.py`; `watchlist/runner.py` now delegates both `run_search` and `run_all_searches` to `hunter/saved_searches.py`, and the legacy `generate_alert` and its 50p threshold were deleted from `tracker/price_checker.py` - one alert rule, not two.
+
+Rules, as code:
+
+- `hunter/alerts.py` is pure and refuses first: `None`, `0.0`, negatives and non-numeric values are unread, not zero, and never become a row. Comparisons are made at the penny (`round(x, 2)`).
+- The item lane compares `price_history` readings with each other and with the product's `target_price`; the query lane compares consecutive `demand_snapshots.avg_price` readings and labels the number "average asking price". A per-item target is deliberately not applied to a market average.
+- Dedupe: a decision is written only when no existing `PriceAlert` for the same product carries the same `alert_type`, `new_price` and `message` at or after the reading's timestamp; lanes stay independent through their message.
+- The margin row fires only when a move crosses the configured floor (`margin_min`, default 25.0, from `utils.filters.load_filters()`), stores the two margins in `old_price`/`new_price`, and refuses without a real supplier cost. Its postage caveat appears when `profit_is_complete` is false.
+- Saved-search runs have a stated budget: at most `MAX_SEARCHES_PER_PASS` (10) searches per pass, one Browse search call per run (measured from `scrapers/ebay_sold`), `DEFAULT_SEARCH_BUDGET_S = 30.0`. Every report carries `searches_run`, `searches_not_run` and `browse_calls`.
+- A `search_results` row requires a named listing URL, an eBay price > 0, a real supplier price > 0, a price inside the search's own band, profit > 0 and margin at least the search's own `min_margin`; anything else produces a sentence, not a row. `last_run` is recorded even on an empty run.
+
+Live evidence from the running stack, 2026-10-20:
+
+| What                   | Inputs                                       | Answer                                                                                                        |
+| ---------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Alert row, query lane  | hourly pass over `demand_snapshots`          | `price_drop`, "cordless drill average asking price dropped from £22.66 to £22.57", stored 22.66/22.57, unread |
+| Count                  | `GET /api/alerts/count`                      | `{"unread": 1}`                                                                                               |
+| Margin tab             | `GET /api/alerts?alert_type=margin_alert`    | 0 rows - no margin crossing has happened yet                                                                  |
+| Saved-search run       | "Cordless drill", band £5-35, min margin 25% | 17.7 s, **1** Browse call, found 0, reason "no real supplier price was found, so a margin would be a guess"   |
+| Empty run still stamps | `GET /api/searches` after the run            | `last_run` 2026-10-19T21:42:41, `result_count` 0                                                              |
+| Page                   | `GET /alerts`                                | 200; heading and all four tabs in the shipped page                                                            |
+| Scheduled pass         | Windows task "eBayHunter Alerts"             | hourly (`PT1H`), Last Result 0                                                                                |
+
+Honest limits, measured the same day: the item lane has no real reading to compare - both `price_history` rows are 0.0 failed reads, because eBay `/itm/` pages return 403 through the scraper - so it stays silent rather than inventing a move. SerpApi is at 0/250 until 2026-11-08, which is why the live saved-search run refused instead of storing a match. The throwaway search used for that run was deleted afterwards; `saved_searches` and `search_results` are back to 0 rows.
+
 ---
 
 ## Phase F - Title helper
