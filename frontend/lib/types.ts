@@ -820,3 +820,169 @@ export interface SourceRow {
   /** True for a count of live listings: real, and not evidence of a sale. */
   supply?: boolean;
 }
+
+// ── Phase D - fee calculator ───────────────────────────────────
+
+/** The table that made a figure: key, dated version, currency. */
+export interface FeeTableRef {
+  key: string;
+  version: string;
+  currency: string;
+}
+
+/** One itemised line, exactly as the engine states it. */
+export interface FeeLine {
+  label: string;
+  /** The table's rate text ("12.9%", "0.35%", "20%"), or null. */
+  rate: string | null;
+  amount: number;
+}
+
+export interface FeeCategoryInfo {
+  key: string;
+  name: string;
+  /** False when the engine fell back to its stated default. */
+  known: boolean;
+  category_ids?: number[];
+  rate_applied?: string;
+  assumption?: string | null;
+}
+
+export interface FeeCalculationFees {
+  fee_table: FeeTableRef;
+  seller: {
+    type: string;
+    uk_resident?: boolean | null;
+    vat_registered?: boolean | null;
+  };
+  buyer_region: string;
+  category: FeeCategoryInfo | null;
+  fee_basis: string;
+  total_amount_of_sale: number;
+  fvf: number;
+  fvf_rate: string;
+  per_order_fee: number | null;
+  regulatory_fee: number | null;
+  international_fee: number | null;
+  promoted_fee: number | null;
+  listing_fee: number | null;
+  vat_on_fees: number | null;
+  vat_recoverable: boolean;
+  vat_note?: string | null;
+  fees_quoted_total: number;
+  fees_cost_total: number;
+  assumptions: string[];
+  notes: string[];
+  ok: boolean;
+}
+
+/** The engine's whole money view of one sale. */
+export interface FeeCalculation {
+  ok: boolean;
+  fee_lines: FeeLine[];
+  fees: FeeCalculationFees;
+  price: number;
+  postage_charged: number;
+  proceeds: number;
+  supplier_cost: number | null;
+  /** The seller's own postage; 0 means UNKNOWN, not free. */
+  postage_paid: number;
+  postage_paid_known: boolean;
+  risk_buffer_percent: number;
+  risk_buffer: number;
+  packaging_cost: number;
+  net_after_fees: number;
+  profit: number | null;
+  margin: number | null;
+  profit_is_complete: boolean;
+  profit_missing_reason?: string | null;
+}
+
+export interface FeeCategory {
+  key: string;
+  name: string;
+  category_ids: number[];
+  rate_label: string;
+  notes: string[];
+}
+
+export interface FeeSource {
+  label: string;
+  url: string;
+  page_updated: string;
+  retrieved: string;
+}
+
+export interface FeeTable {
+  key: string;
+  version: string;
+  currency: string;
+  vat_rate: number;
+  sources: FeeSource[];
+  business: Record<string, unknown>;
+  private: Record<string, unknown>;
+}
+
+export interface SellerProfile {
+  seller_type: "business" | "private";
+  uk_resident: boolean;
+  vat_registered: boolean;
+  promoted_rate: number;
+  category: string | null;
+  fee_table: string | null;
+}
+
+export interface FeeTableResponse {
+  fee_table: FeeTable;
+  categories: FeeCategory[];
+  profile: SellerProfile;
+}
+
+export type FeeBuyerRegion =
+  "uk" | "eu_northern_europe" | "us_canada" | "rest_of_world";
+
+export interface FeeCalculateRequest {
+  sale_price?: number | null;
+  target_margin?: number | null;
+  postage_charged?: number;
+  postage_paid?: number;
+  category?: string | null;
+  promoted_rate?: number | null;
+  seller_type?: "business" | "private" | null;
+  uk_resident?: boolean | null;
+  vat_registered?: boolean | null;
+  listing_fee?: number;
+  buyer_region?: FeeBuyerRegion;
+  fee_table?: string | null;
+  supplier_cost?: number | null;
+  risk_buffer_percent?: number | null;
+  packaging_cost?: number | null;
+}
+
+export interface FeeSolveCheck {
+  price: number;
+  profit: number;
+  margin: number;
+  fees_cost_total: number;
+  net_after_fees: number;
+}
+
+export interface FeeForwardResult {
+  mode: "forward";
+  fee_table: FeeTableRef;
+  calculation: FeeCalculation;
+}
+
+export interface FeeReverseResult {
+  mode: "reverse";
+  fee_table: FeeTableRef;
+  achievable: boolean;
+  price: number | null;
+  target_margin: number;
+  reason: string | null;
+  check: FeeSolveCheck | null;
+  /** The same money view at the solved price, when one was found. */
+  calculation?: FeeCalculation;
+}
+
+export type FeeCalculateResponse = FeeForwardResult | FeeReverseResult;

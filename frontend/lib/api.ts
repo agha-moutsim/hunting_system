@@ -14,6 +14,7 @@ const TIMEOUT_OVERRIDES: Record<string, number> = {
   "/api/bulk": 180_000,
   "/api/hunter/scan": 90_000,
   "/api/hunter/lookup": 120_000,
+  "/api/fees/": 15_000, // pure engine arithmetic; a slow answer is a bug
 };
 
 function timeoutFor(path: string): number {
