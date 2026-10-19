@@ -1,15 +1,17 @@
 # Implementation
 
-Per-phase work. Each phase is one commit, and each ends with the verification block from
-`outcome.md`.
+Per-phase work. Each phase ships as a handful of commits, one well-scoped change each, and
+ends with the verification block from `outcome.md`. Current state and next move live in
+`HANDOFF.md`.
 
-Run before every push (no git hooks exist):
+Run before every push (the pre-commit hook already runs prettier, typecheck and the backend
+suite):
 
 ```
-cd backend  && python -m pytest tests/ -q      expect 1203 passed, 9 deselected
-cd frontend && npx vitest run                  expect 54 passed
+python -m pytest tests/ -q                     expect ~1543 passed, 9 deselected
+cd frontend && npx vitest run                  expect 148 passed
 cd frontend && npx tsc --noEmit                expect exit 0
-npm --prefix frontend run build                expect 11 routes
+npm --prefix frontend run build                expect 14 rows (13 routes + _not-found)
 ```
 
 Restore `backend/data/custom_filters.json` first or about 10 price-band tests fail.
