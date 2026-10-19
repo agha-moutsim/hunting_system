@@ -178,6 +178,12 @@ def product_detail(product_id: int):
             "demand": {
                 "sold_count_30d": demand.sold_count_30d,
                 "sold_count_7d": demand.sold_count_7d,
+                # The date of the most recent sale, when a capture read one.
+                # Served since Phase C: the column existed and the payload did
+                # not carry it, so the Sources view would have listed a stored
+                # figure as "not known" — the same defect as showing a sale
+                # nobody measured, pointed the other way.
+                "last_sale_date": demand.last_sale_date,
                 "avg_sold_price": _stat(demand.avg_sold_price),
                 "lowest_sold_price": _stat(demand.lowest_sold_price),
                 "highest_sold_price": _stat(demand.highest_sold_price),

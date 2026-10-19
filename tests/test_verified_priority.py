@@ -391,6 +391,34 @@ class TestWhatTheAPIHandsTheScreen:
         ):
             assert key in detail, key
 
+    def test_no_stored_figure_is_invisible_to_the_api(self, sessions):
+        """Every figure column reaches the payload, under some name.
+
+        A field the database holds and the API withholds cannot reach the
+        Sources view at all, so the view lists a measured figure under "not
+        known" — the same lie as showing a sale nobody measured, pointed the
+        other way. This is the guard that would have caught `last_sale_date`,
+        which was a column of the row and absent from every payload. It is
+        written against the model rather than a hand-kept list, so a new
+        column has to be served or named here as deliberately withheld.
+        """
+        from api.history import product_detail
+        from db.models import DemandData as DemandDataRow
+
+        product_id = self._save(sessions, DemandData(verified=False))
+        served = set(product_detail(product_id)["demand"].keys())
+
+        # Row identity, not a figure.
+        row_metadata = {"id", "product_id", "created_at"}
+        # Stored in their own columns and served inside the figures triple,
+        # where they belong beside the value they qualify.
+        served_in_the_triple = {"sold_source", "sold_captured_at"}
+
+        figures = {c.name for c in DemandDataRow.__table__.columns}
+        withheld = figures - row_metadata - served_in_the_triple - served
+
+        assert withheld == set(), f"stored but never served: {sorted(withheld)}"
+
 
 # ---------------------------------------------------------------------------
 # 4. The columns reach a database that predates them

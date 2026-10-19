@@ -221,6 +221,14 @@ export interface DemandData {
   highest_active_price?: number | null;
   /** The asking prices behind those figures, same discipline as sold_prices. */
   active_prices?: number[] | null;
+  /**
+   * The sentence the analysis wrote when it stored the row: which query
+   * produced these figures, and the source of any sold figure that did not
+   * come from that query. The endpoint carried it all along and this type did
+   * not, so the Sources view could not read a sentence the API was already
+   * sending.
+   */
+  data_source?: string | null;
   verified?: boolean;
   provenance?: string;
   provenance_label?: string;
@@ -786,4 +794,29 @@ export interface DealsResponse {
   meta: DealsMeta;
   count: number;
   items: DealItem[];
+}
+
+/**
+ * PHASE C — one line of the Sources view.
+ *
+ * `value` null is the load-bearing case: it means the field was never
+ * measured, and the view's "not known" list is derived from exactly those
+ * rows. `unknownReason` says what it would take to know, and is rendered only
+ * against a null value — it can never be attached to a figure that exists.
+ */
+export interface SourceRow {
+  /** The payload key, so a figure can be found in the API and the database. */
+  name: string;
+  /** What the figure means, for a reader who has never seen the API. */
+  label: string;
+  /** The rendered value, or null when nothing was measured for this field. */
+  value: string | null;
+  /** Where it came from, when the backend recorded an origin. */
+  stamp?: ProvenanceInfo | null;
+  /** When the source read it, already formatted; null when not recorded. */
+  readAt?: string | null;
+  /** What it would take to know this. Rendered only for a null value. */
+  unknownReason: string;
+  /** True for a count of live listings: real, and not evidence of a sale. */
+  supply?: boolean;
 }

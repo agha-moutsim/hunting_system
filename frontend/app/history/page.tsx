@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useEffect, useState, useCallback } from "react";
+import Link from "next/link";
 import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input";
 import Badge from "@/components/ui/Badge";
@@ -284,9 +285,20 @@ export default function HistoryPage() {
         <Card
           title="Product detail"
           action={
-            <Button variant="ghost" onClick={() => setDetail(null)}>
-              Close
-            </Button>
+            <div className="flex items-center gap-2">
+              {/* PHASE C — the route to what this card cannot show: which of the
+                  figures below were measured, by what, when, and which were
+                  never measured at all. */}
+              <Link
+                href={`/sources?product=${detail.product.id}`}
+                className="rounded-control px-3 py-1.5 text-sm font-semibold text-text-secondary transition-colors duration-200 hover:bg-bg-surface hover:text-white"
+              >
+                Sources
+              </Link>
+              <Button variant="ghost" onClick={() => setDetail(null)}>
+                Close
+              </Button>
+            </div>
           }
         >
           <Scorecard {...detailAsScorecard(detail)} />
