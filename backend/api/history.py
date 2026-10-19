@@ -7,9 +7,40 @@ from fastapi import APIRouter, HTTPException
 
 from engine.price_gate import in_band
 from utils.filters import active_range, outside_range, price_in_range, resolve_range
+from api.schemas import SourcedFigure
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _as_utc_z(value) -> dict:
+    """A stored datetime as an exact instant, or None when nothing was stored.
+
+    Naive-and-assumed-UTC is what every other timestamp in this payload is, and
+    the client carries `asUtc()` to patch that legacy; a figure read here can
+    simply say which instant it is, so it does.
+    """
+    if value is None:
+        return None
+    return f"{value.isoformat()}Z"
+
+
+def _figure(value, origin, observed_at=None):
+    """One figure as {value, origin, observed_at}, or None when there is none.
+
+    A figure with no value is not a figure, so the slot is dropped entirely
+    rather than emitted as {"value": null, "origin": ...}: an origin badge must
+    never be able to render over a number that does not exist. A value that IS
+    present but whose origin was never recorded still comes through, with
+    origin=None, and the UI says so rather than guessing.
+    """
+    if value is None:
+        return None
+    return SourcedFigure(
+        value=value,
+        origin=origin,
+        observed_at=_as_utc_z(observed_at),
+    ).model_dump()
 
 
 def _serialize_observation(row) -> dict:
@@ -168,6 +199,29 @@ def product_detail(product_id: int):
                 "active_prices": list(demand.active_prices or []),
                 "data_source": demand.data_source,
                 "verified": demand.verified,
+                # PHASE C — the sold figures with their provenance attached, so
+                # a screen can render where each number came from and when that
+                # source read it, instead of a bare integer whose meaning gets
+                # chosen by which slot it sits in.
+                #
+                # Only the 7-day figure can be attributed, because only it has a
+                # recorded producer: the capture extension reading the user's own
+                # purchase history. A 30-day sold count has no source this app
+                # can reach, so if a value ever appears in that slot this
+                # serialiser still reports origin=None rather than filing it
+                # under the 7-day figure's source.
+                #
+                # A slot reading null is not an error state: it is how the
+                # Sources view knows a figure was never measured, and it must
+                # never be dressed up as a zero.
+                "figures": {
+                    "sold_count_7d": _figure(
+                        demand.sold_count_7d,
+                        demand.sold_source,
+                        demand.sold_captured_at,
+                    ),
+                    "sold_count_30d": _figure(demand.sold_count_30d, None, None),
+                },
             } if demand else None,
             "suppliers": [
                 {

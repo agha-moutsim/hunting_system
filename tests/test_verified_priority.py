@@ -26,7 +26,8 @@ ITEM_ID = "1234567890"
 URL = f"https://www.ebay.co.uk/itm/{ITEM_ID}"
 
 
-def _fresh_session_factory(tmp_path):
+def _fresh_database(tmp_path):
+    """A throwaway SQLite database carrying every table the app declares."""
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 
@@ -35,12 +36,24 @@ def _fresh_session_factory(tmp_path):
 
     engine = create_engine(f"sqlite:///{tmp_path / 'verified.db'}")
     Base.metadata.create_all(bind=engine)
-    return sessionmaker(bind=engine)
+    return engine, sessionmaker(bind=engine)
 
 
 @pytest.fixture()
-def sessions(tmp_path):
-    return _fresh_session_factory(tmp_path)
+def sessions(tmp_path, monkeypatch):
+    """One throwaway database, reached by the direct callers AND the API.
+
+    `api.history` imports SessionLocal from db.database when the route runs, so
+    patching it here points the endpoint and the tests at the same temp
+    database. `engine` goes with it: anything that inspects or migrates would
+    otherwise silently look at the real file.
+    """
+    import db.database as dbmod
+
+    engine, factory = _fresh_database(tmp_path)
+    monkeypatch.setattr(dbmod, "SessionLocal", factory)
+    monkeypatch.setattr(dbmod, "engine", engine)
+    return factory
 
 
 def _store_capture(sessions, *, sold_7d=12, captured_at=None, item_id=ITEM_ID):
@@ -249,7 +262,138 @@ class TestWhatTheRowRemembers:
 
 
 # ---------------------------------------------------------------------------
-# 3. The columns reach a database that predates them
+# 3. What the API hands the screen
+# ---------------------------------------------------------------------------
+
+class TestWhatTheAPIHandsTheScreen:
+    """The payload is where a stored figure becomes a rendered one.
+
+    The rule this pins: a screen is told what produced each number and when it
+    was read, and is told nothing at all where no number exists. A figure that
+    was never measured arrives as null — not as a zero, and not as a badge over
+    an absent value.
+    """
+
+    @staticmethod
+    def _save(sessions, demand):
+        from db.queries import save_demand_data, save_product
+        from scrapers.base import ScrapedProduct
+
+        session = sessions()
+        try:
+            product_id = save_product(
+                session,
+                ScrapedProduct(
+                    source="ebay_uk",
+                    title="Dyson ball animal 2",
+                    price=99.0,
+                    url=URL,
+                    condition="New",
+                ),
+            )
+            save_demand_data(session, product_id, demand)
+            return product_id
+        finally:
+            session.close()
+
+    def test_a_capture_backed_row_serves_the_figure_its_origin_and_its_time(
+        self, sessions
+    ):
+        from api.history import product_detail
+
+        read_at = _store_capture(sessions, sold_7d=12)
+        demand = apply_purchase_history(DemandData(verified=False), URL, db=sessions())
+
+        figure = product_detail(self._save(sessions, demand))["demand"]["figures"][
+            "sold_count_7d"
+        ]
+
+        assert figure["value"] == 12
+        assert figure["origin"] == SOLD_SOURCE_PURCHASE_HISTORY
+        assert figure["observed_at"] == f"{read_at.isoformat()}Z"
+
+    def test_the_read_time_says_which_instant_it_is(self, sessions):
+        """A bare naive timestamp in a payload is an instant the reader has to
+        guess at, and the guess is wrong for anyone not on UTC. The figure says
+        which one it means."""
+        from api.history import product_detail
+
+        _store_capture(sessions, sold_7d=12)
+        demand = apply_purchase_history(DemandData(verified=False), URL, db=sessions())
+
+        served = product_detail(self._save(sessions, demand))["demand"]["figures"][
+            "sold_count_7d"
+        ]["observed_at"]
+
+        assert served.endswith("Z")
+        assert datetime.fromisoformat(served.replace("Z", "+00:00")).tzinfo is not None
+
+    def test_a_row_with_no_capture_serves_no_sold_figure_at_all(self, sessions):
+        from api.history import product_detail
+
+        demand = DemandData(
+            verified=False, active_listings_in_band=50, avg_active_price=21.99
+        )
+        detail = product_detail(self._save(sessions, demand))["demand"]
+
+        assert detail["figures"]["sold_count_7d"] is None
+        assert detail["figures"]["sold_count_30d"] is None
+        # The supply figure is still served, under the name that says it is supply.
+        assert detail["active_listings_in_band"] == 50
+
+    def test_a_figure_with_no_recorded_origin_is_served_unattributed(self, sessions):
+        """A legacy row holds a count and no idea where it came from. The
+        payload says exactly that; filing it under a source would be inventing
+        the citation."""
+        from api.history import product_detail
+
+        product_id = self._save(sessions, DemandData(verified=False, sold_count_7d=7))
+
+        figure = product_detail(product_id)["demand"]["figures"]["sold_count_7d"]
+
+        assert figure["value"] == 7
+        assert figure["origin"] is None
+        assert figure["observed_at"] is None
+
+    def test_the_30d_slot_is_never_filed_under_the_7d_figures_source(self, sessions):
+        """Two sold figures, one producer. Only the one it produced is
+        attributed to it — the other says its origin is unknown rather than
+        borrowing a badge that would make it look verified."""
+        from api.history import product_detail
+
+        _store_capture(sessions, sold_7d=12)
+        demand = apply_purchase_history(DemandData(verified=False), URL, db=sessions())
+        demand.sold_count_30d = 999  # no source this app can reach produces this
+
+        figures = product_detail(self._save(sessions, demand))["demand"]["figures"]
+
+        assert figures["sold_count_30d"]["value"] == 999
+        assert figures["sold_count_30d"]["origin"] is None
+        assert figures["sold_count_7d"]["origin"] == SOLD_SOURCE_PURCHASE_HISTORY
+
+    def test_the_figures_block_is_additive(self, sessions):
+        """History's existing readers keep working: Phase C adds the provenance
+        block, it does not move the flat values other screens already read."""
+        from api.history import product_detail
+
+        product_id = self._save(
+            sessions, DemandData(verified=False, active_listings_in_band=50)
+        )
+        detail = product_detail(product_id)["demand"]
+
+        for key in (
+            "sold_count_7d",
+            "sold_count_30d",
+            "active_listings_in_band",
+            "active_prices",
+            "data_source",
+            "verified",
+        ):
+            assert key in detail, key
+
+
+# ---------------------------------------------------------------------------
+# 4. The columns reach a database that predates them
 # ---------------------------------------------------------------------------
 
 class TestTheMigration:

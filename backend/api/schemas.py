@@ -110,3 +110,38 @@ class SaleCreate(BaseModel):
 class ExportResultRequest(BaseModel):
     """Body = a DeepSearchResult dict (from POST /api/deep-search)."""
     result: dict[str, Any]
+
+
+# ── Provenance ──────────────────────────────────────────────────
+
+#: The origins a STORED figure can carry, as tokens rather than prose. The UI
+#: owns the words (see frontend/lib/fieldProvenance.ts); this end owns the fact.
+#: An origin is named by the thing that produced the number, so a badge can
+#: never be chosen by which slot the number happens to sit in.
+ORIGIN_PURCHASE_HISTORY = "purchase_history"
+
+
+class SourcedFigure(BaseModel):
+    """One measured number plus the two facts that decide what it is worth.
+
+    `value` is what was actually read. None means "not read" — never 0, because
+    0 is a real measurement: a free-postage shipping cost is a measured 0.00.
+
+    `origin` names WHAT produced the number, as a token the UI maps to one badge
+    and one sentence. It is None when a row holds a figure whose source was
+    never recorded — the honest answer for anything stored before this field
+    existed. Inventing a source for such a row would be a fabricated citation,
+    which is the defect this whole provenance layer exists to prevent.
+
+    `observed_at` is when the SOURCE observed the figure, which is not when the
+    analysis ran. The purchase-history capture behind a verified sold figure can
+    be a day old, and a screen saying "read just now" about it would be the same
+    class of error as counting a live listing as a sale. Serialised as ISO-8601
+    ending in Z: the payload's older timestamps are naive because that is what
+    SQLite returned and the client patches them, but a new field has no reason
+    to inherit that ambiguity.
+    """
+
+    value: Any = None
+    origin: Optional[str] = None
+    observed_at: Optional[str] = None
