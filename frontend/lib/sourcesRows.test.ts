@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { demandSourceRows } from "./sourcesRows";
-import type { DemandData } from "./types";
+import { demandSourceRows, deepSearchUnknowns } from "./sourcesRows";
+import type { DeepSearchResult, DemandData } from "./types";
 
 /**
  * PHASE C — the Sources rows, and the rule the screen exists to hold.
@@ -125,5 +125,65 @@ describe("demandSourceRows", () => {
     expect(names).toContain("active_listings_in_band");
     expect(names).toContain("avg_sold_price");
     expect(names).toContain("last_sale_date");
+  });
+});
+
+/**
+ * The same derivation for a Deep Search run, which has no stored product to
+ * point `/sources` at. The rule has to be the same one: a field with no value
+ * is an unknown, and it stops being one the moment a source fills it.
+ */
+describe("deepSearchUnknowns", () => {
+  const EMPTY_RUN = {
+    product_name: "Dyson ball animal 2",
+    ebay_total_sold_7d: null,
+    sold_prices: [],
+    active_prices: [],
+    ebay_top_sellers: [],
+    suppliers: [],
+  } as unknown as DeepSearchResult;
+
+  it("lists every field the run did not fill", () => {
+    const names = deepSearchUnknowns(EMPTY_RUN).map((u) => u.name);
+
+    expect(names).toEqual([
+      "ebay_total_sold_7d",
+      "sold_prices",
+      "active_prices",
+      "ebay_top_sellers",
+      "suppliers",
+    ]);
+  });
+
+  it("drops a field as soon as the run fills it", () => {
+    // The list is a reading of the payload, so it has to shrink by itself. A
+    // hard-coded paragraph would still be claiming this gap after a source
+    // filled it.
+    const filled = {
+      ...EMPTY_RUN,
+      ebay_total_sold_7d: 17,
+      active_prices: [9.5, 12],
+      suppliers: [{ supplier_name: "AliExpress" }],
+    } as unknown as DeepSearchResult;
+
+    const names = deepSearchUnknowns(filled).map((u) => u.name);
+
+    expect(names).toEqual(["sold_prices", "ebay_top_sellers"]);
+  });
+
+  it("every row says what the gap is and what would close it", () => {
+    const rows = deepSearchUnknowns(EMPTY_RUN);
+    expect(new Set(rows.map((r) => r.name)).size).toBe(rows.length);
+    for (const row of rows) {
+      expect(row.label.trim()).not.toBe("");
+      expect(row.reason.trim()).not.toBe("");
+    }
+  });
+
+  it("says nothing at all when there is no run to describe", () => {
+    // Not "everything is unknown": with no result there is no claim to make,
+    // and a card full of gaps would invent a run that never happened.
+    expect(deepSearchUnknowns(null)).toEqual([]);
+    expect(deepSearchUnknowns(undefined)).toEqual([]);
   });
 });

@@ -15,6 +15,7 @@ import { SoldPriceDistribution } from "@/components/charts";
 import { ApiError, apiFetch, apiPost, downloadFile } from "@/lib/api";
 import { infoTitle } from "@/lib/provenance";
 import { headerStamps } from "@/lib/fieldProvenance";
+import { deepSearchUnknowns } from "@/lib/sourcesRows";
 import {
   DeepSearchJobResult,
   JobStarted,
@@ -41,6 +42,10 @@ export default function DeepSearchPage() {
   // C13 - every header number gets its stamp before it is rendered, so a
   // value can never reach this screen bare (see lib/fieldProvenance).
   const stamps = headerStamps(result?.provenance?.fields);
+  // PHASE C - the same derivation the Sources view does for a stored product,
+  // for a run that has no stored product to point at: a field with no value is
+  // an unknown, and the reasons travel with the rows.
+  const unknowns = deepSearchUnknowns(result);
   // Which price list this run actually holds. The sold/completed page is the
   // only source of a SALE price; when it is unreachable the scrape falls back
   // to live listings, so the tiles and the chart below say which list they are
@@ -489,7 +494,7 @@ export default function DeepSearchPage() {
           </div>
 
           {/* Notes + sources */}
-          {(result.notes || result.sources?.length) && (
+          {(result.notes || result.sources?.length || unknowns.length > 0) && (
             <Card title="Notes & Sources">
               {result.notes && (
                 <p className="text-sm text-text-secondary mb-3">
@@ -502,6 +507,39 @@ export default function DeepSearchPage() {
                     <li key={i}>• {src}</li>
                   ))}
                 </ul>
+              )}
+
+              {/* PHASE C - what this run did NOT read, derived from the payload
+                  rather than described: each row below is here because its
+                  field holds no value, and it disappears by itself if a source
+                  starts filling that field. */}
+              {unknowns.length > 0 && (
+                <div className="mt-4 space-y-2">
+                  <div className="flex items-baseline gap-3">
+                    <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-accent-amber/90">
+                      Not known
+                    </span>
+                    <span className="h-px flex-1 bg-border/40" />
+                  </div>
+                  {unknowns.map((u) => (
+                    <div
+                      key={u.name}
+                      className="rounded-card border border-dashed border-border/50 bg-bg-surface/20 px-4 py-3"
+                    >
+                      <div className="flex flex-wrap items-baseline gap-x-3">
+                        <span className="text-sm text-text-secondary">
+                          {u.label}
+                        </span>
+                        <span className="font-mono text-[11px] text-text-dim">
+                          {u.name}
+                        </span>
+                      </div>
+                      <p className="mt-1.5 text-[12px] leading-relaxed text-text-dim">
+                        {u.reason}
+                      </p>
+                    </div>
+                  ))}
+                </div>
               )}
             </Card>
           )}

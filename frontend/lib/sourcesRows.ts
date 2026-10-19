@@ -1,4 +1,4 @@
-import type { DemandData, SourceRow } from "./types";
+import type { DemandData, DeepSearchResult, SourceRow } from "./types";
 import { figureStamp } from "./fieldProvenance";
 import { formatGBP, formatObservedAt } from "./format";
 
@@ -154,4 +154,80 @@ export function demandSourceRows(demand?: DemandData | null): SourceRow[] {
         "this product.",
     },
   ];
+}
+
+/**
+ * PHASE C — the same "not known" derivation for a Deep Search run.
+ *
+ * A deep-search result is not a stored product, so it has no id for
+ * `/sources?product=<id>` to carry: the run's unknowns are derived here
+ * instead, by the same rule. A field with no value is an unknown, and the
+ * reason travels with it — so the list is a reading of the payload rather than
+ * a paragraph about it, and it shrinks by itself when a source starts filling
+ * a field.
+ */
+export interface DeepSearchUnknown {
+  /** The payload key, so the gap is findable in the API. */
+  name: string;
+  label: string;
+  reason: string;
+}
+
+function isEmpty(values?: unknown[] | null): boolean {
+  return !values || values.length === 0;
+}
+
+export function deepSearchUnknowns(
+  result?: DeepSearchResult | null
+): DeepSearchUnknown[] {
+  if (!result) return [];
+  const unknown: DeepSearchUnknown[] = [];
+
+  if (result.ebay_total_sold_7d == null) {
+    unknown.push({
+      name: "ebay_total_sold_7d",
+      label: "Sold in the last 7 days",
+      reason:
+        "This run read no 7-day sold figure. eBay's sold-listing search was " +
+        "decommissioned and its Marketplace Insights API refuses this app, so " +
+        "only a purchase-history capture can produce a sold count.",
+    });
+  }
+  if (isEmpty(result.sold_prices)) {
+    unknown.push({
+      name: "sold_prices",
+      label: "Individual sale prices",
+      reason:
+        "No sale price was read by this run, so nothing here prices what " +
+        "buyers actually paid. Any price this run does report is an asking " +
+        "price on a live listing.",
+    });
+  }
+  if (isEmpty(result.active_prices)) {
+    unknown.push({
+      name: "active_prices",
+      label: "Individual asking prices",
+      reason:
+        "No asking price was read by this run: that needs a completed eBay " +
+        "search for this product.",
+    });
+  }
+  if (isEmpty(result.ebay_top_sellers)) {
+    unknown.push({
+      name: "ebay_top_sellers",
+      label: "Top sellers",
+      reason: "No seller was read for this product by this run.",
+    });
+  }
+  if (isEmpty(result.suppliers)) {
+    unknown.push({
+      name: "suppliers",
+      label: "Suppliers",
+      reason:
+        "No supplier match was found. A supplier search that returns nothing " +
+        "reports that search — it is not proof that no supplier exists.",
+    });
+  }
+
+  return unknown;
 }
