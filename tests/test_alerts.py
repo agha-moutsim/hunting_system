@@ -18,6 +18,7 @@ from db.models import DemandSnapshot, PriceAlert, PriceHistory, TrackedProduct
 from hunter.alerts import (
     AlertDecision,
     decide_alerts,
+    decide_margin_alert,
     generate_alerts,
     generate_for_monitored_queries,
     generate_for_product,
@@ -158,6 +159,104 @@ class TestTheTargetIsAComparisonToo:
         assert "buy-below price" in decision.message
 
 
+class TestTheMarginRow:
+    """The 'margin now 34%' row: two engine margins, one floor crossing.
+
+    Margins are the engine's own (engine.profit.calculate_profit), so the
+    expected numbers here are computed rather than retyped - if the fee
+    model moves, this pins the relation that must still hold: a move fires
+    only when it crosses the floor, and the message names both margins, both
+    prices and the floor.
+    """
+
+    @staticmethod
+    def _margins(left, right, supplier):
+        from engine.profit import calculate_profit
+
+        return (
+            calculate_profit(left, supplier)["margin"],
+            calculate_profit(right, supplier)["margin"],
+        )
+
+    def test_a_move_that_crosses_the_floor_down_fires_and_names_everything(self):
+        before, after = self._margins(22.00, 18.00, 10.00)
+        assert before >= 25.0 > after  # preconditions of the case itself
+
+        decision = decide_margin_alert(
+            22.00, 18.00, supplier_cost=10.00, floor=25.0, label=TRACKED
+        )
+
+        assert decision is not None
+        assert decision.alert_type == "margin_alert"
+        assert decision.old_price == round(before, 2)  # the two values compared
+        assert decision.new_price == round(after, 2)
+        assert f"{after:.1f}%" in decision.message
+        assert f"{before:.1f}%" in decision.message
+        assert "£18.00" in decision.message and "£22.00" in decision.message
+        assert "25%" in decision.message
+        assert "fell" in decision.message and "below" in decision.message
+
+    def test_a_move_that_crosses_the_floor_up_says_rose_and_above(self):
+        decision = decide_margin_alert(
+            18.00, 22.00, supplier_cost=10.00, floor=25.0, label=TRACKED
+        )
+
+        assert decision is not None
+        assert "rose" in decision.message and "above" in decision.message
+
+    def test_a_move_that_stays_on_the_same_side_never_fires(self):
+        above, still_above = self._margins(24.99, 30.00, 10.00)
+        below, still_below = self._margins(12.00, 14.00, 10.00)
+        assert above >= 25.0 <= still_above
+        assert below < 25.0 and still_below < 25.0  # preconditions
+
+        assert (
+            decide_margin_alert(
+                24.99, 30.00, supplier_cost=10.00, floor=25.0, label=TRACKED
+            )
+            is None
+        )
+        assert (
+            decide_margin_alert(
+                12.00, 14.00, supplier_cost=10.00, floor=25.0, label=TRACKED
+            )
+            is None
+        )
+
+    def test_no_supplier_cost_is_no_margin(self):
+        for cost in (None, 0.0, -1.0, "ten pounds"):
+            assert (
+                decide_margin_alert(
+                    22.00, 18.00, supplier_cost=cost, floor=25.0, label=TRACKED
+                )
+                is None
+            )
+
+    def test_one_reading_or_no_movement_is_not_a_margin_move(self):
+        assert (
+            decide_margin_alert(
+                None, 18.00, supplier_cost=10.00, floor=25.0, label=TRACKED
+            )
+            is None
+        )
+        assert (
+            decide_margin_alert(
+                18.00, 18.00, supplier_cost=10.00, floor=25.0, label=TRACKED
+            )
+            is None
+        )
+
+    def test_the_message_says_when_postage_paid_was_not_given(self):
+        """Today's default profile has no postage figure, so the margin
+        excludes it - and the row has to say so rather than let the number
+        read as the whole truth (C1)."""
+        decision = decide_margin_alert(
+            22.00, 18.00, supplier_cost=10.00, floor=25.0, label=TRACKED
+        )
+
+        assert "postage paid not given" in decision.message
+
+
 # ---------------------------------------------------------------------------
 # The generator: stored observations in, rows out
 # ---------------------------------------------------------------------------
@@ -175,13 +274,14 @@ def session_factory(tmp_path, monkeypatch):
     return factory
 
 
-def _product(factory, name=TRACKED, target=0.0, alert_enabled=True):
+def _product(factory, name=TRACKED, target=0.0, alert_enabled=True, supplier=0.0):
     db = factory()
     try:
         row = TrackedProduct(
             product_name=name,
             ebay_url="https://www.ebay.co.uk/itm/167000000001",
             target_price=target,
+            supplier_price=supplier,
             alert_enabled=alert_enabled,
         )
         db.add(row)
@@ -352,6 +452,62 @@ class TestTheTrackedItemLane:
             "skipped": 0,
             "messages": [],
         }
+
+    def test_a_floor_crossing_writes_the_margin_row_too(
+        self, session_factory, monkeypatch
+    ):
+        """A 22.00 -> 18.00 drop with a 10.00 supplier crosses the 25% floor:
+        one price row AND one margin row, both stored by the same pass."""
+        import hunter.alerts as alerts_module
+
+        monkeypatch.setattr(alerts_module, "_margin_floor", lambda: 25.0)
+        product_id = _product(session_factory, supplier=10.00)
+        _reading(session_factory, product_id, 22.00, minutes_ago=10)
+        _reading(session_factory, product_id, 18.00, minutes_ago=1)
+
+        report = generate_for_tracked_items()
+
+        assert report["written"] == 2
+        assert [row["alert_type"] for row in _alerts(session_factory)] == [
+            "price_drop",
+            "margin_alert",
+        ]
+        margin_row = _alerts(session_factory)[1]
+        assert margin_row["message"].startswith(TRACKED)
+        assert "25%" in margin_row["message"]
+        assert "£22.00" in margin_row["message"]
+        assert "£18.00" in margin_row["message"]
+
+    def test_a_second_pass_writes_no_second_margin_row(
+        self, session_factory, monkeypatch
+    ):
+        import hunter.alerts as alerts_module
+
+        monkeypatch.setattr(alerts_module, "_margin_floor", lambda: 25.0)
+        product_id = _product(session_factory, supplier=10.00)
+        _reading(session_factory, product_id, 22.00, minutes_ago=10)
+        _reading(session_factory, product_id, 18.00, minutes_ago=1)
+        generate_for_tracked_items()
+
+        second = generate_for_tracked_items()
+
+        assert second["written"] == 0
+        assert second["skipped"] == 2
+        assert len(_alerts(session_factory)) == 2
+
+    def test_a_product_without_a_supplier_cost_gets_no_margin_row(
+        self, session_factory, monkeypatch
+    ):
+        import hunter.alerts as alerts_module
+
+        monkeypatch.setattr(alerts_module, "_margin_floor", lambda: 25.0)
+        product_id = _product(session_factory, supplier=0.0)
+        _reading(session_factory, product_id, 22.00, minutes_ago=10)
+        _reading(session_factory, product_id, 18.00, minutes_ago=1)
+
+        generate_for_tracked_items()
+
+        assert [row["alert_type"] for row in _alerts(session_factory)] == ["price_drop"]
 
 
 class TestTheQueryLane:

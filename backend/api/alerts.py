@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 #: The alert types this app writes. Kept here for the query door's refusal
 #: message; the writing side is hunter.alerts.
-KNOWN_TYPES = ("price_drop", "price_increase", "target_hit")
+KNOWN_TYPES = ("price_drop", "price_increase", "target_hit", "margin_alert")
 
 
 def _row(alert) -> dict:

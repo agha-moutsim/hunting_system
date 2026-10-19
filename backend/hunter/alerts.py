@@ -127,6 +127,93 @@ def _empty_report() -> dict:
     return {"products": 0, "comparisons": 0, "written": 0, "skipped": 0, "messages": []}
 
 
+def _margin_floor() -> float:
+    """The configured minimum margin (C7) - the same source the verdict reads.
+
+    `utils.filters.load_filters` is the loader the app uses for
+    user-adjusted filters, so a user who moved `margin_min` sees alerts
+    about the floor they actually set; the config default covers an
+    unreadable filters file (a missing floor must not silently become
+    zero, which would make every margin "above the minimum").
+    """
+    try:
+        from utils.filters import load_filters
+
+        return float(load_filters().get("margin_min", 25.0))
+    except Exception:
+        from config import FILTERS
+
+        return float(FILTERS.get("margin_min", 25.0))
+
+
+def decide_margin_alert(
+    previous: Optional[float],
+    latest: Optional[float],
+    *,
+    supplier_cost: Optional[float],
+    floor: float,
+    label: str,
+) -> Optional[AlertDecision]:
+    """The margin row: the two margins a price move produced, and the floor.
+
+    Margins come from `engine.profit.calculate_profit` - the same money rule
+    the verdict and the fee calculator use - so an alert can never quote a
+    margin the rest of the app would disagree with. The row fires only when
+    the move CROSSES the configured floor (CONSTRAINTS.md C7): a margin
+    that changed but stayed on the same side of the floor is the same fact
+    re-told, and the price-change row already carries it.
+
+    A margin needs a real supplier cost: with none, the engine's own rule is
+    that there is no profit figure, so this returns None rather than invent
+    one. When the profit view itself says postage paid was not given, the
+    message says so, because the figure then excludes it - the two prices
+    and the two margins are named either way.
+    """
+    before = _penny(previous)
+    after = _penny(latest)
+    if before is None or after is None or before == after:
+        return None
+    try:
+        cost = float(supplier_cost) if supplier_cost is not None else 0.0
+    except (TypeError, ValueError):
+        return None
+    if cost <= 0:
+        return None
+
+    from engine.profit import calculate_profit
+
+    view_before = calculate_profit(before, cost)
+    view_after = calculate_profit(after, cost)
+    margin_before = view_before.get("margin")
+    margin_after = view_after.get("margin")
+    if margin_before is None or margin_after is None:
+        return None
+
+    crossed_up = margin_before < floor <= margin_after
+    crossed_down = margin_before >= floor > margin_after
+    if not (crossed_up or crossed_down):
+        return None
+
+    caveat = ""
+    if not (
+        view_before.get("profit_is_complete")
+        and view_after.get("profit_is_complete")
+    ):
+        caveat = "; postage paid not given"
+
+    return AlertDecision(
+        alert_type="margin_alert",
+        old_price=round(margin_before, 2),
+        new_price=round(margin_after, 2),
+        message=(
+            f"{label} item margin {'rose' if crossed_up else 'fell'} to "
+            f"{margin_after:.1f}% at £{after:.2f}, now "
+            f"{'above' if crossed_up else 'below'} the {floor:g}% minimum "
+            f"(was {margin_before:.1f}% at £{before:.2f}{caveat})"
+        ),
+    )
+
+
 def _record(db, product_id: Optional[int], decision: AlertDecision, observed_at) -> bool:
     """Write one decision, unless the reading it describes is already alerted.
 
@@ -199,6 +286,7 @@ def _compare_item_readings(db, product, report: dict) -> None:
         return
     latest = readings[0]
     previous = readings[1] if len(readings) > 1 else None
+    observed_at = latest.checked_at or datetime.utcnow()
     decisions = decide_alerts(
         previous.ebay_price if previous is not None else None,
         latest.ebay_price,
@@ -207,13 +295,19 @@ def _compare_item_readings(db, product, report: dict) -> None:
         target=product.target_price,
         target_label="target price",
     )
-    _apply(
-        db,
-        product.id,
-        decisions,
-        latest.checked_at or datetime.utcnow(),
-        report,
+    _apply(db, product.id, decisions, observed_at, report)
+
+    # The margin row needs the same two readings plus a real supplier cost;
+    # it fires only when the move crosses the configured floor.
+    margin = decide_margin_alert(
+        previous.ebay_price if previous is not None else None,
+        latest.ebay_price,
+        supplier_cost=product.supplier_price,
+        floor=_margin_floor(),
+        label=product.product_name or "tracked item",
     )
+    if margin is not None:
+        _apply(db, product.id, [margin], observed_at, report)
 
 
 def generate_for_product(product_id: int) -> dict:
