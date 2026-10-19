@@ -16,7 +16,7 @@ from datetime import datetime
 
 import click
 
-from config import FILTERS, PROFIT_CONFIG
+from config import FILTERS
 
 # Force UTF-8 output on Windows consoles (avoids cp1252 UnicodeEncodeError)
 try:
@@ -82,22 +82,49 @@ def analyze(query: str):
 @cli.command()
 @click.argument("ebay_price", type=float)
 @click.argument("supplier_price", type=float)
-def profit(ebay_price: float, supplier_price: float):
+@click.option(
+    "--shipping-cost",
+    type=float,
+    default=0.0,
+    help="Postage you pay per sale; 0 means unknown, not free.",
+)
+def profit(ebay_price: float, supplier_price: float, shipping_cost: float):
     """Calculate profit for a product."""
     from engine.profit import calculate_profit
 
-    result = calculate_profit(ebay_price, supplier_price)
+    try:
+        result = calculate_profit(
+            ebay_price, supplier_price, shipping_cost=shipping_cost
+        )
+    except ValueError as exc:
+        # The engine refuses to price a sale it cannot stand behind (a zero
+        # or unread price); the command repeats the refusal.
+        click.echo(f"\nNo calculation: {exc}")
+        return
+
+    breakdown = result["breakdown"]
+    table = result["fee_table"]
 
     click.echo(f"\nProfit Calculation:")
-    click.echo(f"  eBay Price:      £{ebay_price:.2f}")
-    click.echo(f"  Supplier Price:  £{supplier_price:.2f}")
-    click.echo(f"  eBay fee:        £{result['ebay_fee']:.2f} ({PROFIT_CONFIG['ebay_fee_percent']}%)")
-    click.echo(f"  Listing fee:     £{result['listing_fee']:.2f} ({PROFIT_CONFIG['listing_fee_percent']}%)")
-    click.echo(f"  VAT on fees:     £{result['vat_on_fees']:.2f} ({PROFIT_CONFIG['vat_on_fees_percent']}%)")
-    click.echo(f"  Returns buffer:  £{result['returns_buffer']:.2f} ({PROFIT_CONFIG['returns_buffer_percent']}%)")
+    click.echo(f"  eBay Price:       £{ebay_price:.2f}")
+    click.echo(f"  Supplier Price:   £{supplier_price:.2f}")
+    click.echo(f"  Fee table:        {table['key']} ({table['version']})")
+    for row in breakdown["fee_lines"]:
+        label = f"{row['label']}:"
+        gap = " " * max(1, 19 - len(label))
+        rate = f" ({row['rate']})" if row.get("rate") else ""
+        click.echo(f"  {label}{gap}£{row['amount']:.2f}{rate}")
+    click.echo(
+        f"  Returns buffer:   £{result['returns_buffer']:.2f} "
+        f"({breakdown['risk_buffer_percent']:g}%)"
+    )
     click.echo(f"  ─────────────────")
-    click.echo(f"  Profit:          £{result['profit']:.2f}")
-    click.echo(f"  Margin:          {result['margin']:.1f}%")
+    click.echo(f"  Profit:           £{result['profit']:.2f}")
+    click.echo(f"  Margin:           {result['margin']:.1f}%")
+    if not result["profit_is_complete"]:
+        click.echo(
+            "  (postage paid not known - 0.00 assumed; the figure is a ceiling, C1)"
+        )
 
     if result["profit"] > 0:
         click.echo(f"\n  ✓ PROFITABLE")

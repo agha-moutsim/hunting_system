@@ -149,8 +149,24 @@ class TestSupplierNeverGated:
 
 
 class TestMoneySingleSource:
-    def test_fee_split_matches_spec(self):
+    def test_the_default_split_is_the_published_card(self):
+        # What runs today: Everything Else at 12.9%, the 40p per-order fee,
+        # 0.35% regulatory operating fee, 20% VAT on those fees, and the 3%
+        # returns buffer. The card charges per listing, not a percent of the
+        # sale, so listing_fee is absent (None) - not a zero (C1).
         calc = calculate_profit(100.0, 50.0)
+        assert calc["ebay_fee"] == 12.90
+        assert calc["listing_fee"] is None
+        assert calc["vat_on_fees"] == 2.73  # (12.90 + 0.40 + 0.35) * 20%
+        assert calc["returns_buffer"] == 3.00
+        assert calc["total_fees"] == 19.38
+        assert calc["profit"] == 30.62
+        assert calc["margin"] == 30.6
+
+    def test_the_retired_v1_split_stays_reproducible(self):
+        from engine import fees
+
+        calc = calculate_profit(100.0, 50.0, fee_table=fees.V1_STATIC_TABLE)
         assert calc["ebay_fee"] == 13.50
         assert calc["listing_fee"] == 0.03
         assert calc["vat_on_fees"] == 2.71  # (13.50 + 0.03) * 20%

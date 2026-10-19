@@ -172,11 +172,32 @@ MAX_SUPPLIERS = 7
 # ============================================================
 
 PROFIT_CONFIG = {
+    # The v1 model's rates (CONSTRAINTS.md C3). Live fee arithmetic reads the
+    # tables in engine/fees.py; these pins stay so pre-switch numbers remain
+    # reproducible and independently tested.
     "ebay_fee_percent": 13.5,       # eBay final value fee (user's v1 model, C3)
     "listing_fee_percent": 0.03,    # Listing fee (C3)
     "vat_on_fees_percent": 20.0,    # UK VAT applied to eBay's fees (C3)
     "returns_buffer_percent": 3.0,  # Conservative returns estimate
     "packaging_cost": 0.0,          # Dropship = no packaging cost
+}
+
+# ============================================================
+# Seller profile - the seller side of every money question (Phase D)
+# ============================================================
+# The pipeline verdict and the fee calculator must answer the same question
+# ("what does THIS seller make on this listing?"), so the seller side lives in
+# one place too. Fee RATES never live here - they come from the tables in
+# engine/fees.py; `fee_table: None` means "use the engine's ACTIVE_TABLE", so
+# refreshing the card never means editing this file.
+
+SELLER_PROFILE = {
+    "seller_type": "business",  # business | private (engine refuses others)
+    "uk_resident": True,        # matters to the private-page schedule
+    "vat_registered": False,    # True -> VAT on eBay's fees is recoverable
+    "promoted_rate": 0.0,       # the ad rate actually being paid, e.g. 2.0
+    "category": None,           # per-listing; None -> the engine's stated default
+    "fee_table": None,          # None -> engine/fees.ACTIVE_TABLE (the card)
 }
 
 # ============================================================

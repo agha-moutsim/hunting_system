@@ -105,14 +105,17 @@ def _calc_single(product: CategoryProduct, filters: dict):
     product.verdict = verdict.verdict.upper()
     # C13 - this figure is COMPUTED from two real prices, so it is an
     # estimate with a stated method, not a verified fact and not an insight.
+    from engine import fees as fee_engine
     from engine.provenance import Provenance
     product.profit_provenance = Provenance.ESTIMATED.value
     product.profit_provenance_label = Provenance.ESTIMATED.label
+    _fee_table = fee_engine.get_fee_table()
     product.profit_provenance_method = (
-        "eBay final value fee + listing fee + VAT on fees + returns buffer "
-        f"+ packaging"
+        f"eBay UK rate card {_fee_table['key']} ({_fee_table['version']}): "
+        "final value fee by category + per-order fee + regulatory operating "
+        f"fee, plus {_fee_table['vat_rate']:g}% VAT on eBay's fees, the "
+        "returns buffer and packaging"
         + ("" if not product.shipping_cost else " + supplier shipping")
-        + "; CONSTRAINTS.md C3"
     )
     product.profit_status = product.supplier_status or "found"
     product.profit_provenance_reason = (

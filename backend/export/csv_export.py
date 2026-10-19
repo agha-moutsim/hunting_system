@@ -262,17 +262,26 @@ def export_to_csv(result: Any) -> str:
     top_sellers = result.ebay_top_sellers or []
     suppliers = result.suppliers or []
 
-    # Money from the single engine source (PROFIT_CONFIG) — C1/C3.
-    # No usable eBay price = nothing to compute from (post-gate None or 0):
-    # money cells stay blank rather than arithmetic on a fabricated 0.
+    # Money from the single engine source (engine/fees.py via profit.py) —
+    # C1/C3. No usable eBay price = nothing to compute from (post-gate None
+    # or 0): money cells stay blank rather than arithmetic on a fabricated
+    # 0. The fee engine now enforces the same rule at its own door - a zero
+    # or unread price raises instead of producing a calculation - so the
+    # call is skipped, not fed a placeholder.
     avg_ok = bool(result.ebay_avg_price)
-    calc = calculate_profit(
-        result.ebay_avg_price or 0, result.best_supplier_price or 0
-    )
-    ebay_fees = calc["total_fees"]
-    total_cost = (result.best_supplier_price or 0) + calc["total_fees"]
-    profit = calc["profit"]
-    margin = calc["margin"]
+    if avg_ok:
+        calc = calculate_profit(
+            result.ebay_avg_price, result.best_supplier_price or 0
+        )
+        ebay_fees = calc["total_fees"]
+        total_cost = (result.best_supplier_price or 0) + calc["total_fees"]
+        profit = calc["profit"]
+        margin = calc["margin"]
+    else:
+        ebay_fees = None
+        total_cost = None
+        profit = None
+        margin = None
 
     writer.writerow([
         result.product_name,
@@ -355,14 +364,21 @@ def export_bulk_to_csv(results: list) -> str:
 
     # Data rows
     for result in results:
-        # Money from the single engine source (PROFIT_CONFIG) — C1/C3
+        # Money from the single engine source (engine/fees.py via profit.py) —
+        # C1/C3; skip the call entirely when there is no price to compute from.
         avg_ok = bool(result.ebay_avg_price)
         supplier_cost = result.best_supplier_price or 0
-        calc = calculate_profit(result.ebay_avg_price or 0, supplier_cost)
-        ebay_fees = calc["total_fees"]
-        total_cost = supplier_cost + calc["total_fees"]
-        profit = calc["profit"]
-        margin = calc["margin"]
+        if avg_ok:
+            calc = calculate_profit(result.ebay_avg_price, supplier_cost)
+            ebay_fees = calc["total_fees"]
+            total_cost = supplier_cost + calc["total_fees"]
+            profit = calc["profit"]
+            margin = calc["margin"]
+        else:
+            ebay_fees = None
+            total_cost = None
+            profit = None
+            margin = None
 
         # Find best supplier — its dict rides along for the tail columns,
         # so the block describes the SAME row the name/cost cells name.

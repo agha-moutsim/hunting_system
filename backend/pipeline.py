@@ -560,7 +560,14 @@ class Pipeline:
         # Calculate profit breakdown
         if best_price is not None:
             try:
-                result.profit = calculate_profit(product.price, best_price)
+                # The same inputs the verdict was decided with - shipping
+                # included. The persisted breakdown and the verdict figure
+                # must not describe two different sales (Phase D).
+                result.profit = calculate_profit(
+                    product.price,
+                    best_price,
+                    shipping_cost=getattr(product, "shipping_cost", 0.0) or 0.0,
+                )
             except Exception as e:
                 logger.exception("Profit calc failed")
                 result.errors.append(f"Profit calc failed: {e}")

@@ -769,6 +769,75 @@ def _cost_inputs(
     return paid, paid_known, buffer_percent, packaging
 
 
+def _fee_lines(fees_view: dict) -> list[dict]:
+    """The engine's own itemised lines, in the order the card reads.
+
+    CLI, scorecard, the API and the calculator all render these same rows,
+    so two surfaces can never label the same charge differently. Only a fee
+    the table actually carries gets a line - an absent fee has no row to be
+    misread as a zero (C1). The returns buffer is deliberately NOT here: it
+    is the seller's own policy, not a charge by eBay, and travels beside
+    these lines as `risk_buffer` with its own label.
+    """
+    table = get_fee_table(fees_view["fee_table"]["key"])
+    seller = table.get(fees_view.get("seller", {}).get("type", "business")) or {}
+    category = fees_view.get("category") or {}
+    lines: list[dict] = [
+        {
+            "label": "Final value fee",
+            "rate": category.get("rate_applied") or fees_view.get("fvf_rate"),
+            "amount": fees_view["fvf"],
+        }
+    ]
+    if fees_view.get("per_order_fee") is not None:
+        lines.append(
+            {"label": "Per-order fee", "rate": None, "amount": fees_view["per_order_fee"]}
+        )
+    if fees_view.get("regulatory_fee") is not None:
+        percent = seller.get("regulatory_fee_percent")
+        lines.append(
+            {
+                "label": "Regulatory operating fee",
+                "rate": f"{percent:g}%" if percent is not None else None,
+                "amount": fees_view["regulatory_fee"],
+            }
+        )
+    if fees_view.get("international_fee") is not None:
+        lines.append(
+            {
+                "label": "International fee",
+                "rate": None,
+                "amount": fees_view["international_fee"],
+            }
+        )
+    if fees_view.get("promoted_fee") is not None:
+        lines.append(
+            {
+                "label": "Promoted listings",
+                "rate": None,
+                "amount": fees_view["promoted_fee"],
+            }
+        )
+    if fees_view.get("listing_fee") is not None:
+        percent = seller.get("listing_fee_percent")
+        lines.append(
+            {
+                "label": "Listing fee",
+                "rate": f"{percent:g}%" if percent is not None else None,
+                "amount": fees_view["listing_fee"],
+            }
+        )
+    if fees_view.get("vat_on_fees") is not None:
+        lines.append(
+            {
+                "label": "VAT on fees",
+                "rate": f"{table['vat_rate']:g}%",
+                "amount": fees_view["vat_on_fees"],
+            }
+        )
+    return lines
+
+
 def _raw_profit_at(price: float, *, supplier, paid_displayed: float, buffer_percent: float, packaging: float, fee_kwargs: dict) -> dict:
     """Raw (unrounded) money for one sale at one price.
 
@@ -815,6 +884,10 @@ def sale_outcome(
     fee_table=None,
 ) -> dict:
     """The whole money view of one sale: fees, net after them, profit, margin.
+
+    The result carries the fee table that made it (`fees.fee_table`), the
+    itemised rows every display surface renders (`fee_lines`), and the
+    seller's own buffer outside the fees (`risk_buffer`).
 
     A missing supplier cost does not become a zero: the fee figures still
     compute (they do not need it), but `profit` and `margin` come back None
@@ -867,6 +940,7 @@ def sale_outcome(
     result = {
         "ok": True,
         "fees": {k: v for k, v in raw["fees"].items() if not k.startswith("_")},
+        "fee_lines": _fee_lines(raw["fees"]),
         "price": round(price_value, 2),
         "postage_charged": round(float(fee_kwargs["postage_charged"] or 0.0), 2),
         "proceeds": round(raw["proceeds_raw"], 2),

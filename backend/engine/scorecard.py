@@ -1,8 +1,8 @@
 from typing import Optional
 
-from config import PROFIT_CONFIG
 from scrapers.base import ScrapedProduct, DemandData
 from engine.decisions import Verdict, FilterResult
+from engine.profit import calculate_profit
 
 
 def _status_icon(passed: bool) -> str:
@@ -80,20 +80,68 @@ def format_scorecard(
     lines.append("")
 
     # --- Profit ---
+    # Every line comes from the engine's own view of this sale - the same
+    # call the verdict was decided with - so the card cannot quote a rate
+    # or a figure the engine does not stand behind. The fee table version
+    # is stated because a money figure without its model is not defensible.
     lines.append("PROFIT CALCULATION")
     lines.append("-" * 55)
-    lines.append(f"  eBay price:     \u00a3{ebay_product.price:.2f}")
+    lines.append(f"  eBay price:       \u00a3{ebay_product.price:.2f}")
+    supplier_price = None
     if supplier_matches:
-        best_supplier = supplier_matches[0]
-        sp = getattr(best_supplier, "price", 0)
-        lines.append(f"  Supplier price: \u00a3{sp:.2f}")
-    lines.append(f"  eBay fee:       {PROFIT_CONFIG['ebay_fee_percent']}%")
-    lines.append(f"  Listing fee:    {PROFIT_CONFIG['listing_fee_percent']}%")
-    lines.append(f"  VAT on fees:    {PROFIT_CONFIG['vat_on_fees_percent']}%")
-    lines.append(f"  Returns buffer: {PROFIT_CONFIG['returns_buffer_percent']}%")
-    lines.append(f"  ----------------------------------------")
-    lines.append(f"  Profit:         \u00a3{verdict.profit:.2f}")
-    lines.append(f"  Margin:         {verdict.margin:.1f}%")
+        candidate = getattr(supplier_matches[0], "price", None)
+        if isinstance(candidate, (int, float)):
+            supplier_price = candidate
+            lines.append(f"  Supplier price:   \u00a3{supplier_price:.2f}")
+
+    money = None
+    try:
+        money = calculate_profit(
+            ebay_product.price,
+            supplier_price,
+            shipping_cost=getattr(ebay_product, "shipping_cost", 0.0) or 0.0,
+        )
+    except ValueError as exc:
+        # The engine refuses to price a sale it cannot stand behind (a zero
+        # or unread price); the card repeats the refusal rather than
+        # printing a number nobody computed.
+        lines.append(f"  Fee engine:       refused - {exc}")
+
+    if money is not None:
+        table = money["fee_table"]
+        lines.append(f"  Fee table:        {table['key']} ({table['version']})")
+        for row in money["breakdown"]["fee_lines"]:
+            label = f"{row['label']}:"
+            gap = " " * max(1, 18 - len(label))
+            rate = f"{row['rate']} \u00b7 " if row.get("rate") else ""
+            lines.append(f"  {label}{gap}{rate}\u00a3{row['amount']:.2f}")
+        buffer_percent = money["breakdown"]["risk_buffer_percent"]
+        lines.append(
+            f"  {'Returns buffer:':<18}{buffer_percent:g}% \u00b7 "
+            f"\u00a3{money['returns_buffer']:.2f}"
+        )
+        if money["supplier_price"] is None:
+            lines.append("  Profit:           (no supplier price - not computed)")
+            lines.append("  Margin:           (no supplier price - not computed)")
+        else:
+            lines.append(f"  Profit:           \u00a3{verdict.profit:.2f}")
+            lines.append(f"  Margin:           {verdict.margin:.1f}%")
+            if not money["profit_is_complete"]:
+                lines.append(
+                    "  Note:             postage paid is not known (0.00 "
+                    "assumed); the profit above is a ceiling (C1)."
+                )
+    else:
+        lines.append(f"  Profit:           \u00a3{verdict.profit:.2f}")
+        lines.append(f"  Margin:           {verdict.margin:.1f}%")
+
+    # The fee card's assumptions are part of the money: when one of them
+    # holds, the card says so rather than leaving the reader to trust a
+    # figure whose basis was printed nowhere.
+    if money is not None and money["breakdown"]["fees"]["assumptions"]:
+        lines.append("  Assumptions:")
+        for assumption in money["breakdown"]["fees"]["assumptions"]:
+            lines.append(f"    - {assumption}")
     lines.append("")
 
     # --- Final verdict ---

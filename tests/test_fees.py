@@ -788,8 +788,9 @@ class TestSolveForMargin:
 class TestThePipelineMoneyRuleDelegatesWithTheSameNumbers:
     """engine/profit.py keeps the shape and the numbers every caller reads.
     This class recomputes the pre-Phase-D formula here, independently of the
-    implementation, and pins the two against each other - so the delegation
-    is provably arithmetically neutral until the deliberate model switch."""
+    implementation, and pins the two against each other on the v1-static
+    selection - so the retired model stays exactly reproducible. The default
+    is now the published card, pinned in the classes below."""
 
     def _legacy_expected(self, price, supplier, shipping=0.0):
         cfg = PROFIT_CONFIG
@@ -829,7 +830,11 @@ class TestThePipelineMoneyRuleDelegatesWithTheSameNumbers:
     def test_every_figure_matches_the_pre_phase_d_formula(
         self, price, supplier, shipping
     ):
-        got = calculate_profit(price, supplier, shipping_cost=shipping)
+        # The v1 model is explicit here: this test is about the retired
+        # formula being exactly reproducible, not about what runs today.
+        got = calculate_profit(
+            price, supplier, shipping_cost=shipping, fee_table=fees.V1_STATIC_TABLE
+        )
         expected = self._legacy_expected(price, supplier, shipping)
         for key, value in expected.items():
             assert got[key] == value, key
@@ -856,17 +861,18 @@ class TestThePipelineMoneyRuleDelegatesWithTheSameNumbers:
 
     def test_the_result_states_the_fee_table_that_made_it(self):
         got = calculate_profit(24.99, 9.40)
-        assert got["fee_table"]["key"] == fees.V1_STATIC_TABLE
+        assert got["fee_table"]["key"] == fees.RATE_CARD_TABLE
         assert got["fee_table"]["version"]
 
-    def test_the_formula_defaults_can_be_overridden_by_table(self):
-        """Callers may ask the same rule for the published-card numbers; the
-        result says which table it used, so the two can never be confused."""
-        v1 = calculate_profit(24.99, 9.40)
-        card = calculate_profit(24.99, 9.40, fee_table=fees.RATE_CARD_TABLE)
-        assert v1["fee_table"]["key"] == fees.V1_STATIC_TABLE
+    def test_the_default_is_the_published_card_and_v1_stays_selectable(self):
+        """The switch, pinned: the default computes from the published card,
+        the retired v1 model is one explicit argument away, and each result
+        says which table made it, so the two can never be confused."""
+        card = calculate_profit(24.99, 9.40)
+        v1 = calculate_profit(24.99, 9.40, fee_table=fees.V1_STATIC_TABLE)
         assert card["fee_table"]["key"] == fees.RATE_CARD_TABLE
-        assert v1["profit"] != card["profit"]
+        assert v1["fee_table"]["key"] == fees.V1_STATIC_TABLE
+        assert card["profit"] != v1["profit"]
 
     def test_a_below_a_penny_postage_reading_is_still_unknown(self):
         got = calculate_profit(24.99, 9.40, shipping_cost=0.004)
@@ -876,3 +882,161 @@ class TestThePipelineMoneyRuleDelegatesWithTheSameNumbers:
     def test_a_zero_price_is_refused_not_given_a_zero_margin(self):
         with pytest.raises(ValueError):
             calculate_profit(0.0, 10.0)
+
+
+# ---------------------------------------------------------------------------
+# The engine states its own lines - one source for CLI/scorecard/API/UI
+# ---------------------------------------------------------------------------
+
+
+class TestTheEngineStatesItsOwnLines:
+    """The itemised rows every display surface renders - CLI, scorecard and
+    the calculator UI to come - come from the engine, not from constants
+    retyped per surface."""
+
+    def test_the_card_lines_are_labelled_and_priced(self):
+        outcome = fees.sale_outcome(24.99, supplier_cost=9.40, promoted_rate=2.0)
+        by_label = {row["label"]: row for row in outcome["fee_lines"]}
+        assert by_label["Final value fee"]["amount"] == outcome["fees"]["fvf"] == 3.22
+        assert by_label["Final value fee"]["rate"] == "12.9%"
+        assert by_label["Per-order fee"]["amount"] == 0.40
+        assert by_label["Regulatory operating fee"]["amount"] == 0.09
+        assert by_label["Promoted listings"]["amount"] == 0.50
+        assert by_label["VAT on fees"]["amount"] == 0.84
+        assert by_label["VAT on fees"]["rate"] == "20%"
+
+    def test_a_fee_the_card_does_not_carry_has_no_line_and_no_zero(self):
+        outcome = fees.sale_outcome(24.99, supplier_cost=9.40)
+        labels = [row["label"] for row in outcome["fee_lines"]]
+        # the card charges per listing, not a percent of the sale
+        assert "Listing fee" not in labels
+        assert outcome["fees"]["listing_fee"] is None
+
+    def test_the_buffer_is_not_a_fee_line(self):
+        outcome = fees.sale_outcome(24.99, supplier_cost=9.40)
+        labels = [row["label"] for row in outcome["fee_lines"]]
+        assert "Returns buffer" not in labels
+        assert outcome["risk_buffer"] == 0.75
+        assert outcome["risk_buffer_percent"] == 3.0
+
+    def test_a_private_uk_sale_shows_its_documented_zeroes(self):
+        outcome = fees.sale_outcome(30.0, supplier_cost=10.0, seller_type="private")
+        by_label = {row["label"]: row for row in outcome["fee_lines"]}
+        assert by_label["Final value fee"]["amount"] == 0.0
+        assert by_label["Final value fee"]["rate"] == "0%"
+        assert by_label["Regulatory operating fee"]["amount"] == 0.0
+        # fees are VAT-inclusive on the private page: no VAT line to add
+        assert "VAT on fees" not in by_label
+
+    def test_the_v1_table_speaks_its_own_lines(self):
+        outcome = fees.sale_outcome(
+            100.0, supplier_cost=40.0, fee_table=fees.V1_STATIC_TABLE
+        )
+        by_label = {row["label"]: row for row in outcome["fee_lines"]}
+        assert by_label["Final value fee"]["rate"] == "13.5%"
+        assert by_label["Listing fee"]["rate"] == "0.03%"
+        assert "Per-order fee" not in by_label
+
+
+# ---------------------------------------------------------------------------
+# Phase D acceptance: the verdict and the calculator answer as one
+# ---------------------------------------------------------------------------
+
+
+def _acceptance_product():
+    from scrapers.base import ScrapedProduct
+
+    return ScrapedProduct(
+        source="ebay_uk",
+        title="Test listing",
+        price=24.99,
+        url="https://www.ebay.co.uk/itm/123",
+        condition="New",
+        shipping_cost=3.20,
+        verified=True,
+    )
+
+
+def _acceptance_demand():
+    from scrapers.base import DemandData
+
+    return DemandData(
+        sold_count_30d=40, sold_count_7d=12, verified=True, verified_7d=True
+    )
+
+
+class TestTheVerdictAndTheCalculatorCannotDisagree:
+    """Phase D acceptance, end to end: a business seller at GBP 24.99 with 2%
+    promoted and GBP 3.20 postage paid. The same inputs through the pipeline
+    verdict and through the calculator must give the same profit."""
+
+    def test_the_acceptance_case_through_the_pipeline_verdict(self, monkeypatch):
+        from config import SELLER_PROFILE
+        from engine.decisions import DecisionEngine
+
+        monkeypatch.setitem(SELLER_PROFILE, "promoted_rate", 2.0)
+
+        verdict = DecisionEngine().evaluate(
+            _acceptance_product(), _acceptance_demand(), supplier_price=9.40
+        )
+        calculator = fees.sale_outcome(
+            24.99,
+            supplier_cost=9.40,
+            postage_paid=3.20,
+            promoted_rate=2.0,
+            seller_type="business",
+        )
+
+        assert calculator["profit"] == 6.59
+        assert calculator["margin"] == 26.4
+        assert verdict.profit == calculator["profit"]
+        assert verdict.margin == calculator["margin"]
+
+    def test_the_pipeline_money_entry_point_carries_the_profile_too(self, monkeypatch):
+        from config import SELLER_PROFILE
+
+        monkeypatch.setitem(SELLER_PROFILE, "promoted_rate", 2.0)
+        via_pipeline = calculate_profit(24.99, 9.40, shipping_cost=3.20)
+        assert via_pipeline["profit"] == 6.59
+        assert via_pipeline["margin"] == 26.4
+        assert via_pipeline["fee_table"]["key"] == fees.RATE_CARD_TABLE
+
+    def test_the_scorecard_renders_the_engine_lines_and_the_table(self, monkeypatch):
+        from types import SimpleNamespace
+
+        from config import SELLER_PROFILE
+        from engine.decisions import DecisionEngine
+        from engine.scorecard import format_scorecard
+
+        # The scorecard is the third surface of the same sale; it must show
+        # the table, the engine's lines and the verdict's own figures.
+        monkeypatch.setitem(SELLER_PROFILE, "promoted_rate", 2.0)
+
+        product = _acceptance_product()
+        demand = _acceptance_demand()
+        verdict = DecisionEngine().evaluate(product, demand, supplier_price=9.40)
+        card = format_scorecard(
+            product, [SimpleNamespace(price=9.40, title="Supplier A")], demand, verdict
+        )
+
+        assert fees.RATE_CARD_TABLE in card
+        assert "Final value fee:" in card
+        assert "Per-order fee:" in card
+        assert "\u00a36.59" in card
+        assert "26.4%" in card
+
+    def test_the_calculator_and_the_pipeline_agree_on_the_default_profile_too(self):
+        calculator = fees.sale_outcome(
+            24.99, supplier_cost=9.40, postage_paid=3.20, seller_type="business"
+        )
+        via_pipeline = calculate_profit(24.99, 9.40, shipping_cost=3.20)
+        assert via_pipeline["profit"] == calculator["profit"]
+        assert via_pipeline["margin"] == calculator["margin"]
+
+    def test_the_shipped_profile_is_the_business_card_by_default(self):
+        from config import SELLER_PROFILE
+
+        assert SELLER_PROFILE["seller_type"] == "business"
+        assert SELLER_PROFILE["vat_registered"] is False
+        assert SELLER_PROFILE["promoted_rate"] == 0.0
+        assert SELLER_PROFILE["fee_table"] is None  # None -> the engine's ACTIVE table
