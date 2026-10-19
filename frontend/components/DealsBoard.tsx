@@ -7,6 +7,7 @@ import Card from "@/components/ui/Card";
 import EmptyState from "@/components/EmptyState";
 import Spinner from "@/components/Spinner";
 import { apiFetch } from "@/lib/api";
+import { asUtc, timeAgo } from "@/lib/format";
 import { DealItem, DealsMeta, DealsResponse } from "@/lib/types";
 import { describeStoreLink } from "@/lib/storeLinks";
 
@@ -24,32 +25,11 @@ const WINDOW = 8;
 const ROTATE_MS = 60_000;
 
 /**
- * Read a backend timestamp as the instant it actually is.
- *
- * `backend/hunter/deals.py` stores naive UTC, so the API hands back a bare
- * "2026-10-19T00:20:00" with no zone. `new Date()` parses that as LOCAL time,
- * which made a board refreshed seconds earlier read "updated 5h ago" on a
- * UTC+5 machine while the server's own `stale` flag said it was current — the
- * page contradicting itself about the same row. Marking it UTC unless it
- * already carries a zone is what makes the two agree.
+ * The naive-UTC rule and the relative clock now live in `lib/format.ts`,
+ * shared with the provenance stamps: `asUtc` was written here first, and a
+ * second copy of it is how the two screens would end up disagreeing about the
+ * same row.
  */
-function asUtc(iso: string): number {
-  if (!iso) return NaN;
-  const hasZone = /([Zz]|[+-]\d{2}:?\d{2})$/.test(iso);
-  return new Date(hasZone ? iso : `${iso}Z`).getTime();
-}
-
-function timeAgo(iso: string): string {
-  const then = asUtc(iso);
-  if (!Number.isFinite(then)) return "never";
-  const secs = Math.max(0, Math.round((Date.now() - then) / 1000));
-  if (secs < 60) return `${secs}s ago`;
-  const mins = Math.round(secs / 60);
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.round(mins / 60);
-  if (hours < 48) return `${hours}h ago`;
-  return `${Math.round(hours / 24)}d ago`;
-}
 
 function DealCard({ item }: { item: DealItem }) {
   // The shared store ladder decides what this link is, so a deal cannot label

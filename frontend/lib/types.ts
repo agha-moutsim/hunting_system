@@ -178,6 +178,23 @@ export interface ScrapedProduct extends MatchAvailabilityFields {
   outside_band?: boolean;
 }
 
+/**
+ * PHASE C — one measured number plus the two facts that make it checkable.
+ *
+ * `origin` names WHAT produced the number, as a token the backend owns
+ * (api/schemas.py). `observed_at` is when that source observed it, which is not
+ * when the analysis ran: a purchase-history capture can be a day old, and a
+ * screen saying "just now" about it would be the same class of error as
+ * counting a live listing as a sale.
+ *
+ * `value` null means "not read" — never 0, because 0 is a real measurement.
+ */
+export interface SourcedFigure {
+  value?: number | null;
+  origin?: string | null;
+  observed_at?: string | null;
+}
+
 export interface DemandData {
   sold_count_30d?: number | null;
   sold_count_7d?: number | null;
@@ -207,6 +224,19 @@ export interface DemandData {
   verified?: boolean;
   provenance?: string;
   provenance_label?: string;
+  /**
+   * PHASE C — the sold figures with their provenance attached, keyed by figure.
+   *
+   * Absent or null means the figure was never measured. It is never 0, and
+   * never a figure carrying a label borrowed from a neighbouring field: 0 is a
+   * real count, and an origin badge over a number nobody read is worse than no
+   * badge at all. The flat `sold_count_*` keys above are unchanged for readers
+   * that predate this block.
+   */
+  figures?: {
+    sold_count_7d?: SourcedFigure | null;
+    sold_count_30d?: SourcedFigure | null;
+  } | null;
 }
 
 export interface LLMAnalysis {

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { HEADER_FIELDS, fieldStamp, headerStamps } from "./fieldProvenance";
+import {
+  HEADER_FIELDS,
+  fieldStamp,
+  figureStamp,
+  headerStamps,
+} from "./fieldProvenance";
 
 /**
  * B3 / C13: the label travels with the number.
@@ -114,5 +119,60 @@ describe("headerStamps", () => {
     ];
 
     expect([...HEADER_FIELDS].sort()).toEqual([...rendered].sort());
+  });
+});
+
+/**
+ * PHASE C: what PRODUCED a stored figure.
+ *
+ * One source this app can verify — the purchase-history capture read in the
+ * user's own signed-in session — and a lot of live-listing counts that are not
+ * sales. The badge is chosen by the origin token the backend recorded, never by
+ * which slot the number sits in, and an origin nobody recognises never gets the
+ * verified look of the field beside it.
+ */
+describe("figureStamp", () => {
+  it("badges a capture-backed figure as verified and names the source", () => {
+    const stamp = figureStamp({
+      value: 17,
+      origin: "purchase_history",
+      observed_at: "2026-10-19T19:15:47.505319Z",
+    });
+
+    expect(stamp?.provenance).toBe("verified");
+    expect(stamp?.label).toBe("eBay purchase history");
+  });
+
+  it("returns no badge at all when there is no figure", () => {
+    // The half that matters most: a caller cannot stamp a number that was never
+    // measured, because there is nothing to pass in.
+    expect(figureStamp(null)).toBeNull();
+    expect(figureStamp(undefined)).toBeNull();
+    expect(figureStamp({})).toBeNull();
+    expect(figureStamp({ value: null, origin: "purchase_history" })).toBeNull();
+  });
+
+  it("reads a figure whose source was never recorded as unverified", () => {
+    const stamp = figureStamp({ value: 7, origin: null });
+
+    expect(stamp?.provenance).toBe("unverified");
+    expect(stamp?.label).toBe("Source not recorded");
+  });
+
+  it("does not verify an origin it does not know", () => {
+    // A token from a newer backend, or a typo. Either way the only honest thing
+    // to render is that nobody here can vouch for it - and the token is named so
+    // the gap is findable.
+    const stamp = figureStamp({ value: 12, origin: "some_new_source" });
+
+    expect(stamp?.provenance).toBe("unverified");
+    expect(stamp?.label).toBe("Unrecognised source");
+    expect(stamp?.reason).toContain("some_new_source");
+  });
+
+  it("treats a blank origin as absent rather than as a name", () => {
+    expect(figureStamp({ value: 3, origin: "   " })?.label).toBe(
+      "Source not recorded"
+    );
   });
 });

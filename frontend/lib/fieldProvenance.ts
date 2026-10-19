@@ -1,4 +1,4 @@
-import type { ProvenanceInfo } from "./types";
+import type { ProvenanceInfo, SourcedFigure } from "./types";
 
 /**
  * B3 / C13: the label travels with the number.
@@ -67,4 +67,59 @@ export function headerStamps(
     stamps[name] = fieldStamp(fields, name);
   }
   return stamps;
+}
+
+/**
+ * PHASE C — what PRODUCED a stored figure, as a badge.
+ *
+ * The tokens are the backend's (api/schemas.py). One of them is verifiable:
+ * `purchase_history`, read by the capture extension from the user's own eBay
+ * purchase history. Every other number this app holds came from a search of
+ * LIVE listings — supply — and is stored under a name that says so rather than
+ * being dressed up as a sale.
+ *
+ * An origin nobody recognises reads `unverified` and names the token in its
+ * tooltip. Adding a token here and in api/schemas.py together is the only way
+ * a figure gets a new badge; until both exist it reads unverified, which is the
+ * safe direction for a badge to fail in.
+ */
+const ORIGIN_STAMPS: Record<string, ProvenanceInfo> = {
+  purchase_history: {
+    provenance: "verified",
+    label: "eBay purchase history",
+    method:
+      "read by the capture extension from your own eBay purchase history, in your own signed-in session",
+  },
+};
+
+/**
+ * The badge for one served figure, or null when there is no figure to badge.
+ *
+ * Null is the important half: a caller cannot stamp a number that was never
+ * measured, because there is no figure object to pass in. A figure that IS
+ * there but has no recorded origin comes back `unverified` and says so, rather
+ * than borrowing the verified look of the field beside it.
+ */
+export function figureStamp(
+  figure?: SourcedFigure | null
+): ProvenanceInfo | null {
+  if (!figure || figure.value === null || figure.value === undefined) {
+    return null;
+  }
+  const origin = (figure.origin ?? "").trim();
+  if (!origin) {
+    return {
+      provenance: "unverified",
+      label: "Source not recorded",
+      reason:
+        "this row holds the figure without recording which source produced it",
+    };
+  }
+  return (
+    ORIGIN_STAMPS[origin] ?? {
+      provenance: "unverified",
+      label: "Unrecognised source",
+      reason: `no badge is defined for origin "${origin}"`,
+    }
+  );
 }
