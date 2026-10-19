@@ -23,10 +23,10 @@ sentence that names them, so the caller can store it verbatim.
 """
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Optional
 
-#: Every comparison in this module happens at the penny.
-_PENNY = 0.01
+from db.models import DemandSnapshot, PriceAlert, PriceHistory, TrackedProduct
 
 
 @dataclass(frozen=True)
@@ -121,3 +121,177 @@ def decide_alerts(
         )
 
     return decisions
+
+
+def _empty_report() -> dict:
+    return {"products": 0, "comparisons": 0, "written": 0, "skipped": 0, "messages": []}
+
+
+def _record(db, product_id: Optional[int], decision: AlertDecision, observed_at) -> bool:
+    """Write one decision, unless the reading it describes is already alerted.
+
+    The dedupe key is (product, type, compared price, message, reading time):
+    running the same comparison twice - the tracker's inline check and the
+    scheduled pass, for instance - writes one row, while a genuinely new
+    reading that lands on the same price still gets its own row, because
+    `created_at >= observed_at` stops being true once the reading is newer
+    than the alert. The message takes part in the key so the item lane and
+    the query lane can never shadow each other.
+    """
+    already = (
+        db.query(PriceAlert)
+        .filter(
+            PriceAlert.tracked_product_id == product_id,
+            PriceAlert.alert_type == decision.alert_type,
+            PriceAlert.new_price == decision.new_price,
+            PriceAlert.message == decision.message,
+            PriceAlert.created_at >= observed_at,
+        )
+        .first()
+    )
+    if already is not None:
+        return False
+
+    db.add(
+        PriceAlert(
+            tracked_product_id=product_id,
+            alert_type=decision.alert_type,
+            message=decision.message,
+            old_price=decision.old_price,
+            new_price=decision.new_price,
+            is_read=False,
+            created_at=datetime.utcnow(),
+        )
+    )
+    return True
+
+
+def _apply(db, product_id, decisions, observed_at, report: dict) -> None:
+    for decision in decisions:
+        report["comparisons"] += 1
+        if _record(db, product_id, decision, observed_at):
+            report["written"] += 1
+            report["messages"].append(decision.message)
+        else:
+            report["skipped"] += 1
+
+
+def generate_for_tracked_items() -> dict:
+    """Compare every alert-enabled product's two most recent item readings.
+
+    The reading lane is `price_history` - one row per tracker check. Readings
+    with no real price take no part: the failed checks of 2026-09-22 wrote
+    0.0, and comparing against that would report a collapse to zero that
+    nothing observed. A product with a single real reading can still earn its
+    target row (price vs target are both real); only the change row needs two.
+    """
+    from db.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        products = (
+            db.query(TrackedProduct).filter(TrackedProduct.alert_enabled == True).all()  # noqa: E712
+        )
+        report = _empty_report()
+        for product in products:
+            report["products"] += 1
+            readings = (
+                db.query(PriceHistory)
+                .filter(
+                    PriceHistory.tracked_product_id == product.id,
+                    PriceHistory.ebay_price > 0,
+                )
+                .order_by(PriceHistory.checked_at.desc(), PriceHistory.id.desc())
+                .limit(2)
+                .all()
+            )
+            if not readings:
+                continue
+            latest = readings[0]
+            previous = readings[1] if len(readings) > 1 else None
+            decisions = decide_alerts(
+                previous.ebay_price if previous is not None else None,
+                latest.ebay_price,
+                label=product.product_name or "tracked item",
+                price_label="item price",
+                target=product.target_price,
+                target_label="target price",
+            )
+            _apply(
+                db,
+                product.id,
+                decisions,
+                latest.checked_at or datetime.utcnow(),
+                report,
+            )
+        db.commit()
+        return report
+    finally:
+        db.close()
+
+
+def generate_for_monitored_queries() -> dict:
+    """Compare the two most recent real average-price readings per query.
+
+    The lane is `demand_snapshots.avg_price` - the average asking price of
+    the live listings the demand monitor saw, a market reading rather than
+    this item's price. The product's target price is deliberately NOT applied
+    here: a price set for one listing cannot be compared against a market
+    average without inventing what the result would mean.
+    """
+    from db.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        products = (
+            db.query(TrackedProduct).filter(TrackedProduct.alert_enabled == True).all()  # noqa: E712
+        )
+        report = _empty_report()
+        seen: set = set()
+        for product in products:
+            query = (product.product_name or "").strip()
+            if not query or query in seen:
+                continue
+            seen.add(query)
+            report["products"] += 1
+            readings = (
+                db.query(DemandSnapshot)
+                .filter(DemandSnapshot.query == query, DemandSnapshot.avg_price > 0)
+                .order_by(DemandSnapshot.captured_at.desc(), DemandSnapshot.id.desc())
+                .limit(2)
+                .all()
+            )
+            if not readings:
+                continue
+            latest = readings[0]
+            previous = readings[1] if len(readings) > 1 else None
+            decisions = decide_alerts(
+                previous.avg_price if previous is not None else None,
+                latest.avg_price,
+                label=query,
+                price_label="average asking price",
+            )
+            _apply(
+                db,
+                product.id,
+                decisions,
+                latest.captured_at or datetime.utcnow(),
+                report,
+            )
+        db.commit()
+        return report
+    finally:
+        db.close()
+
+
+def generate_alerts() -> dict:
+    """Run both lanes once and report what each compared and wrote.
+
+    Zero Browse calls: every comparison reads rows this app already stored
+    (tracker price checks, demand-monitor runs). That is the budget the phase
+    rule asks for - alerts first, at no quota cost.
+    """
+    return {
+        "tracked_items": generate_for_tracked_items(),
+        "monitored_queries": generate_for_monitored_queries(),
+    }
