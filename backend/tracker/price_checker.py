@@ -6,7 +6,7 @@ from typing import Optional
 
 from db.database import SessionLocal
 from db.models import TrackedProduct, PriceHistory
-from tracker.alerts import generate_alert
+from hunter.alerts import generate_for_product
 
 
 def check_all_prices(progress_callback=None) -> dict:
@@ -15,16 +15,13 @@ def check_all_prices(progress_callback=None) -> dict:
     try:
         products = db.query(TrackedProduct).filter(TrackedProduct.alert_enabled == True).all()
         results = {"checked": 0, "alerts": 0, "errors": 0}
+        recorded: list[int] = []
 
         for i, product in enumerate(products):
             if progress_callback:
                 progress_callback(i, len(products), product.product_name)
 
             try:
-                old_ebay_price = product.ebay_price
-                old_supplier_price = product.supplier_price
-
-                # Fetch current prices
                 new_ebay_price = _fetch_ebay_price(product.ebay_url)
                 new_supplier_price = product.supplier_price  # Keep existing for now
 
@@ -41,19 +38,7 @@ def check_all_prices(progress_callback=None) -> dict:
                         supplier_price=new_supplier_price,
                     )
                     db.add(history)
-
-                # Generate alert if price changed significantly
-                if old_ebay_price > 0 and new_ebay_price > 0:
-                    price_change = new_ebay_price - old_ebay_price
-                    if abs(price_change) >= 0.50:  # Alert if changed by £0.50+
-                        alert = generate_alert(
-                            product,
-                            "price_drop" if price_change < 0 else "price_increase",
-                            old_ebay_price,
-                            new_ebay_price,
-                        )
-                        if alert:
-                            results["alerts"] += 1
+                    recorded.append(product.id)
 
                 results["checked"] += 1
 
@@ -62,6 +47,15 @@ def check_all_prices(progress_callback=None) -> dict:
                 results["errors"] += 1
 
         db.commit()
+
+        # The alerts come from the one rule in hunter.alerts - the same code
+        # the scheduled pass runs - applied to the readings this check just
+        # stored. An earlier writer here had its own 50p threshold and its own
+        # message format in tracker/alerts.py; a second opinion is how two
+        # inboxes start disagreeing about one price.
+        for product_id in recorded:
+            results["alerts"] += generate_for_product(product_id)["written"]
+
         return results
 
     except Exception as e:
@@ -80,7 +74,6 @@ def check_single_price(tracked_id: int) -> Optional[float]:
         if not product:
             return None
 
-        old_price = product.ebay_price
         new_price = _fetch_ebay_price(product.ebay_url)
 
         if new_price > 0:
@@ -95,16 +88,13 @@ def check_single_price(tracked_id: int) -> Optional[float]:
             )
             db.add(history)
 
-            # Generate alert if changed
-            if old_price > 0 and abs(new_price - old_price) >= 0.50:
-                generate_alert(
-                    product,
-                    "price_drop" if new_price < old_price else "price_increase",
-                    old_price,
-                    new_price,
-                )
-
             db.commit()
+
+            # One event, one row: the alert comes from the same rule the
+            # scheduled pass uses (hunter.alerts), applied to the reading
+            # just stored.
+            generate_for_product(product.id)
+
             return new_price
 
         return None

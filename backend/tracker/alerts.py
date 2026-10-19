@@ -1,49 +1,13 @@
-"""Price alert generation and management."""
+"""Price alert reading and management for the tracker surfaces.
 
-from datetime import datetime
-from typing import Optional
+Writing alerts lives in `hunter.alerts` (one comparison rule, one writer -
+Phase E): an earlier `generate_alert` here had its own 50p threshold and its
+own message format, which is exactly how two inboxes start disagreeing about
+one price. This module only reads and updates the rows.
+"""
 
 from db.database import SessionLocal
 from db.models import PriceAlert, TrackedProduct
-
-
-def generate_alert(
-    product: TrackedProduct,
-    alert_type: str,
-    old_price: float,
-    new_price: float,
-) -> Optional[PriceAlert]:
-    """Generate a price alert for a product."""
-    db = SessionLocal()
-    try:
-        # Create message
-        if alert_type == "price_drop":
-            message = f"{product.product_name} dropped from £{old_price:.2f} to £{new_price:.2f}"
-        elif alert_type == "price_increase":
-            message = f"{product.product_name} increased from £{old_price:.2f} to £{new_price:.2f}"
-        elif alert_type == "margin_alert":
-            message = f"{product.product_name} margin alert"
-        else:
-            message = f"{product.product_name} price changed"
-
-        alert = PriceAlert(
-            tracked_product_id=product.id,
-            alert_type=alert_type,
-            message=message,
-            old_price=old_price,
-            new_price=new_price,
-        )
-        db.add(alert)
-        db.commit()
-        db.refresh(alert)
-        return alert
-
-    except Exception as e:
-        print(f"[ERROR] Failed to generate alert: {e}")
-        db.rollback()
-        return None
-    finally:
-        db.close()
 
 
 def get_alerts(unread_only: bool = False, limit: int = 50) -> list[dict]:

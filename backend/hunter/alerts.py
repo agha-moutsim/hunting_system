@@ -176,15 +176,75 @@ def _apply(db, product_id, decisions, observed_at, report: dict) -> None:
             report["skipped"] += 1
 
 
-def generate_for_tracked_items() -> dict:
-    """Compare every alert-enabled product's two most recent item readings.
+def _compare_item_readings(db, product, report: dict) -> None:
+    """One product's item lane: its two latest real readings and its target.
 
-    The reading lane is `price_history` - one row per tracker check. Readings
-    with no real price take no part: the failed checks of 2026-09-22 wrote
-    0.0, and comparing against that would report a collapse to zero that
-    nothing observed. A product with a single real reading can still earn its
-    target row (price vs target are both real); only the change row needs two.
+    Readings with no real price take no part: the failed checks of 2026-09-22
+    wrote 0.0, and comparing against that would report a collapse to zero
+    that nothing observed. A product with a single real reading can still
+    earn its target row (price vs target are both real); only the change row
+    needs two.
     """
+    readings = (
+        db.query(PriceHistory)
+        .filter(
+            PriceHistory.tracked_product_id == product.id,
+            PriceHistory.ebay_price > 0,
+        )
+        .order_by(PriceHistory.checked_at.desc(), PriceHistory.id.desc())
+        .limit(2)
+        .all()
+    )
+    if not readings:
+        return
+    latest = readings[0]
+    previous = readings[1] if len(readings) > 1 else None
+    decisions = decide_alerts(
+        previous.ebay_price if previous is not None else None,
+        latest.ebay_price,
+        label=product.product_name or "tracked item",
+        price_label="item price",
+        target=product.target_price,
+        target_label="target price",
+    )
+    _apply(
+        db,
+        product.id,
+        decisions,
+        latest.checked_at or datetime.utcnow(),
+        report,
+    )
+
+
+def generate_for_product(product_id: int) -> dict:
+    """Compare one product's stored item readings and write what they earn.
+
+    The unit the tracker's inline check needs: after it commits a new reading
+    it calls this, so the alert comes from the same rule the scheduled pass
+    uses - one event, one row, whichever runner did the comparing. A product
+    with alerts switched off is left alone even when checked by hand.
+    """
+    from db.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        report = _empty_report()
+        product = (
+            db.query(TrackedProduct).filter(TrackedProduct.id == product_id).first()
+        )
+        if product is None:
+            return report
+        report["products"] = 1
+        if product.alert_enabled:
+            _compare_item_readings(db, product, report)
+        db.commit()
+        return report
+    finally:
+        db.close()
+
+
+def generate_for_tracked_items() -> dict:
+    """Compare every alert-enabled product's two most recent item readings."""
     from db.database import SessionLocal
 
     db = SessionLocal()
@@ -195,35 +255,7 @@ def generate_for_tracked_items() -> dict:
         report = _empty_report()
         for product in products:
             report["products"] += 1
-            readings = (
-                db.query(PriceHistory)
-                .filter(
-                    PriceHistory.tracked_product_id == product.id,
-                    PriceHistory.ebay_price > 0,
-                )
-                .order_by(PriceHistory.checked_at.desc(), PriceHistory.id.desc())
-                .limit(2)
-                .all()
-            )
-            if not readings:
-                continue
-            latest = readings[0]
-            previous = readings[1] if len(readings) > 1 else None
-            decisions = decide_alerts(
-                previous.ebay_price if previous is not None else None,
-                latest.ebay_price,
-                label=product.product_name or "tracked item",
-                price_label="item price",
-                target=product.target_price,
-                target_label="target price",
-            )
-            _apply(
-                db,
-                product.id,
-                decisions,
-                latest.checked_at or datetime.utcnow(),
-                report,
-            )
+            _compare_item_readings(db, product, report)
         db.commit()
         return report
     finally:

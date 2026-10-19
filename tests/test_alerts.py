@@ -20,6 +20,7 @@ from hunter.alerts import (
     decide_alerts,
     generate_alerts,
     generate_for_monitored_queries,
+    generate_for_product,
     generate_for_tracked_items,
 )
 
@@ -330,6 +331,28 @@ class TestTheTrackedItemLane:
         assert report["products"] == 0
         assert _alerts(session_factory) == []
 
+    def test_a_disabled_product_is_left_alone_even_when_checked_by_hand(
+        self, session_factory
+    ):
+        product_id = _product(session_factory, alert_enabled=False)
+        _reading(session_factory, product_id, 18.99, minutes_ago=10)
+        _reading(session_factory, product_id, 15.49, minutes_ago=1)
+
+        report = generate_for_product(product_id)
+
+        assert report["products"] == 1
+        assert report["written"] == 0
+        assert _alerts(session_factory) == []
+
+    def test_a_missing_product_is_an_empty_report(self, session_factory):
+        assert generate_for_product(999999) == {
+            "products": 0,
+            "comparisons": 0,
+            "written": 0,
+            "skipped": 0,
+            "messages": [],
+        }
+
 
 class TestTheQueryLane:
     def test_two_real_average_readings_that_differ_write_one_row(self, session_factory):
@@ -399,3 +422,80 @@ class TestTheWholePass:
         assert report["tracked_items"]["written"] == 1
         assert report["monitored_queries"]["written"] == 1
         assert len(_alerts(session_factory)) == 2
+
+
+class TestTheTrackerCheckUsesTheSameRule:
+    """The inline check and the scheduled pass write the same rows, or none.
+
+    An earlier inline writer compared against a 50p threshold and built its
+    own message; these tests pin that the check now goes through the one
+    rule, so the inbox cannot contain two kinds of sentence about one price.
+    """
+
+    @staticmethod
+    def _wire(monkeypatch, session_factory, price):
+        from tracker import price_checker
+
+        monkeypatch.setattr(price_checker, "SessionLocal", session_factory)
+        monkeypatch.setattr(price_checker, "_fetch_ebay_price", lambda url: price)
+        return price_checker
+
+    def test_a_check_that_reads_a_new_price_writes_one_alert(
+        self, session_factory, monkeypatch
+    ):
+        product_id = _product(session_factory)
+        _reading(session_factory, product_id, 18.99, minutes_ago=10)
+        price_checker = self._wire(monkeypatch, session_factory, 15.49)
+
+        price = price_checker.check_single_price(product_id)
+
+        assert price == 15.49
+        (row,) = _alerts(session_factory)
+        assert row["alert_type"] == "price_drop"
+        assert (row["old_price"], row["new_price"]) == (18.99, 15.49)
+        assert "item price" in row["message"]
+
+    def test_a_check_that_could_not_read_a_price_keeps_the_inbox_silent(
+        self, session_factory, monkeypatch
+    ):
+        product_id = _product(session_factory)
+        _reading(session_factory, product_id, 18.99, minutes_ago=10)
+        price_checker = self._wire(monkeypatch, session_factory, 0.0)
+
+        assert price_checker.check_single_price(product_id) is None
+        assert _alerts(session_factory) == []
+
+    def test_a_small_move_is_still_a_move(self, session_factory, monkeypatch):
+        """20p is a comparison with two real values; the old 50p threshold is gone."""
+        product_id = _product(session_factory)
+        _reading(session_factory, product_id, 15.49, minutes_ago=10)
+        price_checker = self._wire(monkeypatch, session_factory, 15.29)
+
+        price_checker.check_single_price(product_id)
+
+        (row,) = _alerts(session_factory)
+        assert (row["old_price"], row["new_price"]) == (15.49, 15.29)
+
+    def test_a_second_check_at_the_same_price_writes_nothing(
+        self, session_factory, monkeypatch
+    ):
+        product_id = _product(session_factory)
+        _reading(session_factory, product_id, 18.99, minutes_ago=10)
+        price_checker = self._wire(monkeypatch, session_factory, 15.49)
+        price_checker.check_single_price(product_id)
+
+        price_checker.check_single_price(product_id)
+
+        assert len(_alerts(session_factory)) == 1
+
+    def test_a_batch_check_reports_the_alert_it_wrote(
+        self, session_factory, monkeypatch
+    ):
+        product_id = _product(session_factory)
+        _reading(session_factory, product_id, 18.99, minutes_ago=10)
+        price_checker = self._wire(monkeypatch, session_factory, 15.49)
+
+        result = price_checker.check_all_prices()
+
+        assert result == {"checked": 1, "alerts": 1, "errors": 0}
+        assert len(_alerts(session_factory)) == 1
