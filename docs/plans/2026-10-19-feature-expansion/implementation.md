@@ -155,6 +155,23 @@ and the unknowns.
 For a business seller at GBP 24.99 with 2% promoted and GBP 3.20 postage paid, the breakdown is
 arithmetically consistent; the same inputs through the pipeline verdict give the same profit.
 
+### Shipped 2026-10-20
+
+Beyond the file table above: `GET /api/fees/table` (active table with version and sources, UI-ready category rows, the seller profile), `tests/test_fees_api.py` (27 tests through the HTTP door) and `frontend/lib/fees.ts` (typed client plus a pure form-to-request mapper with vitest coverage). The seller defaults live in `config.SELLER_PROFILE` and are carried - never guessed - into the verdict, the scorecard, the CLI and the calculator.
+
+Live evidence from the running stack, 2026-10-20:
+
+| What                | Inputs                                                                                                          | Answer                                                                                              |
+| ------------------- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Acceptance, forward | business seller, GBP 24.99, no category (stated default), 2% promoted, GBP 3.20 postage paid, GBP 9.40 supplier | 3.22 + 0.40 + 0.09 + 0.50 fees, 0.84 VAT, cost 5.05, net 19.94, profit **6.59**, margin **26.4%**   |
+| Reverse round-trip  | target 30% on the same costs                                                                                    | list at **26.86**; check recomputes profit 8.06 / margin 30.0; forward at 26.86 returns margin 30.0 |
+| Break-even          | 0% target on the same costs                                                                                     | **16.63** (rounded up to the penny; recomputed profit 0.01 at it)                                   |
+| Refusal             | sale price GBP 0                                                                                                | 422 - "sale_price must be greater than zero..."                                                     |
+| Table route         | -                                                                                                               | `uk-rate-card-2026-09-30`, 55 category rows, profile defaults carried                               |
+| Page                | -                                                                                                               | `/fees` 200; nav entry and break-even wording present in the shipped chunks                         |
+
+The same acceptance inputs through the pipeline verdict return the same profit (6.59 / 26.4%) - both call `engine/fees.py sale_outcome()`, so they cannot disagree.
+
 ---
 
 ## Phase E - Alerts

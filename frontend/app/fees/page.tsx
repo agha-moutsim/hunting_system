@@ -22,6 +22,7 @@ import type {
   FeeCalculateRequest,
   FeeCalculation,
   FeeReverseResult,
+  FeeSolveCheck,
   FeeTableResponse,
 } from "@/lib/types";
 
@@ -101,7 +102,7 @@ export default function FeesPage() {
   const [error, setError] = useState<string | null>(null);
   const [forward, setForward] = useState<FeeCalculation | null>(null);
   const [reverse, setReverse] = useState<FeeReverseResult | null>(null);
-  const [breakEven, setBreakEven] = useState<number | null>(null);
+  const [breakEven, setBreakEven] = useState<FeeSolveCheck | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -130,8 +131,8 @@ export default function FeesPage() {
   async function loadBreakEven(request: FeeCalculateRequest) {
     try {
       const data = await calculateFees(request);
-      if (data.mode === "reverse" && data.achievable && data.price !== null) {
-        setBreakEven(data.price);
+      if (data.mode === "reverse" && data.achievable && data.check) {
+        setBreakEven(data.check);
       }
     } catch {
       // The sale is already priced; break-even is extra, and its failure must
@@ -409,19 +410,21 @@ export default function FeesPage() {
 
           {!calculating && forward && <FeeBreakdown calculation={forward} />}
 
-          {!calculating && forward && breakEven !== null && (
+          {!calculating && forward && breakEven && (
             <Card title="Break-even">
               <div className="flex flex-wrap items-baseline justify-between gap-3">
                 <span className="text-sm text-text-secondary">
-                  Sale price that returns exactly nothing
+                  Lowest sale price that does not lose money
                 </span>
                 <span className="font-mono text-lg font-bold tabular-nums text-white">
-                  {formatGBP(breakEven)}
+                  {formatGBP(breakEven.price)}
                 </span>
               </div>
               <p className="mt-1 text-[11px] leading-relaxed text-text-dim">
-                Solved by the same engine at a 0% target margin. Below this
-                price every sale on these costs loses money.
+                Solved by the same engine at a 0% target margin and rounded up
+                to the penny: at this price the engine recomputes a profit of{" "}
+                {formatGBP(breakEven.profit)}. Below it, every sale on these
+                costs loses money.
               </p>
             </Card>
           )}
