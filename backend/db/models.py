@@ -67,7 +67,28 @@ class DemandData(Base):
     sold_prices = Column(JSON)
     # The asking prices behind the `*_active_price` figures, same discipline.
     active_prices = Column(JSON)
-    data_source = Column(String(64), default="ebay_sold_listings")
+    # PHASE C - WHERE THE SOLD FIGURE CAME FROM, AND WHEN IT WAS READ.
+    #
+    # `sold_count_7d` is the only sold number this app can verify, and exactly
+    # one thing can produce it: the capture extension reading the user's own
+    # eBay purchase history inside their own logged-in session (see
+    # extension/README.md). These two columns are NOT a second copy of
+    # `verified` - they say WHICH source produced the number and WHEN it
+    # observed it, which is what lets a screen read "12 sold in 7 days, eBay
+    # purchase history, read 2h ago" instead of a bare 12 that could have come
+    # from anywhere.
+    #
+    # NULL means no capture-backed sold figure is held. That is the normal case,
+    # and it is not a gap to be filled: every Browse-derived count is SUPPLY, and
+    # it lives in the `active_*` columns under names that say so.
+    sold_source = Column(String(32))
+    sold_captured_at = Column(DateTime)
+    # A SENTENCE, not a token. The measured value names the query that produced
+    # the figures and states what it can and cannot mean - well past 64
+    # characters. SQLite ignores VARCHAR lengths, so the narrow type never
+    # failed here, but the same sentence would have been silently truncated on
+    # any engine that honours it.
+    data_source = Column(Text, default="ebay_sold_listings")
     verified = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 

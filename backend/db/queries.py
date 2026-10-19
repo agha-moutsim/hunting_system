@@ -194,9 +194,21 @@ def save_demand_data(db: Session, product_id: int, demand: DemandDataDTO) -> Dem
         if hasattr(demand, _name):
             _value = getattr(demand, _name)
             data[_name] = list(_value or []) if _name.endswith("_prices") else _value
-    # P5: only written when the DTO carries a source string (e.g. the
-    # "...+purchase_history" suffix set by analysis_pipeline) so the column
-    # default keeps applying everywhere else.
+    # Phase C — the sold figure's provenance, with the invariant that makes it
+    # worth storing: a source is a claim ABOUT a figure, so a row can never hold
+    # a source with no figure. A re-run with no capture therefore CLEARS the
+    # previous source rather than leaving "purchase history" attached to a NULL
+    # count, which would read as a sold number that came from nowhere.
+    sold_source = getattr(demand, "sold_source", None)
+    sold_captured_at = getattr(demand, "sold_captured_at", None)
+    if getattr(demand, "sold_count_7d", None) is None:
+        sold_source = None
+        sold_captured_at = None
+    data["sold_source"] = sold_source
+    data["sold_captured_at"] = sold_captured_at
+    # P5/Phase C — only written when the DTO carries a source string (built by
+    # the scraper, extended by analysis_pipeline) so the column default keeps
+    # applying everywhere else.
     data_source = getattr(demand, "data_source", None)
     if data_source:
         data["data_source"] = data_source

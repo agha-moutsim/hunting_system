@@ -74,6 +74,12 @@ _DEMAND_DATA_ADDITIONS = (
     ("lowest_active_price", "FLOAT"),
     ("highest_active_price", "FLOAT"),
     ("active_prices", "JSON"),
+    # Phase C - the sold figure's provenance: which source produced it and when
+    # that source observed it. Existing rows read NULL, which is the honest
+    # answer for them: the row recorded a count without recording where from,
+    # and inventing a source for it now would be a fabricated citation.
+    ("sold_source", "VARCHAR(32)"),
+    ("sold_captured_at", "DATETIME"),
 )
 
 

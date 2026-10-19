@@ -447,7 +447,12 @@ class TestPipelineOverride:
 
         assert out.sold_count_7d == 9
         assert out.verified_7d is True
-        assert out.data_source.endswith("+purchase_history")
+        # Phase C — the sentence says WHICH source produced the sold figure, and
+        # the figure carries its own source and read time rather than leaving a
+        # bare number that could have come from anywhere.
+        assert out.sold_source == "purchase_history"
+        assert out.sold_captured_at is not None
+        assert "7-day sold figure: eBay purchase history" in out.data_source
         # 30-day side is untouched.
         assert out.sold_count_30d == 40
         assert out.verified is False

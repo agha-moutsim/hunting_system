@@ -211,6 +211,12 @@ class DemandData:
     # P5: verification of the 7-day figure specifically. None = no browser
     # purchase-history capture (fall back to `verified`); True = capture-backed.
     verified_7d: Optional[bool] = None
+    # PHASE C - the sold figure's provenance, carried as a value/time pair:
+    # WHICH source produced it and WHEN that source observed it. Set only by the
+    # purchase-history override, and None on every other path, because nothing
+    # else this app can reach produces a sold number at all.
+    sold_source: Optional[str] = None
+    sold_captured_at: Optional[datetime] = None
     # P5: where these counts came from, e.g. "ebay_sold_listings" or
     # "ebay_sold_listings+purchase_history" when a capture was applied.
     data_source: Optional[str] = None

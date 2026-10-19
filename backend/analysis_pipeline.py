@@ -132,6 +132,32 @@ VERDICT_RESERVE_S = 2.0
 PURCHASE_HISTORY_MAX_AGE_HOURS = 24
 
 
+#: The one source that can produce a verified sold figure (Phase C). Named once,
+#: so the stored row, the replayed row and the screen all say the same word.
+SOLD_SOURCE_PURCHASE_HISTORY = "purchase_history"
+
+#: Joins the sold figure's origin onto a row's source sentence. The sentence is
+#: rebuilt from the part before this separator, so applying the override twice
+#: cannot stack it.
+_SOLD_SOURCE_SEPARATOR = " | "
+
+
+def _with_sold_source(base: str, captured_at: datetime) -> str:
+    """`base` plus a sentence naming what produced the sold figure, and when.
+
+    A row's `data_source` describes the QUERY that produced its figures. This
+    adds the one thing that sentence cannot know: that the sold number did not
+    come from that query at all - it came from the user's own eBay purchase
+    history, read in their own browser. Rebuilt rather than appended, so a
+    second call is a no-op instead of a run-on.
+    """
+    original = base.split(_SOLD_SOURCE_SEPARATOR)[0]
+    return (
+        f"{original}{_SOLD_SOURCE_SEPARATOR}7-day sold figure: eBay purchase "
+        f"history, read {captured_at:%Y-%m-%d %H:%M} UTC"
+    )
+
+
 def apply_purchase_history(
     demand: Optional[DemandDataDTO],
     ebay_url: Optional[str],
@@ -144,8 +170,10 @@ def apply_purchase_history(
       * sets demand.sold_count_7d from the capture,
       * sets demand.verified_7d = True — so ONLY the Demand(7d) verdict row
         becomes verified; Demand(30d) keeps its own source's verified status,
-      * appends "+purchase_history" to demand.data_source so the persisted
-        demand row shows where the 7-day number came from.
+      * records `sold_source` / `sold_captured_at` — which source produced the
+        sold figure and when that source observed it — and says so in
+        `data_source`, so a number on screen can be traced back to the moment it
+        was read rather than to the moment this analysis happened to run.
 
     Returns `demand` unchanged when there is no id, no capture, or the
     capture is stale. `db` is an optional session (tests pass one).
@@ -176,9 +204,15 @@ def apply_purchase_history(
             return demand
         demand.sold_count_7d = capture.sold_7d
         demand.verified_7d = True
-        base = demand.data_source or "ebay_sold_listings"
-        if not base.endswith("+purchase_history"):
-            demand.data_source = base + "+purchase_history"
+        # Phase C — the count is only as good as knowing where it came from and
+        # when it was read, so both travel with it. `capture.captured_at` is when
+        # the extension read the page in the user's own browser, NOT when this
+        # analysis ran, and the two can be a day apart.
+        demand.sold_source = SOLD_SOURCE_PURCHASE_HISTORY
+        demand.sold_captured_at = capture.captured_at
+        demand.data_source = _with_sold_source(
+            demand.data_source or "ebay_sold_listings", capture.captured_at
+        )
         return demand
     finally:
         if own_session:
