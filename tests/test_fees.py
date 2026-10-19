@@ -12,7 +12,9 @@ of fetched pages.
 
 import pytest
 
+from config import PROFIT_CONFIG
 from engine import fees
+from engine.profit import calculate_profit
 
 
 class TestTheActiveTableIsThePublishedRateCard:
@@ -776,3 +778,101 @@ class TestSolveForMargin:
         for bad in (-1.0, 100.0, 120.0):
             with pytest.raises(ValueError):
                 fees.solve_for_margin(bad, supplier_cost=10.0)
+
+
+# ---------------------------------------------------------------------------
+# engine/profit.py - the C3 rule every verdict path calls
+# ---------------------------------------------------------------------------
+
+
+class TestThePipelineMoneyRuleDelegatesWithTheSameNumbers:
+    """engine/profit.py keeps the shape and the numbers every caller reads.
+    This class recomputes the pre-Phase-D formula here, independently of the
+    implementation, and pins the two against each other - so the delegation
+    is provably arithmetically neutral until the deliberate model switch."""
+
+    def _legacy_expected(self, price, supplier, shipping=0.0):
+        cfg = PROFIT_CONFIG
+        ebay_fee = price * cfg["ebay_fee_percent"] / 100
+        listing_fee = price * cfg["listing_fee_percent"] / 100
+        vat_on_fees = (ebay_fee + listing_fee) * cfg["vat_on_fees_percent"] / 100
+        returns_buffer = price * cfg["returns_buffer_percent"] / 100
+        packaging = cfg["packaging_cost"]
+        total_fees = ebay_fee + listing_fee + vat_on_fees + returns_buffer + packaging
+        displayed = round(shipping, 2) if round(shipping, 2) > 0 else 0.0
+        profit = price - supplier - total_fees - displayed
+        margin = profit / price * 100 if price > 0 else 0.0
+        return {
+            "ebay_fee": round(ebay_fee, 2),
+            "listing_fee": round(listing_fee, 2),
+            "vat_on_fees": round(vat_on_fees, 2),
+            "returns_buffer": round(returns_buffer, 2),
+            "packaging_cost": round(packaging, 2),
+            "shipping_cost": round(displayed, 2),
+            "shipping_known": displayed > 0,
+            "total_fees": round(total_fees + displayed, 2),
+            "profit": round(profit, 2),
+            "margin": round(margin, 1),
+        }
+
+    @pytest.mark.parametrize(
+        "price,supplier,shipping",
+        [
+            (24.99, 9.40, 0.0),
+            (24.99, 9.40, 3.20),
+            (10.0, 5.0, 0.0),
+            (5.5, 2.0, 1.5),
+            (33.33, 12.12, 7.77),
+            (100.0, 40.0, 0.004),
+        ],
+    )
+    def test_every_figure_matches_the_pre_phase_d_formula(
+        self, price, supplier, shipping
+    ):
+        got = calculate_profit(price, supplier, shipping_cost=shipping)
+        expected = self._legacy_expected(price, supplier, shipping)
+        for key, value in expected.items():
+            assert got[key] == value, key
+        assert got["profit_is_complete"] == expected["shipping_known"]
+
+    def test_the_old_key_set_is_intact(self):
+        got = calculate_profit(24.99, 9.40, shipping_cost=3.20)
+        for key in (
+            "ebay_price",
+            "supplier_price",
+            "ebay_fee",
+            "listing_fee",
+            "vat_on_fees",
+            "returns_buffer",
+            "packaging_cost",
+            "shipping_cost",
+            "shipping_known",
+            "profit_is_complete",
+            "total_fees",
+            "profit",
+            "margin",
+        ):
+            assert key in got, key
+
+    def test_the_result_states_the_fee_table_that_made_it(self):
+        got = calculate_profit(24.99, 9.40)
+        assert got["fee_table"]["key"] == fees.V1_STATIC_TABLE
+        assert got["fee_table"]["version"]
+
+    def test_the_formula_defaults_can_be_overridden_by_table(self):
+        """Callers may ask the same rule for the published-card numbers; the
+        result says which table it used, so the two can never be confused."""
+        v1 = calculate_profit(24.99, 9.40)
+        card = calculate_profit(24.99, 9.40, fee_table=fees.RATE_CARD_TABLE)
+        assert v1["fee_table"]["key"] == fees.V1_STATIC_TABLE
+        assert card["fee_table"]["key"] == fees.RATE_CARD_TABLE
+        assert v1["profit"] != card["profit"]
+
+    def test_a_below_a_penny_postage_reading_is_still_unknown(self):
+        got = calculate_profit(24.99, 9.40, shipping_cost=0.004)
+        assert got["shipping_known"] is False
+        assert got["shipping_cost"] == 0.0
+
+    def test_a_zero_price_is_refused_not_given_a_zero_margin(self):
+        with pytest.raises(ValueError):
+            calculate_profit(0.0, 10.0)

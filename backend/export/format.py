@@ -211,13 +211,22 @@ def format_to_schema(result: Any) -> dict:
 
     # Money from the single engine source (PROFIT_CONFIG) — C1/C3.
     # With no usable in-band eBay price there is nothing to compute fees
-    # or profit FROM: export nulls, never arithmetic on a gated 0.
+    # or profit FROM: export nulls, never arithmetic on a gated 0. This
+    # used to call calculate_profit(0, ...) and throw the numbers away;
+    # the fee engine now enforces the same rule at its own door - a zero
+    # or unread price raises rather than producing a calculation.
     has_price = bool(ebay_price)
-    calc = calculate_profit(ebay_price, supplier_cost)
-    ebay_fees = calc["total_fees"] if has_price else None
-    total_cost = (supplier_cost + calc["total_fees"]) if has_price else None
-    profit = calc["profit"] if has_price else None
-    margin = calc["margin"] if has_price else None
+    if has_price:
+        calc = calculate_profit(ebay_price, supplier_cost)
+        ebay_fees = calc["total_fees"]
+        total_cost = supplier_cost + calc["total_fees"]
+        profit = calc["profit"]
+        margin = calc["margin"]
+    else:
+        ebay_fees = None
+        total_cost = None
+        profit = None
+        margin = None
 
     # Format top sellers
     field_prov = _result_provenance(result)
