@@ -582,3 +582,197 @@ class TestAssumptionsAreStated:
                 assert "recoverable" in result["vat_note"]
             else:
                 assert "not VAT registered" in result["vat_note"]
+
+
+# ---------------------------------------------------------------------------
+# The money layer: one sale all the way to profit, and the reverse solver
+# ---------------------------------------------------------------------------
+
+
+class TestTheAcceptanceMoneyView:
+    """The Phase D acceptance example, taken all the way: business seller,
+    GBP 24.99, 2% promoted, GBP 3.20 postage paid, GBP 9.40 supplier."""
+
+    @pytest.fixture()
+    def outcome(self):
+        return fees.sale_outcome(
+            24.99,
+            supplier_cost=9.40,
+            postage_paid=3.20,
+            promoted_rate=2.0,
+            seller_type="business",
+        )
+
+    def test_the_money_view_holds_together(self, outcome):
+        # fees: 3.22 + 0.40 + 0.09 + 0.50 = 4.21, +20% VAT = 5.05
+        assert outcome["fees"]["fees_cost_total"] == 5.05
+        assert outcome["net_after_fees"] == 19.94
+        assert outcome["risk_buffer"] == 0.75
+        assert outcome["profit"] == 6.59
+        assert outcome["margin"] == 26.4
+
+    def test_the_profit_and_its_parts_never_disagree_by_more_than_a_penny(
+        self, outcome
+    ):
+        parts = (
+            outcome["profit"]
+            + outcome["postage_paid"]
+            + outcome["supplier_cost"]
+            + outcome["risk_buffer"]
+            + outcome["fees"]["fees_cost_total"]
+        )
+        assert parts == pytest.approx(outcome["proceeds"], abs=0.01)
+
+    def test_a_missing_supplier_is_not_a_zero(self):
+        outcome = fees.sale_outcome(24.99, seller_type="business")
+        assert outcome["supplier_cost"] is None
+        assert outcome["profit"] is None
+        assert outcome["margin"] is None
+        assert outcome["profit_is_complete"] is False
+        assert "not given" in outcome["profit_missing_reason"]
+        # the fee figures never needed the supplier and still compute
+        assert outcome["fees"]["fees_cost_total"] > 0
+        assert outcome["net_after_fees"] > 0
+
+    def test_unread_postage_is_unknown_not_free(self):
+        outcome = fees.sale_outcome(24.99, supplier_cost=9.40)
+        assert outcome["postage_paid"] == 0.0
+        assert outcome["postage_paid_known"] is False
+        assert outcome["profit_is_complete"] is False
+
+    def test_a_reading_below_a_penny_is_still_not_free(self):
+        outcome = fees.sale_outcome(24.99, supplier_cost=9.40, postage_paid=0.001)
+        assert outcome["postage_paid"] == 0.0
+        assert outcome["postage_paid_known"] is False
+
+    def test_a_penny_of_postage_moves_the_profit_by_a_penny(self):
+        base = fees.sale_outcome(24.99, supplier_cost=9.40, postage_paid=3.20)
+        dearer = fees.sale_outcome(24.99, supplier_cost=9.40, postage_paid=3.21)
+        assert base["profit"] - dearer["profit"] == pytest.approx(0.01, abs=0.001)
+
+    def test_the_risk_buffer_is_named_and_is_not_a_fee(self, outcome):
+        assert outcome["risk_buffer_percent"] == 3.0
+        assert outcome["risk_buffer"] == 0.75
+        assert "risk_buffer" not in outcome["fees"]
+
+    def test_a_different_buffer_moves_the_profit_by_the_same_rule(self):
+        without = fees.sale_outcome(24.99, supplier_cost=9.40, risk_buffer_percent=0.0)
+        base = fees.sale_outcome(24.99, supplier_cost=9.40)
+        assert without["profit"] - base["profit"] == pytest.approx(0.75, abs=0.01)
+
+    def test_vat_registration_lifts_the_profit_by_the_recoverable_vat(self):
+        registered = fees.sale_outcome(100.0, supplier_cost=50.0, vat_registered=True)
+        unregistered = fees.sale_outcome(100.0, supplier_cost=50.0, vat_registered=False)
+        assert registered["profit"] - unregistered["profit"] == pytest.approx(
+            unregistered["fees"]["vat_on_fees"], abs=0.01
+        )
+
+    def test_proceeds_include_postage_charged(self):
+        outcome = fees.sale_outcome(20.0, supplier_cost=5.0, postage_charged=3.0)
+        assert outcome["proceeds"] == 23.00
+        assert outcome["net_after_fees"] == pytest.approx(
+            23.00 - outcome["fees"]["fees_cost_total"], abs=0.01
+        )
+
+
+class TestSolveForMargin:
+    def _outcome_kwargs(self):
+        return dict(
+            supplier_cost=9.40,
+            postage_paid=3.20,
+            promoted_rate=2.0,
+            seller_type="business",
+        )
+
+    def test_the_acceptance_reverse_case_lands_where_the_math_says(self):
+        solved = fees.solve_for_margin(30.0, **self._outcome_kwargs())
+        assert solved["achievable"] is True
+        # profit = 0.787 * price - 13.08 must equal 0.30 * price -> 26.86
+        assert solved["price"] == pytest.approx(26.86, abs=0.02)
+
+    def test_the_solver_proves_its_own_answer(self):
+        solved = fees.solve_for_margin(30.0, **self._outcome_kwargs())
+        assert solved["check"]["margin"] == pytest.approx(30.0, abs=0.1)
+        assert solved["check"]["profit"] >= 0
+
+    def test_solving_a_margin_then_recomputing_returns_the_same_margin(self):
+        for target in (10.0, 25.0, 30.0, 50.0):
+            solved = fees.solve_for_margin(target, **self._outcome_kwargs())
+            assert solved["achievable"] is True, target
+            recomputed = fees.sale_outcome(solved["price"], **self._outcome_kwargs())
+            assert recomputed["margin"] == pytest.approx(target, abs=0.15), target
+            assert recomputed["profit"] == pytest.approx(
+                solved["check"]["profit"], abs=0.01
+            ), target
+
+    def test_the_solver_steps_over_the_per_order_fee(self):
+        """A root above the GBP 10 step must charge the higher per-order fee."""
+        solved = fees.solve_for_margin(30.0, supplier_cost=8.0, seller_type="business")
+        assert solved["achievable"] is True
+        # profit = 0.811 * price - 0.48 - 8 = 0.30 * price -> 16.60
+        assert solved["price"] == pytest.approx(16.60, abs=0.02)
+
+    def test_the_solver_steps_under_the_per_order_fee(self):
+        solved = fees.solve_for_margin(10.0, supplier_cost=2.0, seller_type="business")
+        assert solved["achievable"] is True
+        # profit = 0.811 * price - 0.36 - 2 = 0.10 * price -> 3.32
+        assert solved["price"] == pytest.approx(3.32, abs=0.02)
+
+    def test_the_solver_crosses_a_tier_boundary(self):
+        solved = fees.solve_for_margin(
+            5.0, supplier_cost=900.0, category="jewellery-watches", seller_type="business"
+        )
+        assert solved["achievable"] is True
+        # above GBP 1,000 the rate is 4% and the quoted side is
+        # 0.0435 * price + 109.40 (fvf + 0.35% regulatory + 0.40 per order):
+        # profit = 0.9178 * price - 1031.28 = 0.05 * price -> 1188.39
+        assert solved["price"] == pytest.approx(1188.39, abs=0.02)
+        assert solved["check"]["margin"] == pytest.approx(5.0, abs=0.1)
+
+    def test_break_even_means_zero_margin(self):
+        solved = fees.solve_for_margin(0.0, supplier_cost=10.0, seller_type="business")
+        assert solved["achievable"] is True
+        assert -0.01 <= solved["check"]["profit"] <= 0.02
+        assert solved["check"]["margin"] == pytest.approx(0.0, abs=0.1)
+
+    def test_a_fee_free_seller_breaks_even_at_the_supplier_price(self):
+        solved = fees.solve_for_margin(
+            0.0, supplier_cost=25.0, seller_type="private", risk_buffer_percent=0.0
+        )
+        assert solved["price"] == 25.0
+        assert solved["check"]["profit"] == 0.0
+
+    def test_the_default_buffer_moves_private_break_even_the_same_way(self):
+        solved = fees.solve_for_margin(0.0, supplier_cost=25.0, seller_type="private")
+        # 0.97 * price = 25 -> 25.78
+        assert solved["price"] == pytest.approx(25.78, abs=0.02)
+
+    def test_the_old_table_solves_by_its_own_rules(self):
+        solved = fees.solve_for_margin(
+            25.0,
+            supplier_cost=10.0,
+            seller_type="business",
+            fee_table=fees.V1_STATIC_TABLE,
+        )
+        # v1: 0.80764 * price - 10 = 0.25 * price -> 17.94
+        assert solved["price"] == pytest.approx(17.94, abs=0.05)
+
+    def test_an_unreachable_target_says_so_and_returns_no_price(self):
+        solved = fees.solve_for_margin(95.0, supplier_cost=10.0, seller_type="business")
+        assert solved["achievable"] is False
+        assert solved["price"] is None
+        assert solved["check"] is None
+        assert "No sale price" in solved["reason"]
+
+    def test_a_missing_supplier_cannot_be_solved_around(self):
+        with pytest.raises(ValueError):
+            fees.solve_for_margin(30.0, supplier_cost=None)
+
+    def test_a_non_numeric_target_is_refused(self):
+        with pytest.raises(ValueError):
+            fees.solve_for_margin(None, supplier_cost=10.0)
+
+    def test_impossible_targets_are_refused(self):
+        for bad in (-1.0, 100.0, 120.0):
+            with pytest.raises(ValueError):
+                fees.solve_for_margin(bad, supplier_cost=10.0)

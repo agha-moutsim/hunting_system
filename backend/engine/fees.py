@@ -61,7 +61,10 @@ Deliberately NOT modelled, and said so rather than estimated:
     answers what eBay takes; it is not a VAT return.
 """
 
+import math
 from typing import Optional
+
+from config import PROFIT_CONFIG
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -438,12 +441,10 @@ BUYER_REGIONS = {
 
 
 def _as_amount(value, field: str, *, minimum: float = 0.0) -> float:
-    """A money amount from a caller. Refuses None - an unread price is not a
-    zero price - and refuses NaN, which would poison every downstream sum."""
+    """A money amount from a caller. Refuses None - an unread value is not a
+    zero - and refuses NaN, which would poison every downstream sum."""
     if value is None:
-        raise ValueError(
-            f"{field} is required - an unread price is not a zero price"
-        )
+        raise ValueError(f"{field} is required")
     try:
         number = float(value)
     except (TypeError, ValueError):
@@ -495,6 +496,10 @@ def calculate_fees(
     table carries as zero - a UK private seller's final value fee - is a
     stated zero and stays a number. The two must not look alike (C1).
     """
+    if sale_price is None:
+        raise ValueError(
+            "sale_price is required - an unread price is not a zero price"
+        )
     price = _as_amount(sale_price, "sale_price")
     if price <= 0:
         raise ValueError(
@@ -716,5 +721,358 @@ def calculate_fees(
         "_total_amount_raw": total,
         "assumptions": assumptions,
         "notes": notes,
+    }
+
+
+# ---------------------------------------------------------------------------
+# The money layer - one sale, all the way to profit and margin
+# ---------------------------------------------------------------------------
+
+
+def _displayed_postage_paid(postage_paid) -> tuple[float, bool]:
+    """The seller's postage cost, as displayed, keeping the v1 rule intact:
+
+    `0.0` means UNKNOWN, not free. A blank, non-numeric or negative reading
+    is unknown; and the figure is rounded once, where it is shown, so a
+    profit computed from it never disagrees with its own printed parts.
+    """
+    try:
+        paid = float(postage_paid if postage_paid is not None else 0.0)
+    except (TypeError, ValueError):
+        paid = 0.0
+    if paid != paid:  # NaN
+        paid = 0.0
+    displayed = round(paid, 2) if round(paid, 2) > 0 else 0.0
+    return displayed, displayed > 0
+
+
+def _cost_inputs(
+    postage_paid, risk_buffer_percent, packaging_cost
+) -> tuple[float, bool, float, float]:
+    """The seller-side cost inputs. Buffer and packaging default to the C3
+    config values when a caller does not state them."""
+    paid, paid_known = _displayed_postage_paid(postage_paid)
+    buffer_percent = float(
+        PROFIT_CONFIG["returns_buffer_percent"]
+        if risk_buffer_percent is None
+        else risk_buffer_percent
+    )
+    if not (0.0 <= buffer_percent < 100.0):
+        raise ValueError(
+            f"risk_buffer_percent must be in [0, 100), got {buffer_percent:g}"
+        )
+    packaging = float(
+        PROFIT_CONFIG["packaging_cost"] if packaging_cost is None else packaging_cost
+    )
+    if packaging < 0:
+        raise ValueError(f"packaging_cost must be >= 0, got {packaging:g}")
+    return paid, paid_known, buffer_percent, packaging
+
+
+def _raw_profit_at(price: float, *, supplier, paid_displayed: float, buffer_percent: float, packaging: float, fee_kwargs: dict) -> dict:
+    """Raw (unrounded) money for one sale at one price.
+
+    The single place the profit formula lives: proceeds minus eBay's cost
+    view, minus postage paid, minus supplier, minus the risk buffer, minus
+    packaging. Rounding happens only at the edges, once.
+    """
+    fees = calculate_fees(price, **fee_kwargs)
+    cost_raw = fees["_fees_cost_raw"]
+    proceeds_raw = price + float(fee_kwargs.get("postage_charged") or 0.0)
+    buffer_raw = price * buffer_percent / 100.0
+    profit_raw = (
+        proceeds_raw
+        - cost_raw
+        - paid_displayed
+        - (supplier if supplier is not None else 0.0)
+        - buffer_raw
+        - packaging
+    )
+    return {
+        "fees": fees,
+        "cost_raw": cost_raw,
+        "proceeds_raw": proceeds_raw,
+        "buffer_raw": buffer_raw,
+        "profit_raw": profit_raw,
+    }
+
+
+def sale_outcome(
+    sale_price,
+    supplier_cost=None,
+    postage_paid=0.0,
+    *,
+    risk_buffer_percent=None,
+    packaging_cost=None,
+    postage_charged=0.0,
+    category=None,
+    promoted_rate=0.0,
+    seller_type="business",
+    uk_resident=True,
+    vat_registered=False,
+    listing_fee=0.0,
+    buyer_region="uk",
+    fee_table=None,
+) -> dict:
+    """The whole money view of one sale: fees, net after them, profit, margin.
+
+    A missing supplier cost does not become a zero: the fee figures still
+    compute (they do not need it), but `profit` and `margin` come back None
+    with `profit_is_complete` False and a stated reason. The risk buffer is
+    the seller's own policy (config by default), never an eBay fee - and it
+    is labelled as a buffer wherever it is shown.
+    """
+    supplier: Optional[float]
+    if supplier_cost is None:
+        supplier = None
+    else:
+        try:
+            supplier = float(supplier_cost)
+        except (TypeError, ValueError):
+            raise ValueError(f"supplier_cost must be a number, got {supplier_cost!r}")
+        if supplier != supplier:  # NaN
+            raise ValueError("supplier_cost must be a number, got NaN")
+
+    paid_displayed, paid_known, buffer_percent, packaging = _cost_inputs(
+        postage_paid, risk_buffer_percent, packaging_cost
+    )
+
+    fee_kwargs = {
+        "postage_charged": postage_charged,
+        "category": category,
+        "promoted_rate": promoted_rate,
+        "seller_type": seller_type,
+        "uk_resident": uk_resident,
+        "vat_registered": vat_registered,
+        "listing_fee": listing_fee,
+        "buyer_region": buyer_region,
+        "fee_table": fee_table,
+    }
+
+    raw = _raw_profit_at(
+        sale_price,
+        supplier=supplier,
+        paid_displayed=paid_displayed,
+        buffer_percent=buffer_percent,
+        packaging=packaging,
+        fee_kwargs=fee_kwargs,
+    )
+    price_value = float(sale_price)
+    supplier_known = supplier is not None
+    profit_raw = raw["profit_raw"] if supplier_known else None
+    margin_raw = (
+        raw["profit_raw"] / price_value * 100.0 if supplier_known else None
+    )
+
+    result = {
+        "ok": True,
+        "fees": {k: v for k, v in raw["fees"].items() if not k.startswith("_")},
+        "price": round(price_value, 2),
+        "postage_charged": round(float(fee_kwargs["postage_charged"] or 0.0), 2),
+        "proceeds": round(raw["proceeds_raw"], 2),
+        "supplier_cost": round(supplier, 2) if supplier_known else None,
+        "postage_paid": paid_displayed,
+        "postage_paid_known": paid_known,
+        "risk_buffer_percent": buffer_percent,
+        "risk_buffer": round(raw["buffer_raw"], 2),
+        "packaging_cost": round(packaging, 2),
+        "net_after_fees": round(raw["proceeds_raw"] - raw["cost_raw"], 2),
+        "profit": round(profit_raw, 2) if supplier_known else None,
+        "margin": round(margin_raw, 1) if supplier_known else None,
+        "profit_is_complete": bool(supplier_known and paid_known),
+        "profit_missing_reason": (
+            None
+            if supplier_known
+            else "supplier cost was not given - no profit figure is shown "
+            "rather than a zero"
+        ),
+        # Raw, unrounded internals for engine callers (profit.py keeps the
+        # legacy totals exact). Underscored: not part of the response shape.
+        "_profit_raw": profit_raw,
+        "_net_raw": raw["proceeds_raw"] - raw["cost_raw"],
+        "_cost_raw": raw["cost_raw"],
+        "_proceeds_raw": raw["proceeds_raw"],
+        "_buffer_raw": raw["buffer_raw"],
+        "_packaging_raw": packaging,
+        "_shipping_displayed": paid_displayed,
+    }
+    return result
+
+
+def solve_for_margin(
+    target_margin,
+    *,
+    supplier_cost,
+    postage_paid=0.0,
+    risk_buffer_percent=None,
+    packaging_cost=None,
+    postage_charged=0.0,
+    category=None,
+    promoted_rate=0.0,
+    seller_type="business",
+    uk_resident=True,
+    vat_registered=False,
+    listing_fee=0.0,
+    buyer_region="uk",
+    fee_table=None,
+) -> dict:
+    """Reverse mode: the sale price that nets a target margin.
+
+    The fee structure is piecewise linear in the price - category tiers, the
+    per-order step, the Trainers switch - so the solver splits the price axis
+    at exactly those breakpoints and solves each segment analytically, then
+    proves the answer by recomputing the margin at the returned price
+    (`check`). The returned price is rounded UP to the penny, so the quoted
+    price meets the target rather than missing it by a rounding hair.
+
+    Returns `achievable: False` with a stated reason when no price reaches
+    the target - it never returns a price that does not.
+    """
+    try:
+        m = float(target_margin)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"target_margin must be a number, got {target_margin!r}"
+        )
+    if not (0.0 <= m < 100.0):
+        raise ValueError(f"target_margin must be in [0, 100), got {m:g}")
+    if supplier_cost is None:
+        raise ValueError(
+            "supplier_cost is required to solve for a price - without it "
+            "there is no profit to target"
+        )
+    supplier = float(supplier_cost)
+    if supplier != supplier:  # NaN
+        raise ValueError("supplier_cost must be a number, got NaN")
+
+    paid_displayed, _paid_known, buffer_percent, packaging = _cost_inputs(
+        postage_paid, risk_buffer_percent, packaging_cost
+    )
+    fee_kwargs = {
+        "postage_charged": postage_charged,
+        "category": category,
+        "promoted_rate": promoted_rate,
+        "seller_type": seller_type,
+        "uk_resident": uk_resident,
+        "vat_registered": vat_registered,
+        "listing_fee": listing_fee,
+        "buyer_region": buyer_region,
+        "fee_table": fee_table,
+    }
+
+    def outcome_at(p: float) -> dict:
+        return _raw_profit_at(
+            p,
+            supplier=supplier,
+            paid_displayed=paid_displayed,
+            buffer_percent=buffer_percent,
+            packaging=packaging,
+            fee_kwargs=fee_kwargs,
+        )
+
+    def g(p: float) -> float:
+        """profit(p) minus the target profit - the function to zero."""
+        return outcome_at(p)["profit_raw"] - m / 100.0 * p
+
+    def margin_at(p: float) -> float:
+        return outcome_at(p)["profit_raw"] / p * 100.0
+
+    # --- Breakpoints: where the fee structure changes slope or steps ---
+    tbl = get_fee_table(fee_table)
+    side = seller_side(tbl, seller_type, uk_resident=uk_resident)
+    shift = float(postage_charged or 0.0)
+    breakpoints: set[float] = set()
+    if side.get("categories"):
+        row, _known = resolve_category(category, tbl)
+        for upper, _pct in row["tiers"]:
+            if upper is not None:
+                breakpoints.add(upper - shift)
+        switch = row.get("rate_switch")
+        if switch:
+            breakpoints.add(switch["item_price_at_least"])
+    elif side.get("fvf_tiers"):
+        for upper, _pct in side["fvf_tiers"]:
+            if upper is not None:
+                breakpoints.add(upper - shift)
+    pof = side.get("per_order_fee")
+    if isinstance(pof, dict):
+        breakpoints.add(pof["at_or_below"] - shift)
+
+    bounds = sorted(b for b in breakpoints if b > 0.02)
+    segments: list[tuple[float, Optional[float]]] = []
+    lower = 0.0
+    for b in bounds:
+        segments.append((lower, b))
+        lower = b
+    segments.append((lower, None))
+
+    # --- Solve each segment analytically (profit is linear inside one) ---
+    exact: Optional[float] = None
+    for seg_lo, seg_hi in segments:
+        if seg_hi is None:
+            p1 = max(seg_lo, 0.0) + 0.05
+            p2 = p1 + 1.0
+        else:
+            span = seg_hi - seg_lo
+            p1 = seg_lo + span * 0.25
+            p2 = seg_lo + span * 0.75
+        if p2 <= p1:
+            continue
+        g1, g2 = g(p1), g(p2)
+        slope = (g2 - g1) / (p2 - p1)
+        if abs(slope) < 1e-9:
+            continue
+        candidate = p1 - g1 / slope
+        if candidate <= 0:
+            continue
+        if seg_hi is not None and not (seg_lo - 1e-9 <= candidate <= seg_hi + 1e-9):
+            continue
+        if abs(margin_at(candidate) - m) > 0.5:
+            continue
+        exact = candidate
+        break
+
+    # Fallback for a root landing exactly on a step boundary, where no open
+    # segment contains it: bisect the whole axis when the sign pattern says
+    # a crossing exists. Cheap insurance, rarely needed.
+    if exact is None:
+        lo_b, hi_b = 0.01, 1_000_000.0
+        if g(lo_b) <= 0.0 < g(hi_b):
+            for _ in range(80):
+                mid = (lo_b + hi_b) / 2.0
+                if g(mid) <= 0.0:
+                    lo_b = mid
+                else:
+                    hi_b = mid
+            exact = hi_b
+
+    if exact is None:
+        return {
+            "achievable": False,
+            "price": None,
+            "target_margin": m,
+            "reason": (
+                f"No sale price reaches a {m:g}% margin with these costs: the "
+                "fees and the risk buffer claim a share of every sale that "
+                "leaves less than that margin."
+            ),
+            "check": None,
+        }
+
+    price_rounded = math.ceil(exact * 100.0) / 100.0
+    raw = outcome_at(price_rounded)
+    return {
+        "achievable": True,
+        "price": round(price_rounded, 2),
+        "target_margin": m,
+        "reason": None,
+        "check": {
+            "price": round(price_rounded, 2),
+            "profit": round(raw["profit_raw"], 2),
+            "margin": round(raw["profit_raw"] / price_rounded * 100.0, 1),
+            "fees_cost_total": round(raw["cost_raw"], 2),
+            "net_after_fees": round(raw["proceeds_raw"] - raw["cost_raw"], 2),
+        },
+        "_raw_price": exact,
     }
 
