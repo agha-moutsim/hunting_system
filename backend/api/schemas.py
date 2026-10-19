@@ -145,3 +145,37 @@ class SourcedFigure(BaseModel):
     value: Any = None
     origin: Optional[str] = None
     observed_at: Optional[str] = None
+
+
+# ── Fee calculator ──────────────────────────────────────────────
+
+class FeeCalculateRequest(BaseModel):
+    """One fee calculation for POST /api/fees/calculate.
+
+    Forward mode: send `sale_price` for the fee breakdown and (with a
+    supplier) profit. Reverse mode: send `target_margin` instead and the
+    engine solves for the price that reaches it.
+
+    The seller side falls back to config.SELLER_PROFILE field by field, so a
+    client that sends nothing extra gets exactly what the pipeline verdict
+    would compute. `postage_paid = 0.0` means UNKNOWN, not free (C1): the
+    result states when the profit is a ceiling.
+    """
+
+    sale_price: Optional[float] = None
+    target_margin: Optional[float] = None
+
+    postage_charged: float = 0.0
+    postage_paid: float = 0.0
+    category: Optional[str] = None
+    promoted_rate: Optional[float] = None
+    seller_type: Optional[str] = None
+    uk_resident: Optional[bool] = None
+    vat_registered: Optional[bool] = None
+    listing_fee: float = 0.0
+    buyer_region: str = "uk"
+    fee_table: Optional[str] = None
+
+    supplier_cost: Optional[float] = None
+    risk_buffer_percent: Optional[float] = None
+    packaging_cost: Optional[float] = None

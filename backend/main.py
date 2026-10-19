@@ -31,6 +31,7 @@ from api import (
     deep_search,
     export_api,
     extension,
+    fees,
     filters,
     history,
     hunter,
@@ -98,6 +99,7 @@ app.include_router(filters.router, prefix="/api", tags=["filters"])
 app.include_router(export_api.router, prefix="/api", tags=["export"])
 app.include_router(extension.router, prefix="/api", tags=["extension"])
 app.include_router(deals.router, prefix="/api", tags=["deals"])
+app.include_router(fees.router, prefix="/api", tags=["fees"])
 
 
 @app.get("/api/health", tags=["status"])
