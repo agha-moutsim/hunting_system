@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <!--
+    Turns already-stored price observations into inbox alerts, every hour,
+    whether or not the app is open.
+
+    WHY A SCHEDULED TASK: the alerts are the one part of the tool that has
+    to PUSH. A comparison that only runs when someone opens a page is a
+    report, not an alert. The tracker's inline check writes its own alert
+    the moment a reading lands; this pass catches everything else - new
+    demand-monitor average-price readings, and any reading written by a
+    path that did not come through the check.
+
+    COST: zero Browse calls. Every comparison reads rows the app already
+    stored (price_history, demand_snapshots). Run it as often as you like.
+
+    ENCODING: Task Scheduler's XML reader requires genuine UTF-16, and fails
+    with "unable to switch the encoding" on a UTF-8 file. Convert before use -
+    recipe verified on this machine, PowerShell 5.1, 2026-10-20 (the earlier
+    XmlDocument.Save($path, 'UTF-16') form does not bind there: "Cannot find
+    an overload for Save and the argument count: 2"):
+
+      $content = Get-Content backend\scripts\schedule_alerts.xml -Raw
+      [System.IO.File]::WriteAllText("$env:TEMP\alerts_task.xml", $content, [System.Text.Encoding]::Unicode)
+      schtasks /create /tn "eBayHunter Alerts" /xml "$env:TEMP\alerts_task.xml" /f
+
+    The PowerShell cmdlets (Register-ScheduledTask / Import-ScheduledTask) are
+    NOT used: this machine has the ScheduledTasks module's manifest but not its
+    native DLL, so every cmdlet in that module is missing. schtasks.exe works.
+
+    XML is used rather than `schtasks /create /tr` because the CLI splits the
+    /tr value at the first space when the quoting does not survive the shell:
+    the repo lives under "C:\Users\Agha Moutsim\", and a CLI registration that
+    looks successful can end up running a file called "C:\Users\Agha" and fail
+    every run with 0x80070002. XML carries the path as an element, so it cannot
+    be split.
+
+    The task runs as the logged-on user with NO stored password. It therefore
+    does not run while you are logged out. Change <LogonType> to PasswordOnly
+    and Task Scheduler will ask for your Windows password, which it stores
+    encrypted - do not commit that variant.
+  -->
+  <RegistrationInfo>
+    <Description>Turns already-stored price observations (tracker checks, demand-monitor runs) into real inbox alerts. Zero Browse calls; idempotent.</Description>
+    <URI>\ebay-hunter\alerts</URI>
+  </RegistrationInfo>
+  <Triggers>
+    <CalendarTrigger>
+      <StartBoundary>2026-10-20T08:00:00</StartBoundary>
+      <Enabled>true</Enabled>
+      <ScheduleByDay>
+        <DaysInterval>1</DaysInterval>
+      </ScheduleByDay>
+      <!-- every hour, repeating daily: the pass is free, so latency is the
+           only knob that matters -->
+      <Repetition>
+        <Interval>PT1H</Interval>
+        <Duration>P1D</Duration>
+        <StopAtDurationEnd>false</StopAtDurationEnd>
+      </Repetition>
+    </CalendarTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>S-1-5-21-4027038600-626433640-3063675340-1002</UserId>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <!-- never stack two runs if one is still going -->
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <!-- a laptop that was asleep at the scheduled time runs as soon as it
+         can: the point of the pass is that nothing waits for a page view -->
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <!-- a stuck run must not block the next one forever -->
+    <ExecutionTimeLimit>PT30M</ExecutionTimeLimit>
+    <Priority>7</Priority>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>C:\Users\Agha Moutsim\Desktop\ebay-hunter\backend\scripts\run_alerts.cmd</Command>
+      <WorkingDirectory>C:\Users\Agha Moutsim\Desktop\ebay-hunter\backend</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>

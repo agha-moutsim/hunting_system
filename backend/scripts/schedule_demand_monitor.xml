@@ -11,10 +11,13 @@
     ~20 products every 6h is ~80 calls/day against a 5,000/day allowance.
 
     ENCODING: Task Scheduler's XML reader requires genuine UTF-16, and fails
-    with "unable to switch the encoding" on a UTF-8 file. Convert before use:
+    with "unable to switch the encoding" on a UTF-8 file. Convert before use -
+    recipe verified on this machine, PowerShell 5.1, 2026-10-20 (the earlier
+    XmlDocument.Save($path, 'UTF-16') form does not bind there: "Cannot find
+    an overload for Save and the argument count: 2"):
 
-      $x = [xml](Get-Content backend\scripts\schedule_demand_monitor.xml -Raw)
-      $x.Save("$env:TEMP\dm_task.xml", 'UTF-16')
+      $content = Get-Content backend\scripts\schedule_demand_monitor.xml -Raw
+      [System.IO.File]::WriteAllText("$env:TEMP\dm_task.xml", $content, [System.Text.Encoding]::Unicode)
       schtasks /create /tn "eBayHunter Demand Monitor" /xml "$env:TEMP\dm_task.xml" /f
 
     The PowerShell cmdlets (Register-ScheduledTask / Import-ScheduledTask) are
