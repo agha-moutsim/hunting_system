@@ -1,6 +1,5 @@
 """Saved searches — save and manage search queries."""
 
-from datetime import datetime
 from typing import Optional
 
 from db.database import SessionLocal
@@ -122,20 +121,5 @@ def update_search(search_id: int, **kwargs) -> bool:
         print(f"[ERROR] Failed to update search: {e}")
         db.rollback()
         return False
-    finally:
-        db.close()
-
-
-def mark_last_run(search_id: int):
-    """Update the last_run timestamp for a search."""
-    db = SessionLocal()
-    try:
-        search = db.query(SavedSearch).filter(SavedSearch.id == search_id).first()
-        if search:
-            search.last_run = datetime.utcnow()
-            db.commit()
-    except Exception as e:
-        print(f"[ERROR] Failed to mark last run: {e}")
-        db.rollback()
     finally:
         db.close()

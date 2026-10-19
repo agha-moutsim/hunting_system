@@ -1,113 +1,31 @@
-"""Run saved searches and find new products."""
+"""Run saved searches and find new products.
 
-from datetime import datetime
-from typing import Optional
+The RUN itself lives in hunter/saved_searches (one implementation, with the
+stated Browse budget); this module re-exports it for the watchlist surfaces
+and keeps the reading side: new results, the unread count, mark-read.
+"""
 
 from db.database import SessionLocal
 from db.models import SavedSearch, SearchResult
-from watchlist.searches import mark_last_run
 from utils.filters import active_range, outside_range, price_in_range
 
 
 def run_search(search_id: int) -> dict:
-    """Run a single saved search and store results."""
-    db = SessionLocal()
-    try:
-        search = db.query(SavedSearch).filter(SavedSearch.id == search_id).first()
-        if not search:
-            return {"found": 0, "error": "Search not found"}
+    """Run a single saved search - hunter.saved_searches does the work.
 
-        # Run the search using fast analysis
-        from deep_search import deep_search_fast
+    Delegated so a run from this surface and a scheduled pass are the same
+    run: same rows, same stated Browse cost, same refusal sentences.
+    """
+    from hunter.saved_searches import run_saved_search
 
-        results_found = 0
-
-        try:
-            result = deep_search_fast(search.query)
-
-            # Check if it meets filters
-            if result.ebay_avg_price > 0 and result.best_supplier_price > 0:
-                # Per-search range (PR-5/PR-7): honour the stored band when
-                # sane, else fall back to the ACTIVE range.
-                from utils.filters import resolve_range, valid_range
-                view = (
-                    resolve_range(search.price_min, search.price_max)
-                    if valid_range(search.price_min, search.price_max)
-                    else active_range()
-                )
-                price_ok = price_in_range(result.ebay_avg_price, view)
-
-                # Check margin filter
-                margin_ok = result.margin >= search.min_margin
-
-                if price_ok and margin_ok and result.profit > 0:
-                    # Check if this result already exists (by URL)
-                    existing = db.query(SearchResult).filter(
-                        SearchResult.search_id == search_id,
-                        SearchResult.ebay_url == (result.sources[0] if result.sources else ""),
-                    ).first()
-
-                    if not existing:
-                        # Get first supplier URL
-                        supplier_url = ""
-                        supplier_name = ""
-                        if result.suppliers:
-                            supplier_url = result.suppliers[0].get("url", "")
-                            supplier_name = result.suppliers[0].get("name", "")
-
-                        search_result = SearchResult(
-                            search_id=search_id,
-                            product_name=result.product_name,
-                            ebay_url=result.sources[0] if result.sources else "",
-                            ebay_price=result.ebay_avg_price,
-                            supplier_price=result.best_supplier_price,
-                            supplier_url=supplier_url,
-                            supplier_name=supplier_name,
-                            profit=result.profit,
-                            margin=result.margin,
-                            verdict=result.verdict,
-                        )
-                        db.add(search_result)
-                        results_found += 1
-
-        except Exception as e:
-            print(f"[WARN] Search execution failed: {e}")
-
-        db.commit()
-        mark_last_run(search_id)
-
-        return {"found": results_found, "error": None}
-
-    except Exception as e:
-        print(f"[ERROR] Failed to run search: {e}")
-        db.rollback()
-        return {"found": 0, "error": str(e)}
-    finally:
-        db.close()
+    return run_saved_search(search_id)
 
 
 def run_all_searches(progress_callback=None) -> dict:
-    """Run all auto-run saved searches."""
-    db = SessionLocal()
-    try:
-        searches = db.query(SavedSearch).filter(SavedSearch.auto_run == True).all()
-        total_found = 0
-        total_searches = len(searches)
+    """Run the auto-run saved searches, up to the stated pass budget."""
+    from hunter.saved_searches import run_saved_searches
 
-        for i, search in enumerate(searches):
-            if progress_callback:
-                progress_callback(i, total_searches, search.search_name)
-
-            result = run_search(search.id)
-            total_found += result.get("found", 0)
-
-        return {"searches_run": total_searches, "total_found": total_found}
-
-    except Exception as e:
-        print(f"[ERROR] Failed to run all searches: {e}")
-        return {"searches_run": 0, "total_found": 0, "error": str(e)}
-    finally:
-        db.close()
+    return run_saved_searches(progress_callback=progress_callback)
 
 
 def get_new_results(

@@ -159,7 +159,11 @@ class TestRunnerSupplierPricesAreNeverGated:
             sources=["https://www.ebay.co.uk/itm/range-storage-runner"],
             suppliers=[{"name": "pricey supplier", "price": 50.0, "url": "https://supplier.example"}],
         )
-        monkeypatch.setattr(deep_search, "deep_search_fast", lambda query: fake)
+        # The runner passes its own time budget to the fast path (Phase E);
+        # the stub takes the same signature so it stands in for the real one.
+        monkeypatch.setattr(
+            deep_search, "deep_search_fast", lambda query, budget_s=None: fake
+        )
 
         search = save_search(
             search_name="range-storage-runner-search",
