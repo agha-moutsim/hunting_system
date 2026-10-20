@@ -539,6 +539,31 @@ class TestPipelineOverride:
             db.close()
 
 
+class TestTheExtensionCanReachTheBackend:
+    """The manifest must allow the service worker to call the local API.
+
+    This is the Phase A acceptance path: the popup's status call and the
+    capture POST both originate from the extension service worker. Without a
+    host permission for the backend host, Chrome treats them as CORS requests
+    from a `chrome-extension://` origin, which the API does not allowlist.
+    """
+
+    MANIFEST = Path("extension/manifest.json")
+
+    @staticmethod
+    def _host_permissions() -> list[str]:
+        manifest = json.loads(
+            TestTheExtensionCanReachTheBackend.MANIFEST.read_text(encoding="utf-8")
+        )
+        return manifest["host_permissions"]
+
+    def test_the_default_local_api_host_is_declared(self):
+        assert "http://localhost:8000/*" in self._host_permissions()
+
+    def test_the_ipv4_local_api_host_is_declared(self):
+        assert "http://127.0.0.1:8000/*" in self._host_permissions()
+
+
 class TestTheExtensionSendsItsReadTime:
     """The capture's timestamp is the moment the page was READ.
 

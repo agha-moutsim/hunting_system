@@ -56,8 +56,10 @@ backend answers `stored: true`.
 2. Enable **Developer mode** (top right).
 3. Click **Load unpacked** and select this `extension/` folder.
 4. Sign in to `ebay.co.uk` and browse listings. Reload the extension on the
-   extensions page (`↻`) to pick up this version. No new permissions are
-   requested — the content script is scoped to `/itm/*` only.
+   extensions page (`↻`) to pick up this version. The content script stays
+   scoped to `/itm/*`; the manifest also grants access to the local API on
+   `localhost:8000` / `127.0.0.1:8000` so the popup and capture POST can reach
+   the backend.
 
 ## Where to change the backend URL (`apiBase`)
 
