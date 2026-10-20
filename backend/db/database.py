@@ -153,6 +153,23 @@ def ensure_listing_observations_table() -> bool:
     return True
 
 
+def ensure_query_observations_table() -> bool:
+    """Create `query_observations` if it is missing. True when it had to be.
+
+    The table stores one completed search result set per query. It is what
+    makes churn answerable: `listing_observations` is change-only by design,
+    so it cannot prove that a listing was absent from a later search. A
+    database created before Phase G would otherwise raise "no such table"
+    the first time the churn page was opened.
+    """
+    inspector = inspect(engine)
+    if inspector.has_table("query_observations"):
+        return False
+    from db.models import QueryObservation  # deferred: db.models imports this
+    Base.metadata.create_all(bind=engine, tables=[QueryObservation.__table__])
+    return True
+
+
 def get_db():
     """Dependency for FastAPI routes."""
     db = SessionLocal()

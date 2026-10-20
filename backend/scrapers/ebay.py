@@ -17,7 +17,12 @@ from config import (
 )
 from engine.price_gate import active_bounds, in_band, in_band_range
 from engine.condition_gate import api_condition_filter, html_condition_param, is_new
-from scrapers.browse_fields import SOURCE_ITEM, SOURCE_SUMMARY, listing_id_of
+from scrapers.browse_fields import (
+    SOURCE_ITEM,
+    SOURCE_SUMMARY,
+    listing_id_of,
+    query_listing,
+)
 
 # Query-time New-only (C10). Composed at CALL TIME so a changed active
 # condition reaches the very next request — never an import-time literal.
@@ -83,6 +88,11 @@ class EbayScraper:
         #: than a callback so the scraper stays free of database knowledge and
         #: a failed write cannot fail a scrape.
         self.observations: list[tuple[str, dict, str]] = []
+        #: One completed search result set per `_search_api` call, including
+        #: a zero-listing answer. A separate list from `observations` because
+        #: this records PRESENCE (the set), while observations record CHANGE
+        #: (a reading that differed). The analysis pipeline drains both.
+        self.query_observations: list[dict] = []
 
     def _observe(self, payload: dict, source: str) -> None:
         """Keep one Browse payload as a reading rather than dropping it.
@@ -110,6 +120,56 @@ class EbayScraper:
         if isinstance(summaries, list):
             for summary in summaries:
                 self._observe(summary, source)
+
+    def _record_query_observation(
+        self,
+        query: str,
+        data: dict,
+        *,
+        limit: int,
+        price_filter: str,
+    ) -> None:
+        """Keep the SET this search returned, including an empty set.
+
+        `_observe_summaries` keeps each listing's fields, but it deliberately
+        does not write an unchanged reading twice. Churn needs the other
+        fact: which listings the search returned at this moment. So this
+        records the whole set once per search, before the local price and
+        condition gates - the question is what eBay returned for the request
+        as sent, not which part passed this analysis's gates.
+
+        A response is only recorded when it looks like a search answer. An
+        error body that happens to parse as JSON must not become a measured
+        zero; without `itemSummaries` or `total`, there is no evidence the
+        search ran.
+        """
+        if not isinstance(data, dict):
+            return
+        if "itemSummaries" not in data and "total" not in data:
+            return
+
+        listings: list[dict] = []
+        seen: set[str] = set()
+        for summary in data.get("itemSummaries") or []:
+            row = query_listing(summary)
+            if row is None:
+                continue
+            listing_id = row["listing_id"]
+            if listing_id in seen:
+                continue
+            seen.add(listing_id)
+            listings.append(row)
+
+        self.query_observations.append(
+            {
+                "query": query,
+                "observed_at": datetime.utcnow(),
+                "source": "browse_search",
+                "filter": price_filter,
+                "limit": limit,
+                "listings": listings,
+            }
+        )
 
     def _get_token(self) -> str:
         """Get OAuth token via Client Credentials flow."""
@@ -187,12 +247,14 @@ class EbayScraper:
 
         band_api = ("" if unrestricted
                     else f"price:[{lo:.0f}..{hi:.0f}],priceCurrency:GBP")
+        sample_limit = min(limit, 50)
+        api_filter = _api_filter(band_api)
         resp = requests.get(
             f"{EBAY_API_BASE}/buy/browse/v1/item_summary/search",
             params={
                 "q": query,
-                "limit": min(limit, 50),
-                "filter": _api_filter(band_api),
+                "limit": sample_limit,
+                "filter": api_filter,
                 "sort": "-relevance",
             },
             headers=self._api_headers(),
@@ -200,6 +262,16 @@ class EbayScraper:
         )
         resp.raise_for_status()
         data = resp.json()
+
+        # Phase G - the set this search returned, before the local gates.
+        # Recorded separately from the change history so a stable listing
+        # still leaves evidence that it was present in this observation.
+        self._record_query_observation(
+            query,
+            data,
+            limit=sample_limit,
+            price_filter=api_filter,
+        )
 
         # Phase B - the search response carries a creation date, seller
         # feedback, region, postage and category for every listing below. Kept

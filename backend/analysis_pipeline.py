@@ -19,6 +19,7 @@ from db.database import SessionLocal
 from db.queries import (
     clear_analysis_data,
     save_listing_observations,
+    save_query_observations,
     save_product,
     save_demand_data,
     save_supplier_match_data,
@@ -390,6 +391,11 @@ async def run_analysis_pipeline(
         # arrive, so a run that bails early (over-band URL, a Used listing, a
         # timeout) still carries everything it read before it bailed.
         "observations": ebay.observations,
+        # Phase G - the SET each Browse search returned, including a search
+        # that returned zero listings. Also aliased for the same reason: an
+        # early bail still leaves the search that actually happened. This is
+        # what churn compares; `observations` only records change.
+        "query_observations": ebay.query_observations,
         # C11 — every analysis returns a competitor-store list, even when
         # discovery found nothing. Present-but-empty + an UNVERIFIED stamp
         # is the honest answer; an absent key would read as "not applicable".
@@ -726,47 +732,71 @@ _MATCH_TIER_TO_CONFIDENCE = {
 
 
 def _save_observations(db: Session, results: dict) -> None:
-    """Store the Browse readings this analysis' scrape took.
+    """Store the two kinds of Browse evidence this analysis' scrape took.
 
-    Runs AFTER the analysis is committed, in its own transaction, because these
-    rows are evidence about listings rather than part of the analysis: if they
-    fail to write, the analysis must still be there. It cannot pass silently
-    either - a failure here looks exactly like "these listings had not been
-    seen before", so it is logged.
+    `observations` is field history: a reading is kept only when it says
+    something new. `query_observations` is presence history: the whole search
+    result set is kept once per search, including an empty one. They are saved
+    independently because a failure in one must not discard the other.
 
-    Nothing is written when the run took no readings (no API keys, or a scrape
-    that failed before its first response), because there is then nothing that
-    was measured.
+    Both run AFTER the analysis is committed, in their own transaction:
+    these rows are evidence about listings rather than part of the analysis.
+    Neither failure may pass silently - a missing listing observation looks
+    like a listing never seen, and a missing query observation looks like the
+    search never ran.
+
+    Nothing is written for a kind when the run produced none of it (no API
+    keys, or a scrape that failed before its first response).
     """
     readings = results.get("observations") or []
-    if not readings:
+    query_observations = results.get("query_observations") or []
+    if not readings and not query_observations:
         return
-    try:
-        stored = save_listing_observations(db, readings)
-        logger.info(
-            "Listing observations: %s recorded, %s unchanged, %s repeated in "
-            "batch, %s unreadable",
-            stored["recorded"],
-            stored["unchanged"],
-            stored["duplicate"],
-            stored["empty"],
-        )
-    except Exception as exc:  # noqa: BLE001 - reported, never raised upward
-        db.rollback()
-        logger.warning("Listing observations not stored: %s", exc)
+
+    if readings:
+        try:
+            stored = save_listing_observations(db, readings)
+            logger.info(
+                "Listing observations: %s recorded, %s unchanged, %s repeated "
+                "in batch, %s unreadable",
+                stored["recorded"],
+                stored["unchanged"],
+                stored["duplicate"],
+                stored["empty"],
+            )
+        except Exception as exc:  # noqa: BLE001 - reported, never raised upward
+            db.rollback()
+            logger.warning("Listing observations not stored: %s", exc)
+
+    if query_observations:
+        try:
+            stored = save_query_observations(db, query_observations)
+            logger.info(
+                "Query observations: %s recorded, %s skipped",
+                stored["recorded"],
+                stored["skipped"],
+            )
+        except Exception as exc:  # noqa: BLE001 - reported, never raised upward
+            db.rollback()
+            logger.warning("Query observations not stored: %s", exc)
 
 
 def save_analysis_to_db(results: dict):
     """Persist analysis results to the database."""
     db: Session = SessionLocal()
     try:
-        ebay_product: ScrapedProduct = results["ebay_product"]
-        demand: DemandDataDTO = results["demand"]
-        suppliers: list[ScrapedProduct] = results["supplier_matches"]
-        llm: Optional[LLMAnalysis] = results["llm_analysis"]
-        verdict: Optional[VerdictData] = results["verdict"]
+        ebay_product: ScrapedProduct = results.get("ebay_product")
+        demand: DemandDataDTO = results.get("demand")
+        suppliers: list[ScrapedProduct] = results.get("supplier_matches") or []
+        llm: Optional[LLMAnalysis] = results.get("llm_analysis")
+        verdict: Optional[VerdictData] = results.get("verdict")
 
         if not ebay_product:
+            # Phase G - a search that found no usable product is still a real
+            # observation of the query. Save its result set (including the
+            # measured zero) before returning, so churn can see the search
+            # that happened rather than only the ones that produced a product.
+            _save_observations(db, results)
             return
 
         product_id = save_product(db, ebay_product)

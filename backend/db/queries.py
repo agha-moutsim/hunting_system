@@ -16,7 +16,9 @@ from db.models import (
     Verdict,
     PurchaseCapture,
     ListingObservation,
+    QueryObservation,
 )
+from engine.listing_age import normalise_query
 from scrapers.base import ScrapedProduct, DemandData as DemandDataDTO
 from scrapers.browse_fields import (
     COMPARED,
@@ -514,5 +516,111 @@ def get_listing_observations(
             ListingObservation.observed_at.desc(), ListingObservation.id.desc()
         )
         .limit(limit)
+        .all()
+    )
+
+
+def get_listing_observation_summary(db: Session, listing_id: str) -> dict:
+    """What the age route needs from one listing's readings.
+
+    `first_seen_at` is exact: the first stored reading for a listing is the
+    first time this app saw it. `latest_reading_at` is not a last-seen time -
+    a reading is stored only when something changed - so it is named for what
+    it is. The creation date comes from the newest reading that actually
+    carried one; a later summary that omitted the field must not erase a date
+    an earlier reading did return.
+    """
+    if not listing_id:
+        return {
+            "readings": 0,
+            "first_seen_at": None,
+            "latest_reading_at": None,
+            "item_creation_date": None,
+        }
+    rows = (
+        db.query(ListingObservation)
+        .filter(ListingObservation.listing_id == str(listing_id))
+        .order_by(
+            ListingObservation.observed_at.asc(), ListingObservation.id.asc()
+        )
+        .all()
+    )
+    if not rows:
+        return {
+            "readings": 0,
+            "first_seen_at": None,
+            "latest_reading_at": None,
+            "item_creation_date": None,
+        }
+    creation = next(
+        (
+            row.item_creation_date
+            for row in reversed(rows)
+            if row.item_creation_date is not None
+        ),
+        None,
+    )
+    return {
+        "readings": len(rows),
+        "first_seen_at": rows[0].observed_at,
+        "latest_reading_at": rows[-1].observed_at,
+        "item_creation_date": creation,
+    }
+
+
+def save_query_observations(db: Session, observations: Iterable[dict]) -> dict:
+    """Store completed search result sets, one row per search.
+
+    An observation with zero listings is stored: it is the difference between
+    "this search returned nothing" and "this search never happened", and churn
+    needs that difference. An observation with no query or no usable mapping
+    is skipped and counted, because a row filed under a blank query lane
+    cannot be compared with anything.
+    """
+    recorded = skipped = 0
+    for observation in observations or []:
+        if not isinstance(observation, dict):
+            skipped += 1
+            continue
+        query = normalise_query(observation.get("query"))
+        listings = observation.get("listings")
+        if not query or not isinstance(listings, list):
+            skipped += 1
+            continue
+
+        listings = [row for row in listings if isinstance(row, dict)]
+        db.add(
+            QueryObservation(
+                query=query,
+                observed_at=observation.get("observed_at") or datetime.utcnow(),
+                source=observation.get("source") or "browse_search",
+                price_filter=observation.get("filter"),
+                sample_limit=observation.get("limit"),
+                listing_count=len(listings),
+                listings=listings,
+            )
+        )
+        recorded += 1
+
+    db.commit()
+    return {"recorded": recorded, "skipped": skipped}
+
+
+def get_query_observations(db: Session, query: str) -> list[QueryObservation]:
+    """A query's stored search result sets, newest first.
+
+    No limit: the churn report compares the latest set with every earlier one,
+    so trimming here would silently hide an older last-seen date. The table
+    grows by one row per analysis, not per listing.
+    """
+    key = normalise_query(query)
+    if not key:
+        return []
+    return (
+        db.query(QueryObservation)
+        .filter(QueryObservation.query == key)
+        .order_by(
+            QueryObservation.observed_at.desc(), QueryObservation.id.desc()
+        )
         .all()
     )

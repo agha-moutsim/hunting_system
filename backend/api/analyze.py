@@ -97,8 +97,10 @@ def analyze(req: AnalyzeRequest):
         resp["provenance"] = build_provenance_block(resp, reason="analysis timed out")
         return resp
 
-    # Persist
-    if raw.get("ebay_product"):
+    # Persist. Phase G - a query that returned no usable product still ran a
+    # real Browse search, and its result set is evidence the churn page needs;
+    # save_analysis_to_db handles that no-product case itself.
+    if raw.get("ebay_product") or raw.get("query_observations"):
         try:
             save_analysis_to_db(raw)
         except Exception as e:

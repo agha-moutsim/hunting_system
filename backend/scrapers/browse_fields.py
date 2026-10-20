@@ -296,6 +296,36 @@ def listing_id_of(payload: Any) -> Optional[str]:
     return match.group(1) if match else None
 
 
+def query_listing(payload: Any) -> Optional[dict]:
+    """The display fields of one search summary, for a query observation.
+
+    This is not the change-history field set. A query observation records the
+    SET a search returned, so it needs only enough to identify and show each
+    row: id, title, URL, price/currency and eBay's creation date. Every value
+    is read from the payload; nothing is derived.
+
+    Returns None when the payload cannot name its listing, for the same reason
+    `listing_id_of` does: an unkeyed row cannot participate in a set
+    comparison without inventing an identity.
+    """
+    listing_id = listing_id_of(payload)
+    if not listing_id:
+        return None
+
+    reading = extract_observation(payload)
+    creation = reading.get("item_creation_date")
+    return {
+        "listing_id": listing_id,
+        "title": _text(payload.get("title")),
+        "item_url": _text(payload.get("itemWebUrl")),
+        "price": reading.get("price"),
+        "currency": reading.get("currency"),
+        "item_creation_date": (
+            creation.isoformat() if isinstance(creation, datetime) else None
+        ),
+    }
+
+
 def is_change(previous: Optional[dict], current: dict) -> bool:
     """Whether ``current`` says anything the previous reading did not.
 

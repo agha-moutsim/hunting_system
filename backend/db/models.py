@@ -7,7 +7,12 @@ from sqlalchemy import (
     Column, Integer, String, Float, Boolean, Text, ForeignKey, JSON, DateTime
 )
 from sqlalchemy.orm import relationship
-from db.database import Base, ensure_deal_items_table, ensure_listing_observations_table
+from db.database import (
+    Base,
+    ensure_deal_items_table,
+    ensure_listing_observations_table,
+    ensure_query_observations_table,
+)
 from config import FILTERS
 
 
@@ -432,6 +437,46 @@ class ListingObservation(Base):
     source = Column(String(32), default="browse_api_item")
 
 
+class QueryObservation(Base):
+    """One completed Browse search result set for one query.
+
+    `listing_observations` answers "what changed about this listing" and
+    deliberately stores nothing when a reading repeats the last one. That is
+    the right table for field history, but it cannot answer "was this listing
+    present in the latest search": an unchanged listing leaves no row, so its
+    absence from that table is not absence from eBay.
+
+    This table stores the SET a search returned, once per search, including a
+    search that returned zero listings. Churn is a comparison of two of these
+    sets, which is why a zero-result search must still leave a row - otherwise
+    "we searched and saw nothing" would be indistinguishable from "we never
+    searched."
+
+    `listings` is a JSON list of the display fields read from the summaries:
+    listing_id, title, item_url, price, currency and item_creation_date.
+    Everything in it came from eBay in the response being recorded; no field
+    is derived. `price_filter` and `sample_limit` are the exact request knobs,
+    kept so two observations are only compared when they describe the same
+    population.
+    """
+
+    __tablename__ = "query_observations"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    query = Column(Text, nullable=False, index=True)
+    observed_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    source = Column(String(32), default="browse_search")
+    #: The exact Browse filter string (condition + price band) sent for this
+    #: search. Churn refuses to compare runs whose filters differ.
+    price_filter = Column(Text)
+    #: The sample ceiling actually sent (min(requested, eBay's 50)).
+    sample_limit = Column(Integer)
+    #: len(listings), stored so a reader does not have to trust or parse JSON
+    #: just to report the sample size.
+    listing_count = Column(Integer, nullable=False, default=0)
+    listings = Column(JSON, nullable=False, default=list)
+
+
 # ---------------------------------------------------------------------------
 # These tables have to exist before anything can read them, and table creation
 # otherwise only happens in the manual `python -m db.init_db` step. So a
@@ -444,3 +489,4 @@ class ListingObservation(Base):
 # ---------------------------------------------------------------------------
 ensure_deal_items_table()
 ensure_listing_observations_table()
+ensure_query_observations_table()
