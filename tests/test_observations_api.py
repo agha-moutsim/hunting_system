@@ -155,6 +155,8 @@ class TestChurnDoor:
         assert body["comparable"] is True
         assert body["latest_listing_count"] == 2
         assert body["earlier_listing_count"] == 2
+        assert body["limit"] == 5
+        assert body["filter"] == "conditions:{NEW},price:[10..100]"
         assert [row["listing_id"] for row in body["churned"]] == ["1"]
         assert body["churned"][0]["status"] == "no_longer_listed"
         assert body["churned"][0]["last_seen_at"] == "2026-10-19T10:00:00Z"

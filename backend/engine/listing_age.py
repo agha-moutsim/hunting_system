@@ -285,6 +285,11 @@ def build_churn_report(runs: Iterable[Any], now: Any = None) -> dict:
         ),
         "latest_listing_count": len(latest_listings),
         "earlier_listing_count": len(earlier_ids),
+        # The request knobs behind the latest sample. They are shown so the
+        # page can name the sample ceiling and state why two observations
+        # were refused as incomparable. They are not figures about eBay.
+        "filter": latest.get("filter") if latest else None,
+        "limit": latest.get("limit") if latest else None,
         "latest": latest_rows,
         "churned": None,
         "reason": None,

@@ -1062,3 +1062,80 @@ export interface TitleCountsResponse {
   /** A sentence when the sample is empty; null when there are counts. */
   reason: string | null;
 }
+
+// ── Phase G: listing age and churn ─────────────────────────────
+
+/**
+ * Age read from eBay's own `itemCreationDate`.
+ *
+ * `days` is whole days, floored. `tone` is presentation only. The label is
+ * built in lib/churn.ts, so the UI copy exists in one place. There is no
+ * first-sighting fallback here: the API returns null when eBay did not give a
+ * creation date, and the chip says "first seen", never "listed".
+ */
+export interface ListingAgeInfo {
+  days: number;
+  tone: "info" | "neutral";
+  basis: string;
+}
+
+export interface ListingAgeResponse {
+  listing_id: string;
+  observed: boolean;
+  readings: number;
+  /** The first stored reading for this listing. */
+  first_seen_at: string | null;
+  /** The latest stored reading, which is a change time, not a last-seen time. */
+  latest_reading_at: string | null;
+  item_creation_date: string | null;
+  age: ListingAgeInfo | null;
+  /** A sentence when age is not claimed; null when it is. */
+  reason: string | null;
+}
+
+/**
+ * One row from a stored search result set.
+ *
+ * `age` is present on the latest-observation rows and absent on churned rows;
+ * a churned row carries `status` instead. Price is null when eBay did not
+ * return it and is never defaulted to zero.
+ */
+export interface ChurnListing {
+  listing_id: string;
+  title: string | null;
+  item_url: string | null;
+  price: number | null;
+  currency: string | null;
+  item_creation_date: string | null;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  age?: ListingAgeInfo | null;
+  age_reason?: string | null;
+  status?: "no_longer_listed";
+}
+
+/**
+ * One query's stored observation comparison.
+ *
+ * `churned` is null when churn is not claimed: fewer than two observations,
+ * or observations whose filters/sample sizes differ. An empty array is a
+ * measured comparison with no missing listing and is not the same thing.
+ * There is no rate or percentage field because this app has no basis for one.
+ */
+export interface ChurnResponse {
+  query: string;
+  observations: number;
+  comparable: boolean;
+  latest_observed_at: string | null;
+  previous_observed_at: string | null;
+  earliest_observed_at: string | null;
+  latest_listing_count: number;
+  earlier_listing_count: number;
+  /** The exact filter behind the latest sample, or null when absent. */
+  filter: string | null;
+  /** The sample ceiling sent for the latest observation, or null. */
+  limit: number | null;
+  latest: ChurnListing[];
+  churned: ChurnListing[] | null;
+  reason: string | null;
+}

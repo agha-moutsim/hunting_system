@@ -218,6 +218,8 @@ class TestChurn:
         assert report["observations"] == 2
         assert report["latest_listing_count"] == 2
         assert report["earlier_listing_count"] == 2
+        assert report["limit"] == 5
+        assert report["filter"] == "conditions:{NEW},price:[10..100]"
         assert [row["listing_id"] for row in report["churned"]] == ["1"]
         gone = report["churned"][0]
         assert gone["title"] == "Gone"

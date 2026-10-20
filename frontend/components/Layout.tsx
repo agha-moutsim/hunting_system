@@ -16,6 +16,7 @@ import IconDeals from "@/components/icons/IconDeals";
 import IconFees from "@/components/icons/IconFees";
 import IconAlerts from "@/components/icons/IconAlerts";
 import IconTitles from "@/components/icons/IconTitles";
+import IconChurn from "@/components/icons/IconChurn";
 import { fetchAlertCount, unreadBadge } from "@/lib/alerts";
 
 type NavIcon = (props: { className?: string }) => ReactNode;
@@ -126,6 +127,15 @@ const NAV: {
     key: "",
     group: "Research",
     Icon: IconTitles,
+  },
+  // The thirteenth entry has no digit shortcut either. Listing churn is a
+  // read-only research surface over observations the analyses already stored.
+  {
+    href: "/churn",
+    label: "Listing Churn",
+    key: "",
+    group: "Research",
+    Icon: IconChurn,
   },
 ];
 
