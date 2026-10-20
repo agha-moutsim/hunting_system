@@ -95,6 +95,26 @@ def analyze(req: AnalyzeRequest):
         }
         # C13 — a run that never completed: every block reads unverified WITH why.
         resp["provenance"] = build_provenance_block(resp, reason="analysis timed out")
+
+        # Phase G - the search may have completed before a supplier or model
+        # hang. That result set is real evidence even though the analysis did
+        # not finish, so persist it here; the ordinary save below never runs.
+        # An empty list means no search completed, and writes nothing.
+        completed_searches = timing_sink.get("query_observations") or []
+        if completed_searches:
+            try:
+                save_analysis_to_db(
+                    {
+                        "ebay_product": None,
+                        "query_observations": completed_searches,
+                    }
+                )
+            except Exception as e:  # noqa: BLE001 - reported, never raised
+                logger.warning(
+                    "DB save of timed-out search observation failed "
+                    "(non-fatal): %s",
+                    e,
+                )
         return resp
 
     # Persist. Phase G - a query that returned no usable product still ran a

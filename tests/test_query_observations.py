@@ -11,6 +11,7 @@ tests use a temporary SQLite database, not the live one.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from datetime import datetime
 
@@ -436,3 +437,79 @@ class TestThePipelineDrainsTheSet:
             assert session.query(QueryObservation).count() == 0
         finally:
             session.close()
+
+    def test_a_timeout_still_saves_the_search_that_completed(
+        self, monkeypatch
+    ):
+        """A slow supplier must not erase a search that already succeeded.
+
+        The pipeline's `finally` copies the list into the caller's sink before
+        cancellation unwinds. The route then saves it. This is the one path
+        where the ordinary post-pipeline save cannot run.
+        """
+        import api.analyze as analyze_api
+        from fastapi.testclient import TestClient
+        from main import app
+
+        saved: list[dict] = []
+
+        async def _slow(
+            query,
+            is_url=False,
+            filters=None,
+            progress=None,
+            timing_sink=None,
+        ):
+            if timing_sink is not None:
+                timing_sink["query_observations"] = [
+                    _run(listings=[_listing("1")])
+                ]
+            await asyncio.Event().wait()
+
+        monkeypatch.setattr(analyze_api, "run_analysis_pipeline", _slow)
+        monkeypatch.setattr(analyze_api, "PIPELINE_TIMEOUT_S", 0.2)
+        monkeypatch.setattr(
+            analyze_api,
+            "save_analysis_to_db",
+            lambda raw: saved.append(raw),
+        )
+
+        response = TestClient(app).post(
+            "/api/analyze", json={"query": "garden hose"}
+        )
+
+        assert response.status_code == 200
+        assert len(saved) == 1
+        assert saved[0]["ebay_product"] is None
+        assert saved[0]["query_observations"][0]["listings"][0]["listing_id"] == "1"
+
+    def test_a_timeout_with_no_completed_search_writes_nothing(self, monkeypatch):
+        import api.analyze as analyze_api
+        from fastapi.testclient import TestClient
+        from main import app
+
+        saved: list[dict] = []
+
+        async def _slow(
+            query,
+            is_url=False,
+            filters=None,
+            progress=None,
+            timing_sink=None,
+        ):
+            await asyncio.Event().wait()
+
+        monkeypatch.setattr(analyze_api, "run_analysis_pipeline", _slow)
+        monkeypatch.setattr(analyze_api, "PIPELINE_TIMEOUT_S", 0.2)
+        monkeypatch.setattr(
+            analyze_api,
+            "save_analysis_to_db",
+            lambda raw: saved.append(raw),
+        )
+
+        response = TestClient(app).post(
+            "/api/analyze", json={"query": "garden hose"}
+        )
+
+        assert response.status_code == 200
+        assert saved == []

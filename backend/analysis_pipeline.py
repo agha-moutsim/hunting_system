@@ -712,9 +712,15 @@ async def run_analysis_pipeline(
             )
         # Copy into the caller's sink: `results` itself is discarded when we
         # are cancelled, and this is the only handle the caller still holds.
+        # Phase G - a Browse search that completed before a supplier or model
+        # hang is still a real observation. Its list is copied here so the
+        # timeout branch can persist it instead of losing the search.
         if timing_sink is not None:
             timing_sink["timing"] = dict(results["timing"])
             timing_sink["budget"] = dict(results["budget"])
+            timing_sink["query_observations"] = list(
+                results["query_observations"]
+            )
         ebay.close()
 
     return results
