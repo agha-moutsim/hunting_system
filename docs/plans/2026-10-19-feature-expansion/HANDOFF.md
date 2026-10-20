@@ -15,7 +15,7 @@ The ten-feature expansion lives in this folder. Baseline phases 1 and 2 are comp
 | D     | Fee and break-even calculator | shipped, closed at `605b9b1`            |
 | E     | Alerts and saved searches     | shipped, closed at `19f7578`            |
 | F     | Title helper                  | shipped, closed at `5fd581f`            |
-| G     | Listing age and churn         | shipped, closed at `ef6c1dc`            |
+| G     | Listing age and churn         | shipped, closed at `1b42dce`            |
 | H     | Seller footprint              | not started                             |
 | I     | Own-sales P&L and feedback    | not started                             |
 | J     | Marketplace expansion         | not started                             |
