@@ -1,34 +1,34 @@
 @import "tailwindcss";
 
 @theme {
-  --color-bg-primary: #27233f;
-  --color-bg-secondary: #312c4d;
-  --color-bg-surface: #3b3560;
-  --color-bg-hover: #4a4470;
-  --color-bg-sidebar: #211e35;
+  --color-bg-primary: #0f1115;
+  --color-bg-secondary: #171a21;
+  --color-bg-surface: #222631;
+  --color-bg-hover: #2c313f;
+  --color-bg-sidebar: #0b0d12;
 
-  --color-border: #4b525e;
-  --color-border-strong: #5e6575;
-  --color-border-focus: #0d1cc4;
+  --color-border: #2c313f;
+  --color-border-strong: #3a4050;
+  --color-border-focus: #cbfd03;
 
-  --color-text-primary: #ffffff;
-  --color-text-secondary: #b7bbc6;
-  --color-text-dim: #8a90a0;
+  --color-text-primary: #f7f8fa;
+  --color-text-secondary: #a7b0bf;
+  --color-text-dim: #7c8596;
 
-  --color-accent-blue: #0d1cc4;
-  --color-accent-blue-dark: #0b17a8;
+  --color-accent-blue: #3b82f6;
+  --color-accent-blue-dark: #2563eb;
   --color-accent-red: #ff5c5c;
   --color-accent-green: #cbfd03;
   --color-accent-green-soft: #bec97d;
   --color-accent-amber: #ffc857;
   --color-accent-purple: #8b5cf6;
 
-  --color-brand-blue: #0d1cc4;
-  --color-brand-blue-dark: #0b17a8;
+  --color-brand-blue: #3b82f6;
+  --color-brand-blue-dark: #2563eb;
   --color-brand-lime: #cbfd03;
   --color-brand-lime-soft: #bec97d;
-  --color-brand-dark: #27233f;
-  --color-brand-gray: #4b525e;
+  --color-brand-dark: #0f1115;
+  --color-brand-gray: #2c313f;
 
   --font-sans: var(--font-jakarta), system-ui, -apple-system, sans-serif;
   --font-mono: var(--font-jetbrains), ui-monospace, monospace;
@@ -36,20 +36,17 @@
   --radius-control: 6px;
   --radius-card: 10px;
   /* UI polish: a softer container radius so nested surfaces are not all the
-     same shape, and a tinted (not pure-black) panel shadow. */
+     same shape, and a neutral panel shadow. */
   --radius-panel: 14px;
 
-  --shadow-card:
-    0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(13, 28, 196, 0.08);
-  --shadow-elev:
-    0 4px 6px rgba(0, 0, 0, 0.35), 0 12px 32px rgba(13, 28, 196, 0.12);
-  --shadow-focus: 0 0 0 2px #27233f, 0 0 0 4px #cbfd03;
-  /* Shadows carry the background hue instead of pure black, and sit lower so
-     panels read as elevated rather than outlined. */
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.45), 0 8px 24px rgba(0, 0, 0, 0.22);
+  --shadow-elev: 0 4px 6px rgba(0, 0, 0, 0.35), 0 12px 32px rgba(0, 0, 0, 0.28);
+  --shadow-focus: 0 0 0 2px #0f1115, 0 0 0 4px #cbfd03;
+  /* Neutral shadows keep panels elevated without a coloured glow. */
   --shadow-panel:
-    0 1px 2px rgba(12, 9, 28, 0.4), 0 16px 40px -16px rgba(13, 28, 196, 0.35);
+    0 1px 2px rgba(0, 0, 0, 0.4), 0 16px 40px -16px rgba(0, 0, 0, 0.45);
   --shadow-raised:
-    0 2px 4px rgba(12, 9, 28, 0.35), 0 24px 56px -20px rgba(13, 28, 196, 0.42);
+    0 2px 4px rgba(0, 0, 0, 0.35), 0 24px 56px -20px rgba(0, 0, 0, 0.5);
 
   --default-transition-duration: 150ms;
 }
@@ -73,20 +70,20 @@
 }
 
 :root {
-  --blue: #0d1cc4;
-  --blue-dark: #0b17a8;
+  --blue: #3b82f6;
+  --blue-dark: #2563eb;
   --lime: #cbfd03;
   --lime-soft: #bec97d;
-  --dark: #27233f;
-  --white: #ffffff;
-  --gray: #4b525e;
-  --bg-primary: #27233f;
-  --bg-secondary: #312c4d;
-  --bg-surface: #3b3560;
-  --border: #4b525e;
-  --text-primary: #ffffff;
-  --text-secondary: #b7bbc6;
-  --accent-blue: #0d1cc4;
+  --dark: #0f1115;
+  --white: #f7f8fa;
+  --gray: #2c313f;
+  --bg-primary: #0f1115;
+  --bg-secondary: #171a21;
+  --bg-surface: #222631;
+  --border: #2c313f;
+  --text-primary: #f7f8fa;
+  --text-secondary: #a7b0bf;
+  --accent-blue: #3b82f6;
   --accent-green: #cbfd03;
   --accent-red: #ff5c5c;
   --accent-amber: #ffc857;
@@ -107,14 +104,14 @@ body {
   font-feature-settings: "ss01" on;
 }
 
-/* Focus — lime ring, always visible for keyboard */
+/* Focus - lime ring, always visible for keyboard */
 :focus-visible {
   outline: 2px solid var(--lime);
   outline-offset: 2px;
 }
 
 ::selection {
-  background: rgba(203, 253, 3, 0.35);
+  background: rgba(203, 253, 3, 0.25);
   color: var(--white);
 }
 
@@ -131,12 +128,12 @@ body {
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #5e6575;
+  background: #3a4050;
 }
 
 /* Skeleton loading */
 .skeleton {
-  background: linear-gradient(90deg, #3b3560 25%, #4b525e 50%, #3b3560 75%);
+  background: linear-gradient(90deg, #222631 25%, #2c313f 50%, #222631 75%);
   background-size: 200% 100%;
   animation: skeleton-loading 1.5s infinite;
   border-radius: 8px;
