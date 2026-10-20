@@ -193,8 +193,14 @@ There is deliberately **no revenue tile and no sold tile**. The panel states at 
 
 ### 3.10 P&L (Phase I) - CHANGED surface
 
-Reuses `sales`. Tiles for revenue, profit, margin and units, a monthly trend, and an explicit
-"user-declared" badge, because these are the user's own records rather than observations.
+Reuses `sales`. The dashboard shows tiles for revenue, profit, margin and units, a six-month
+revenue/profit trend, and an explicit "user-declared" badge, because these are the user's own
+records rather than observations. A month without declared costs has no profit bar, not a zero.
+
+`/sales` owns entry, CSV import, the sale log and the read-only C14 feedback panel. The panel
+replays stored `supplier_matches.match_score` values at a proposed pair of thresholds and lists
+only the rows whose tier or visibility changes. It has no control that can change a threshold,
+and it states that rows the matcher dropped before storage cannot be replayed.
 
 ### 3.11 Marketplace selector (Phase J) - NEW
 

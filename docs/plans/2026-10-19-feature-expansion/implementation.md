@@ -459,14 +459,14 @@ route wrote none of them.
 
 ### Files
 
-| File                              | Change                                                                                                                     |
-| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `backend/api/sales.py`            | NEW - CRUD, summary, CSV import                                                                                            |
-| `backend/db/queries.py`           | CHANGED - recompute `monthly_stats` on write                                                                               |
-| `backend/engine/thresholds.py`    | NEW - replay stored verdicts and observations against the C14 thresholds to show what would have been filtered differently |
-| `frontend/app/sales/page.tsx`     | NEW - entry and import                                                                                                     |
-| `frontend/app/dashboard/page.tsx` | CHANGED - real revenue, profit, margin, monthly trend                                                                      |
-| `tests/test_sales.py`             | NEW - arithmetic, import parsing, user-declared labelling                                                                  |
+| File                              | Change                                                                                                                       |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `backend/api/sales.py`            | NEW - CRUD, summary, CSV import and the read-only threshold replay route                                                     |
+| `backend/db/queries.py`           | CHANGED - recompute `monthly_stats` on write                                                                                 |
+| `backend/engine/thresholds.py`    | NEW - replay stored verdicts and supplier-match scores against the C14 thresholds to show what would be filtered differently |
+| `frontend/app/sales/page.tsx`     | NEW - entry, import, sale log and the read-only C14 feedback panel                                                           |
+| `frontend/app/dashboard/page.tsx` | CHANGED - real revenue, profit, margin, monthly trend                                                                        |
+| `tests/test_sales.py`             | NEW - arithmetic, import parsing, user-declared labelling                                                                    |
 
 ### Rules
 
@@ -476,6 +476,62 @@ route wrote none of them.
   the same month in two different years. Fix that to a composite unique constraint as part of this
   phase, with a migration, and note it in the commit.
 - Threshold replay reports differences; it never auto-changes a threshold.
+
+### Shipped 2026-10-20
+
+Beyond the file table above: `backend/db/models.py` makes every sale cost, profit and margin
+nullable on the ORM (absent stays `None`); `backend/db/database.py` adds the idempotent
+`ensure_monthly_stats_constraint()` rebuild-and-copy migration. `backend/api/schemas.py` carries
+the required-cost `SaleCreate` and the CSV request model. `backend/api/dashboard.py` drops the
+old sales CRUD, while `backend/api/export_api.py` labels exported rows user-declared.
+`backend/dashboard/sales.py`, `analytics.py` and `charts.py` keep the legacy read/export paths on
+the same rules. Frontend support lives in `frontend/lib/sales.ts`, its 11 vitest cases,
+`frontend/lib/types.ts`, `frontend/components/icons/IconSales.tsx` and the appended Sales nav
+entry.
+
+Rules, as code:
+
+- A sale requires `sale_price`, `supplier_cost`, `shipping_cost`, `ebay_fees`, `quantity` and
+  `sale_date`. A blank cost is a 422, not a zero; an explicitly entered `0` is accepted. Costs are
+  per unit and are multiplied by quantity. Profit and margin are recomputed by the backend; CSV
+  profit and margin columns are ignored.
+- `sale_money()` returns `(None, None)` if any cost is missing. Summary and monthly totals are
+  `null` when any contributing sale has unknown profit, with a sentence naming the missing count.
+  The monthly trend receives `(number | null)[]` and draws a gap, not a zero bar.
+- A growth percentage is reported only when both the current and previous windows contain
+  user-declared sales. An empty window is not a measured 100% decline.
+- `monthly_stats` is recomputed on every create, update, delete and import. The live composite
+  constraint is `uq_monthly_stats_year_month` on `(year, month)`; the old separate constraints are
+  gone. The rebuild uses rename/create/copy/drop because SQLite cannot drop the old constraints in
+  place.
+- Threshold replay reads only stored `supplier_matches.match_score` values and joins the product's
+  stored verdict. It reports changed rows, confirmed rows gained/lost and a threshold sweep; it
+  never writes a threshold or a match. Rows below the original matcher thresholds were never
+  stored and are outside the sample.
+- `/api/sales/summary` is the dashboard source. The dashboard carries a "User-declared" badge and
+  the sentence that these are the user's records, not eBay observations. `/sales` owns entry,
+  import, the sale log and the C14 panel.
+
+Live evidence from the running stack, 2026-10-20:
+
+| What            | Inputs                                                    | Answer                                                                                                                                                                                                                           |
+| --------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Empty summary   | `GET /api/sales/summary?days=30&months=6`                 | revenue **0**, profit **0.0**, average margin `null`, **0** sales, **0** units, six monthly points all zero, `user_declared: true`; no growth percentage claimed                                                                 |
+| Empty sale list | `GET /api/sales`                                          | `count: 0`; the response declares "These are your own sales records, entered by you. They are not eBay observations."                                                                                                            |
+| C14 replay      | `GET /api/sales/thresholds?verified=0.70&unverified=0.45` | **155** stored supplier rows, **45** scored, **110** unscored, **9** products; confirmed **23 → 22**, unconfirmed **22 → 23**; **1** row moves verified → unverified; `changes_applied: false`                                   |
+| Replay sweep    | same request                                              | confirmed rows at 0.45 / 0.50 / 0.60 / 0.65 / 0.70 / 0.75 / 0.80 / 0.85 = **45 / 41 / 29 / 23 / 22 / 12 / 4 / 3**. Of the confirmed rows, **0** carry a pass verdict, **19** fail and **4** are pending at the current threshold |
+| Live schema     | SQLite inspection                                         | `sales` **0** rows; `monthly_stats` **0** rows; only `uq_monthly_stats_year_month` on `(year, month)`; `supplier_matches` **155** rows, **45** scored                                                                            |
+| Checks          | -                                                         | backend **1689 passed, 9 deselected**; frontend **208 tests across 14 files**, typecheck clean; build **18 route rows**, including `/sales`                                                                                      |
+
+The live `sales` table was left empty; no demo sale was inserted. Write-path evidence is the 22
+tests in `tests/test_sales.py` and the vitest cases, not an invented record. The migration test
+starts from the old separate `UNIQUE (year)` / `UNIQUE (month)` schema with rows the old schema
+could hold, then runs the helper twice and verifies both the data and the composite constraint.
+The live `monthly_stats` table held **0** rows, so the live rebuild copied none.
+
+The C14 sample is **45 scored rows across 9 products**, not the full 155 stored rows and not the
+matcher's full candidate set. The sweep's pass count is **0**; that is a property of these stored
+verdicts, not a claim about the products.
 
 ---
 

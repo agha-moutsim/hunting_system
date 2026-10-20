@@ -99,7 +99,9 @@ What it enables:
   observations of the same `listing_id`.
 - **Phase H** - seller footprint aggregated from observations.
 - **Postage-in-margin** - real postage cost per listing.
-- **Phase I feedback** - the observation history is what the C14 thresholds can be replayed against.
+- **Phase I feedback** - stored `supplier_matches.match_score` values are what the C14 thresholds
+  can be replayed against. Rows the matcher dropped before storage were never recorded and cannot
+  be reconstructed by replay.
 
 ### `purchase_captures` [CHANGED]
 
@@ -172,14 +174,15 @@ Single implementation. The pipeline verdict and the calculator call the same fun
 
 ## 4. Schema changes summary
 
-| Object                                                                       | Change                                                                                                    |
-| ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `listing_observations`                                                       | NEW table                                                                                                 |
-| `purchase_captures`                                                          | append instead of upsert; readers take latest per item                                                    |
-| `demand_data`                                                                | add `sold_source` / capture-reference columns so a verified figure is distinguishable from a search count |
-| `supplier_matches`                                                           | unchanged (already carries provenance)                                                                    |
-| `price_alerts`, `saved_searches`, `search_results`, `sales`, `monthly_stats` | no schema change - they need writers, not columns                                                         |
-| `products`                                                                   | keep `condition`, `seller`, `category`; no change needed for A-F                                          |
+| Object                                                      | Change                                                                                                                                                     |
+| ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `listing_observations`                                      | NEW table                                                                                                                                                  |
+| `purchase_captures`                                         | append instead of upsert; readers take latest per item                                                                                                     |
+| `demand_data`                                               | add `sold_source` / capture-reference columns so a verified figure is distinguishable from a search count                                                  |
+| `supplier_matches`                                          | unchanged (already carries provenance)                                                                                                                     |
+| `price_alerts`, `saved_searches`, `search_results`, `sales` | no schema change - they need writers, not columns                                                                                                          |
+| `monthly_stats`                                             | composite `UNIQUE (year, month)`; the old separate `UNIQUE (year)` / `UNIQUE (month)` constraints are replaced by an idempotent rebuild-and-copy migration |
+| `products`                                                  | keep `condition`, `seller`, `category`; no change needed for A-F                                                                                           |
 
 Migration follows the existing pattern: an idempotent `ensure_listing_observations_table()` and
 `ensure_observation_columns()` called on import from `backend/db/database.py`, with the new table
@@ -190,20 +193,25 @@ ordering that `ensure_deal_items_table()` requires.
 
 ## 5. New API surface
 
-| Method | Route                                   | Purpose                             | Honesty contract                                              |
-| ------ | --------------------------------------- | ----------------------------------- | ------------------------------------------------------------- |
-| POST   | `/api/extension/sold-history`           | existing capture intake             | returns `stored`, and a reason when it refuses                |
-| GET    | `/api/extension/sold-history/{item_id}` | existing read-back                  | unchanged                                                     |
-| GET    | `/api/extension/status`                 | badge: today's captures, quiet mode | counts only, no estimates                                     |
-| POST   | `/api/extension/capture-queue`          | seed a small explicit list          | human-paced, rejects unbounded lists                          |
-| POST   | `/api/fees/calculate`                   | fees, break-even, reverse mode      | pure arithmetic, echoes the inputs and the fee table version  |
-| GET    | `/api/alerts`                           | alert inbox                         | each alert names the two prices it compared                   |
-| POST   | `/api/alerts/{id}/read`                 | mark read                           | -                                                             |
-| GET    | `/api/titles?q=`                        | token frequency                     | returns counts over N listings and states N; no volume claims |
-| GET    | `/api/sellers/{username}`               | footprint                           | active-listing-derived only; no revenue field exists          |
-| GET    | `/api/sales` / POST                     | own sales                           | user-entered or imported; labelled as user-declared           |
-| GET    | `/api/sales/summary`                    | P&L                                 | arithmetic over stored sales                                  |
-| GET    | `/api/observations/{listing_id}`        | age + churn                         | "no longer listed", never "sold"                              |
+| Method | Route                                   | Purpose                             | Honesty contract                                               |
+| ------ | --------------------------------------- | ----------------------------------- | -------------------------------------------------------------- |
+| POST   | `/api/extension/sold-history`           | existing capture intake             | returns `stored`, and a reason when it refuses                 |
+| GET    | `/api/extension/sold-history/{item_id}` | existing read-back                  | unchanged                                                      |
+| GET    | `/api/extension/status`                 | badge: today's captures, quiet mode | counts only, no estimates                                      |
+| POST   | `/api/extension/capture-queue`          | seed a small explicit list          | human-paced, rejects unbounded lists                           |
+| POST   | `/api/fees/calculate`                   | fees, break-even, reverse mode      | pure arithmetic, echoes the inputs and the fee table version   |
+| GET    | `/api/alerts`                           | alert inbox                         | each alert names the two prices it compared                    |
+| POST   | `/api/alerts/{id}/read`                 | mark read                           | -                                                              |
+| GET    | `/api/titles?q=`                        | token frequency                     | returns counts over N listings and states N; no volume claims  |
+| GET    | `/api/sellers/{username}`               | footprint                           | active-listing-derived only; no revenue field exists           |
+| GET    | `/api/sales`                            | own sales list                      | user-entered; labelled as user-declared                        |
+| POST   | `/api/sales`                            | record one sale                     | every cost and `sale_date` required; blank cost refused        |
+| PUT    | `/api/sales/{id}`                       | replace one sale                    | same required-cost rule; recomputes both affected months       |
+| DELETE | `/api/sales/{id}`                       | remove one sale                     | recomputes or removes the month's `monthly_stats` row          |
+| POST   | `/api/sales/import`                     | CSV import                          | validates every row; recomputes profit, never trusts CSV maths |
+| GET    | `/api/sales/summary`                    | P&L                                 | arithmetic over stored sales; unknown profit stays `null`      |
+| GET    | `/api/sales/thresholds`                 | read-only C14 replay                | differences only; never changes a threshold                    |
+| GET    | `/api/observations/{listing_id}`        | age + churn                         | "no longer listed", never "sold"                               |
 
 ---
 

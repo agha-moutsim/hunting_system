@@ -1,6 +1,6 @@
 # Handoff - current state
 
-Last updated: 2026-10-20, at the close of Phase H.
+Last updated: 2026-10-20, at the close of Phase I.
 Read this first, then `implementation.md` (phase specs and rules) and `design.md` (surfaces).
 
 ## Where the work stands
@@ -17,7 +17,7 @@ The ten-feature expansion lives in this folder. Baseline phases 1 and 2 are comp
 | F     | Title helper                  | shipped, closed at `5fd581f`            |
 | G     | Listing age and churn         | shipped, closed at `1b42dce`            |
 | H     | Seller footprint              | shipped, closed at `79c5673`            |
-| I     | Own-sales P&L and feedback    | not started                             |
+| I     | Own-sales P&L and feedback    | shipped, code closed at `8f3f753`       |
 | J     | Marketplace expansion         | not started                             |
 
 Phases ship as roughly ten commits: one well-scoped change each, committed and pushed as it
@@ -25,14 +25,12 @@ lands, with evidence in the phase's "Shipped" block in `implementation.md`.
 
 ## Next move
 
-Phase I - own-sales P&L and feedback (`implementation.md` Phase I, `design.md` §3.10). Build
-`backend/api/sales.py` (CRUD, summary, CSV import), `backend/engine/thresholds.py` (replay
-stored verdicts against the C14 thresholds, report differences only), the `/sales` entry and
-import surface, and real revenue/profit/margin/monthly trend on the dashboard. Phase I also
-fixes `monthly_stats`' separate unique constraints on `year` and `month` to one composite
-constraint, with a migration. Sales are user-declared and must be labelled as such; threshold
-replay never auto-changes a threshold. Read the Phase I block before choosing the exact
-response shape.
+Phase J - marketplace expansion (`implementation.md` Phase J, `design.md` §3.11). Add the
+marketplace registry (`id`, currency, fee-table reference), carry the marketplace through the
+Browse-backed routes instead of the module constant, and add the header selector. Deals pages are
+marketplace-specific: verify a non-UK deals URL is reachable before offering it. Fee tables are
+UK-specific until a market has its own; warn rather than applying a UK rate to a US sale. Never
+sum across currencies.
 
 ## Live state, measured 2026-10-20
 
@@ -64,6 +62,16 @@ response shape.
   seller is `mountainwarehouse` with 32 readings across 8 listings.
 - Title helper: no table writes. A live `GET /api/titles?q=garden hose` read 50 listings on
   2026-10-20; a deliberately meaningless query returned a measured zero with a sentence.
+- Own sales, measured 2026-10-20: `sales` **0** rows and `monthly_stats` **0** rows. No demo sale
+  was inserted. The live `monthly_stats` table has only `uq_monthly_stats_year_month` on
+  `(year, month)`. `GET /api/sales/summary?days=30&months=6` returns revenue **0**, profit
+  **0.0**, average margin `null`, six monthly points and `user_declared: true`.
+- C14 feedback, measured 2026-10-20: `supplier_matches` has **155** rows, **45** with a
+  `match_score` across **9** products; **110** rows are unscored and excluded. At a proposed
+  confirmed threshold of **0.70** (shown threshold unchanged at 0.45), confirmed rows fall
+  **23 → 22** and **1** stored row moves verified → unverified. `changes_applied` is `false`.
+  The sample is 45 scored rows, not the matcher's full candidate set; rows dropped before
+  storage cannot be replayed.
 
 ## Blockers - do not work around by inventing a number
 
@@ -89,11 +97,11 @@ response shape.
 - Servers: backend `uvicorn main:app --host 127.0.0.1 --port 8000` from `backend/`
   (logs `.logs/backend.log`); frontend `next start -p 3000` from `frontend/`
   (`frontend/.logs-web.log`). `start.ps1` / `stop.ps1` exist.
-- Backend tests from the repo root: `python -m pytest tests/ -q` (~3 min; expect 1667 passed,
+- Backend tests from the repo root: `python -m pytest tests/ -q` (~3 min; expect 1689 passed,
   9 deselected).
-- Frontend from `frontend/`: `npm run typecheck`, `npx vitest run` (197 tests),
-  `npm run build` (17 route rows including `_not-found`; `/churn`, `/titles` and dynamic
-  `/sellers/[username]` are three of them).
+- Frontend from `frontend/`: `npm run typecheck`, `npx vitest run` (208 tests across 14 files),
+  `npm run build` (18 route rows including `_not-found`; `/sales`, `/churn`, `/titles` and
+  dynamic `/sellers/[username]` are four of them).
 - The pre-commit hook runs prettier, typecheck and the full backend suite. A failed hook
   leaves no commit - always check `git log --oneline -1` after committing.
 - Commit identity: `Agha Moutsim <131957706+agha-moutsim@users.noreply.github.com>`.
