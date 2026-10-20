@@ -1107,7 +1107,9 @@ export interface ChurnListing {
   price: number | null;
   currency: string | null;
   item_creation_date: string | null;
+  /** First stored search set in this query lane that contained it. */
   first_seen_at: string | null;
+  /** Last stored search set in this query lane that contained it. */
   last_seen_at: string | null;
   age?: ListingAgeInfo | null;
   age_reason?: string | null;

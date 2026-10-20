@@ -52,7 +52,6 @@ function ListingTable({
           <tr className="text-left text-[11px] uppercase tracking-wide text-text-dim border-b border-border">
             <th className="py-2 pr-4 font-medium">Listing</th>
             <th className="py-2 pr-4 font-medium">Price</th>
-            <th className="py-2 pr-4 font-medium">First seen</th>
             <th className="py-2 font-medium">
               {mode === "churned" ? "Status" : "Age"}
             </th>
@@ -72,9 +71,6 @@ function ListingTable({
               </td>
               <td className="py-3 pr-4 whitespace-nowrap text-text-secondary">
                 {formatListingPrice(row.price, row.currency)}
-              </td>
-              <td className="py-3 pr-4 whitespace-nowrap text-text-secondary">
-                {formatDate(row.first_seen_at)}
               </td>
               <td className="py-3">
                 {mode === "churned" ? (
