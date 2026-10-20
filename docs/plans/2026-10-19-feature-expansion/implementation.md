@@ -556,6 +556,65 @@ verdicts, not a claim about the products.
   rate to a US sale.
 - Never sum across currencies.
 
+### Shipped 2026-10-21
+
+Beyond the file table above: `backend/marketplaces.py` is the one validated reader of the
+registry; `backend/api/market_context.py` turns the header/query into a record and carries the
+UK-only and fee-table refusals; `backend/api/markets.py` serves the list. The Browse sites are
+market-aware in `backend/scrapers/ebay.py` and `backend/scrapers/ebay_deals.py`. Deals storage and
+freshness are market-scoped in `backend/hunter/deals.py`, with `deal_items.marketplace` and a
+composite `(marketplace, listing_id)` rule in `backend/db/database.py` / `db/models.py`.
+`frontend/lib/marketplace.ts` and `marketplaceId.ts` hold the selector state and transport;
+`frontend/lib/api.ts` sends it on every call; `frontend/app/analyze/page.tsx`,
+`frontend/app/fees/page.tsx`, `frontend/components/DealsBoard.tsx`, `Layout.tsx`, `Scorecard.tsx`
+and `frontend/lib/format.ts` carry the visible currency and refusals.
+
+Rules, as code:
+
+- `MARKETPLACES` carries `EBAY_GB`, `EBAY_US`, `EBAY_DE`, `EBAY_AU` and `EBAY_CA`. The default is
+  `EBAY_GB`; `EBAY_MARKETPLACE` may name only a registered id. An unknown id is a 422, never a
+  silent UK fallback. `EBAY_IE` is not registered because its `/deals` URL redirected into eBay's
+  splashui challenge, not a deals board.
+- `X-Ebay-Marketplace` is sent on every frontend API call; `?marketplace=` is accepted for direct
+  callers. The query value wins when both are present.
+- Only `EBAY_GB` has a `fee_table`. Every other market has `fee_table: None` and the shared
+  sentence from `fee_warning()`. `/api/fees/table`, `/api/fees/calculate`, Deep Search, Bulk and
+  Category Hunter return 422 with a UK-only sentence rather than applying the UK card to a
+  foreign sale.
+- Analyze on a non-UK market is search-only: one real Browse search and demand read, no supplier
+  matches, no profit, no verdict, no GBP price band and no History write (stored analyses have no
+  currency column). The response carries `marketplace`, `currency` and both refusal sentences.
+- Deals are stored one market at a time and the same listing id may exist on two markets. Existing
+  rows were the UK observation and received `EBAY_GB` in place. A refresh deletes only that
+  market's absent cards; another market's rows and the UK hourly job are untouched.
+- Non-UK deals refresh skips `listing_observations` because that evidence store is not
+  marketplace-keyed. It says so in its result instead of writing a US reading into UK footprints.
+- `parse_deals_page` reads both the flat UK/DE card shape and the nested US/globaldeals/AU/CA
+  shape. A page that returns non-200, or a refresh that raises, is reported (`502` on the
+  synchronous route; `last_refresh_error` in the board meta for the worker); it is never rendered
+  as a measured empty board.
+- `formatMoney` formats one amount in its own currency and never converts or adds. Supplier rows
+  stay explicitly GBP; eBay and demand rows use the response currency. `None` stays `—`; `0`
+  stays a measured zero.
+
+Live evidence measured 2026-10-21:
+
+| What                    | Inputs                                                 | Answer                                                                                                                                                                                |
+| ----------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Marketplace list        | `GET /api/markets`                                     | 200; default `EBAY_GB`; **5** markets, each `deals_http_status: 200`, checked `2026-10-21`; only GB has a fee table; IE absent                                                        |
+| Non-UK Analyze          | `_market_only_analysis("usb c cable", False, EBAY_US)` | product **$0.99**, source `ebay_us`; demand **active 50**, average active **$11.3438**, `sold_count_30d: null`; both search-only and no-History sentences; no supplier/profit/verdict |
+| Deals page reachability | one GET per registered `/deals` URL                    | HTTP 200 for all five; cards read: **GB 72, US 21, DE 80, AU 76, CA 57**. eBay US redirected to `/globaldeals`; IE redirected to splashui challenge and is not offered                |
+| US deals refresh        | `POST /api/deals/refresh` with `EBAY_US`               | 200; **21** cards stored, **21** priced, all `USD`; `GET /api/deals` returned **21** US rows, first label **`$38.91`**, `last_refresh_error: null`; UK board stayed **73** rows       |
+| Deals migration         | copy of the live 73-row database, then import twice    | both runs clean; **73** rows preserved, all `EBAY_GB`; old global `UNIQUE(listing_id)` replaced by `UNIQUE(marketplace, listing_id)`                                                  |
+| Checks                  | -                                                      | backend **1710 passed, 9 deselected**; frontend **216 tests across 16 files**, typecheck clean; build **18 route rows**                                                               |
+
+The live US deals sample is **21 cards from one page load**, not a market census. The live Analyze
+sample is **one query** and one first listing; its demand figures describe the 50 active summaries
+that search returned, not sales. The non-UK fee paths were not live-priced because there is no
+non-UK fee table to price them with; their evidence is the 422 refusals above and the tests.
+`EbaySoldScraper` and the Deep Search/Hunter supplier paths remain UK-only and were not
+market-wired; no non-UK `listing_observations` were written.
+
 ---
 
 ## Migration pattern to reuse

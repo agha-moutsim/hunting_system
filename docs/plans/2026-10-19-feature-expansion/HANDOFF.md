@@ -1,6 +1,6 @@
 # Handoff - current state
 
-Last updated: 2026-10-20, at the close of Phase I.
+Last updated: 2026-10-21, at the close of Phase J.
 Read this first, then `implementation.md` (phase specs and rules) and `design.md` (surfaces).
 
 ## Where the work stands
@@ -18,32 +18,66 @@ The ten-feature expansion lives in this folder. Baseline phases 1 and 2 are comp
 | G     | Listing age and churn         | shipped, closed at `1b42dce`            |
 | H     | Seller footprint              | shipped, closed at `79c5673`            |
 | I     | Own-sales P&L and feedback    | shipped, code closed at `8f3f753`       |
-| J     | Marketplace expansion         | not started                             |
+| J     | Marketplace expansion         | shipped, code closed at `b5e7a59`       |
 
 Phases ship as roughly ten commits: one well-scoped change each, committed and pushed as it
 lands, with evidence in the phase's "Shipped" block in `implementation.md`.
 
 ## Next move
 
-Phase J - marketplace expansion (`implementation.md` Phase J, `design.md` §3.11). Add the
-marketplace registry (`id`, currency, fee-table reference), carry the marketplace through the
-Browse-backed routes instead of the module constant, and add the header selector. Deals pages are
-marketplace-specific: verify a non-UK deals URL is reachable before offering it. Fee tables are
-UK-specific until a market has its own; warn rather than applying a UK rate to a US sale. Never
-sum across currencies.
+Phase J is implemented and verified; the ten planned phases are complete. The only open work is
+the user-owned list under "Pending items that need the user's word", plus rotating the two exposed
+credentials. There is no Phase K.
 
-## Live state, measured 2026-10-20
+The one live-browser gap from Phase A remains: the extension has never run in a real browser. It is
+a verification gap, not a missing phase.
+
+## Live state
+
+### Phase J, measured 2026-10-21
+
+- `GET /api/markets` returns **5** markets (`EBAY_GB`, `EBAY_US`, `EBAY_DE`,
+  `EBAY_AU`, `EBAY_CA`) with `deals_http_status: 200` and `deals_checked_at:
+2026-10-21` on every one. Only `EBAY_GB` has a fee table; the other four
+  return `fee_table: null`. `EBAY_IE` is absent because its `/deals` URL went
+  into eBay's splashui challenge instead of a deals board.
+- Non-UK Analyze, one live US query (`"usb c cable"`): first listing **$0.99**,
+  source `ebay_us`; demand **50 active listings**, average active price
+  **$11.3438**, `sold_count_30d: null`. No supplier matches, profit or verdict.
+  Two sentences say it is search-only and that no History row was written.
+  This is one query and one listing, not a US market sample.
+- Deals page reachability: one GET per URL returned HTTP 200 and cards were
+  read from the returned page - **GB 72, US 21, DE 80, AU 76, CA 57**. eBay US
+  redirects `/deals` to `/globaldeals`; its cards use the nested shape. These
+  are page observations, not sales counts.
+- `deal_items`: **94** rows - 73 UK rows written before Phase J and 21 US rows
+  from the live `POST /api/deals/refresh` (all 21 priced, all `USD`; first
+  label `$38.91`; `last_refresh_error: null`). The UK board still returns its
+  73 rows. The table now has `UNIQUE(marketplace, listing_id)`, migrated from
+  the old global unique without losing the 73 UK rows; the migration was run
+  twice on a copy first.
+- Non-UK refusals were exercised live: `GET /api/fees/table` and
+  `POST /api/deep-search` with `X-Ebay-Marketplace: EBAY_US` both returned
+  **422** and the UK-only sentence. No non-UK fee or profit figure was
+  produced, and no non-UK `listing_observations` were written.
+- Checks: backend **1710 passed, 9 deselected**; frontend **216 tests across
+  16 files**, typecheck clean; production build **18 route rows**.
+
+### Earlier measurements, 2026-10-20
 
 - `price_alerts`: 1 real row - cordless drill, query lane, average asking price £22.66 →
   £22.57, unread.
 - `saved_searches` 0, `search_results` 0 (a live throwaway run was deleted after capturing
   its refusal).
 - `price_history`: 2 rows, both 0.0 (failed eBay item reads).
-- `demand_snapshots`: 62, with a real `avg_price` series for "cordless drill".
+- `demand_snapshots`: **68** as of the Phase J close (62 at the earlier Phase I measurement).
+  The successful demand-monitor re-run that cleared an interrupted last-result added one pair
+  of rows with no sold count; it is not new sold evidence. 26 rows carry a `sold_30d` figure
+  and 32 an average price; `sold_7d` is unread in all 68.
 - Tracked products: Dell V100 (eBay 600, target 550.9, supplier 0) and cordless drill
   (no prices).
 - `listing_observations`: **487** (386 before Phase G; the two live Analyze runs added 101).
-  `deal_items`: 73, refreshed hourly - do not disturb.
+  Phase J's non-UK deals refresh skipped this table because it is not marketplace-keyed.
 - `query_observations`: **2**, both the "garden hose" lane, 5 listings each, same Browse filter
   and limit, 34 seconds apart. Churn currently reports 1 missing: listing `318706761430`,
   last seen `2026-10-20T14:21:32Z`, status `no_longer_listed`. This is a 5-listing sample, not
@@ -97,9 +131,9 @@ sum across currencies.
 - Servers: backend `uvicorn main:app --host 127.0.0.1 --port 8000` from `backend/`
   (logs `.logs/backend.log`); frontend `next start -p 3000` from `frontend/`
   (`frontend/.logs-web.log`). `start.ps1` / `stop.ps1` exist.
-- Backend tests from the repo root: `python -m pytest tests/ -q` (~3 min; expect 1689 passed,
+- Backend tests from the repo root: `python -m pytest tests/ -q` (~3.5 min; expect 1710 passed,
   9 deselected).
-- Frontend from `frontend/`: `npm run typecheck`, `npx vitest run` (208 tests across 14 files),
+- Frontend from `frontend/`: `npm run typecheck`, `npx vitest run` (216 tests across 16 files),
   `npm run build` (18 route rows including `_not-found`; `/sales`, `/churn`, `/titles` and
   dynamic `/sellers/[username]` are four of them).
 - The pre-commit hook runs prettier, typecheck and the full backend suite. A failed hook
