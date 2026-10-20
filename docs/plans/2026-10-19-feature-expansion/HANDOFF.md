@@ -29,8 +29,8 @@ Phase J is implemented and verified; the ten planned phases are complete. The on
 the user-owned list under "Pending items that need the user's word", plus rotating the two exposed
 credentials. There is no Phase K.
 
-The one live-browser gap from Phase A remains: the extension has never run in a real browser. It is
-a verification gap, not a missing phase.
+The one live-browser gap from Phase A remains: the extension is loaded and reaches the backend,
+but it has not completed a successful capture. It is a verification gap, not a missing phase.
 
 ## Live state
 
@@ -113,10 +113,12 @@ a verification gap, not a missing phase.
   item-lane alerts stay silent until tracker checks can read pages.
 - SerpApi is at 0/250 until **2026-11-08**. Supplier discovery and live saved-search runs
   may legitimately refuse with "no real supplier price was found".
-- The extension has never run in a real browser. The user must reload v1.1.1 on
-  `chrome://extensions`, open ten listings, then `GET /api/extension/status` should report
-  `items_captured: 11`. The manifest now declares localhost/127.0.0.1:8000 so the popup and
-  capture POST can reach the API.
+- The extension is installed and its popup reaches the API, but no capture has been stored.
+  The current live failure is `Could not fetch the purchase-history page: Failed to fetch`;
+  eBay's `/bin/purchaseHistory?item=` endpoint returns its splashui browser challenge, and the
+  profile used for the run was signed out. Sign in to eBay UK, open the purchase-history URL
+  directly, then retry. `items_captured` is still **1**. The ten-capture acceptance target is
+  **11** only if every new page yields a parseable capture; do not invent rows to reach it.
 
 ## Security - outstanding user action
 
