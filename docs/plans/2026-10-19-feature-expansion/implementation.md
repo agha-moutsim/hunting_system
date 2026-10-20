@@ -252,6 +252,50 @@ Honest limits, measured the same day: the item lane has no real reading to compa
   banned popularity column.
 - Counts come from listings actually fetched for that query, not a global corpus.
 
+### Shipped 2026-10-20
+
+Beyond the file table: `backend/scrapers/ebay.py` gained `search_titles()` - one Browse
+search with no price band, the New-only condition gate intact, and a failure that reaches
+the route instead of becoming an empty list. `tests/test_titles_scraper.py` pins that seam.
+`tests/test_titles_api.py` covers the HTTP door, `frontend/lib/titles.ts` carries the typed
+request and meter helpers with 12 vitest cases, and the sidebar entry is in
+`frontend/components/Layout.tsx` with `frontend/components/icons/IconTitles.tsx`. The title
+suite is 42 tests: 29 engine, 11 API, 2 scraper.
+
+Rules, as code:
+
+- A count is the number of **listings** whose title contains the word or adjacent pair, not
+  the number of occurrences. One listing contributes at most once to a term, so no count can
+  exceed `listings_analysed`; `tests/test_titles.py` pins both.
+- A bigram is a literal adjacent pair, and both tokens must be countable. Stop words leave
+  the word table but break a pair rather than being skipped: "garden hose for sale" yields
+  "garden hose", never "hose sale".
+- The response is exactly `query`, `listings_analysed`, `unigrams`, `bigrams` and `reason`.
+  `tests/test_titles_api.py` whitelists those keys and fails on any volume-, popularity-,
+  rank- or score-shaped field; the frontend request path has no such parameter either.
+- A zero is a measured zero only when eBay answered with no listings, and it carries a
+  sentence. A failed Browse call is a 502; missing credentials are a 503 before any call.
+  Neither can be read as "nothing exists".
+- The sample is New listings for the query with no buying price band: the helper describes
+  the titles the query returned, not the slice inside the user's range.
+- The 80-character meter counts characters with `Array.from`, caps the bar at 100%, and lets
+  the draft pass 80 so the over-limit state is visible.
+
+Live evidence, 2026-10-20. The API rows went through the real route with the real `.env`
+credentials (in-process TestClient, one eBay Browse call each); the page row came from
+`next start -p 3100` against the production build.
+
+| What          | Inputs                          | Answer                                                                                                                                                                                         |
+| ------------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Real sample   | `GET /api/titles?q=garden hose` | 200; **50 listings analysed**; top words: hose 50, garden 49, pipe 45, water 26, heavy 23, duty 23; top pairs: garden hose 42, hose pipe 36, heavy duty 23, spray gun 18, expandable garden 15 |
+| Measured zero | `GET /api/titles?q=zzqxjvkwpq`  | 200; 0 listings; both tables empty; reason "eBay returned no active New listings for this query, so there are no title counts to report."                                                      |
+| Page          | `GET /titles`                   | 200; heading, empty state and meter card present in the shipped HTML                                                                                                                           |
+
+Limits, measured the same day: the real query filled the 50-listing cap, so the tables
+describe one Browse page, not every matching title on eBay. The helper reports that sample
+(50) and never extrapolates from it. The zero row is a real eBay answer to a deliberately
+meaningless query, not a stubbed response.
+
 ---
 
 ## Phase G - Listing age and churn
