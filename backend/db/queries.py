@@ -568,6 +568,39 @@ def get_listing_observation_summary(db: Session, listing_id: str) -> dict:
     }
 
 
+def get_seller_observations(
+    db: Session,
+    username: str,
+    listing_ids: Iterable[str] | None = None,
+) -> list[ListingObservation]:
+    """Every stored reading for one seller, optionally limited to listings.
+
+    Usernames are matched case-insensitively because eBay treats them that
+    way; the stored spelling is returned to the caller rather than rewritten.
+    `listing_ids` is applied in Python rather than as a SQL ``IN`` clause: a
+    query lane can accumulate more than SQLite's parameter limit over time,
+    and the number of readings for one seller is small enough not to need it.
+
+    This reads observations that already exist. It writes nothing and spends
+    no Browse call.
+    """
+    wanted = (username or "").strip()
+    if not wanted:
+        return []
+    rows = (
+        db.query(ListingObservation)
+        .filter(func.lower(ListingObservation.seller_username) == wanted.lower())
+        .order_by(
+            ListingObservation.observed_at.asc(), ListingObservation.id.asc()
+        )
+        .all()
+    )
+    if listing_ids is not None:
+        allowed = {str(listing_id) for listing_id in listing_ids if listing_id}
+        rows = [row for row in rows if row.listing_id in allowed]
+    return rows
+
+
 def save_query_observations(db: Session, observations: Iterable[dict]) -> dict:
     """Store completed search result sets, one row per search.
 
