@@ -17,6 +17,8 @@ from db.models import (
     PurchaseCapture,
     ListingObservation,
     QueryObservation,
+    Sale,
+    MonthlyStat,
 )
 from engine.listing_age import normalise_query
 from scrapers.base import ScrapedProduct, DemandData as DemandDataDTO
@@ -657,3 +659,238 @@ def get_query_observations(db: Session, query: str) -> list[QueryObservation]:
         )
         .all()
     )
+
+
+# --- Phase I: user-declared sales and monthly stats ------------------------
+
+
+def sale_money(
+    *,
+    sale_price: float | None,
+    supplier_cost: float | None,
+    shipping_cost: float | None,
+    ebay_fees: float | None,
+    quantity: int | None,
+) -> tuple[float | None, float | None]:
+    """Profit and margin for one declared sale, or ``(None, None)``.
+
+    All three costs must be declared. A missing cost is not a zero: treating
+    it as one would silently overstate profit (C1), so the pair stays absent
+    and the caller reports why. The values are per unit and multiplied by the
+    declared quantity, matching how the sale form describes them.
+    """
+    if sale_price is None or quantity is None or quantity <= 0:
+        return None, None
+    if (
+        supplier_cost is None
+        or shipping_cost is None
+        or ebay_fees is None
+    ):
+        return None, None
+
+    revenue = sale_price * quantity
+    costs = (supplier_cost + shipping_cost + ebay_fees) * quantity
+    profit = round(revenue - costs, 2)
+    margin = round(profit / revenue * 100, 2) if revenue > 0 else None
+    return profit, margin
+
+
+def sale_to_dict(sale: Sale) -> dict:
+    """One sale as the API and exports present it."""
+    complete = sale.profit is not None and sale.margin_percent is not None
+    return {
+        "id": sale.id,
+        "product_name": sale.product_name,
+        "category": sale.category or "",
+        "sale_price": sale.sale_price,
+        "supplier_cost": sale.supplier_cost,
+        "shipping_cost": sale.shipping_cost,
+        "ebay_fees": sale.ebay_fees,
+        "profit": sale.profit,
+        "margin_percent": sale.margin_percent,
+        "quantity": sale.quantity,
+        "sale_date": sale.sale_date.date().isoformat() if sale.sale_date else None,
+        "buyer_location": sale.buyer_location or "",
+        "notes": sale.notes or "",
+        "created_at": (
+            sale.created_at.isoformat() if sale.created_at else None
+        ),
+        "user_declared": True,
+        "profit_is_complete": complete,
+        "profit_missing_reason": (
+            None
+            if complete
+            else (
+                "Profit is not shown for this sale because at least one cost "
+                "was not declared."
+            )
+        ),
+    }
+
+
+def list_sales(db: Session, limit: int = 100, offset: int = 0) -> list[Sale]:
+    """Newest sales first, with a bounded page."""
+    return (
+        db.query(Sale)
+        .order_by(Sale.sale_date.desc(), Sale.id.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+
+def count_sales(db: Session) -> int:
+    return int(db.query(func.count(Sale.id)).scalar() or 0)
+
+
+def get_sale(db: Session, sale_id: int) -> Sale | None:
+    return db.query(Sale).filter(Sale.id == sale_id).first()
+
+
+def _month_bounds(year: int, month: int) -> tuple[datetime, datetime]:
+    start = datetime(year, month, 1)
+    end_year = year + (1 if month == 12 else 0)
+    end_month = 1 if month == 12 else month + 1
+    return start, datetime(end_year, end_month, 1)
+
+
+def recompute_monthly_stats(
+    db: Session,
+    months: Iterable[tuple[int, int]] | None = None,
+) -> list[tuple[int, int]]:
+    """Rebuild `monthly_stats` rows from the sales they summarise.
+
+    Called on every sale write, so the table can never drift from the rows it
+    describes. Passing a month whose last sale was just deleted removes that
+    month's row rather than leaving a stale total behind.
+
+    A month holding any sale with an undeclared cost gets ``total_profit =
+    None`` and ``avg_margin = None``. Revenue, sale count and units are still
+    measured; profit is the only value that needs all the costs.
+    """
+    if months is None:
+        pairs = {
+            (row.sale_date.year, row.sale_date.month)
+            for row in db.query(Sale).all()
+            if row.sale_date is not None
+        }
+    else:
+        pairs = {(int(year), int(month)) for year, month in months}
+
+    touched: list[tuple[int, int]] = []
+    for year, month in sorted(pairs):
+        start, end = _month_bounds(year, month)
+        sales = (
+            db.query(Sale)
+            .filter(Sale.sale_date >= start, Sale.sale_date < end)
+            .all()
+        )
+        existing = (
+            db.query(MonthlyStat)
+            .filter(MonthlyStat.year == year, MonthlyStat.month == month)
+            .order_by(MonthlyStat.id)
+            .all()
+        )
+
+        if not sales:
+            for row in existing:
+                db.delete(row)
+            touched.append((year, month))
+            continue
+
+        revenue = round(
+            sum(sale.sale_price * (sale.quantity or 0) for sale in sales),
+            2,
+        )
+        complete = all(sale.profit is not None for sale in sales)
+        profit = round(sum(sale.profit for sale in sales), 2) if complete else None
+        margin = (
+            round(profit / revenue * 100, 2)
+            if complete and profit is not None and revenue > 0
+            else None
+        )
+        total_sales = len(sales)
+
+        if existing:
+            row = existing[0]
+            for duplicate in existing[1:]:
+                db.delete(duplicate)
+        else:
+            row = MonthlyStat(year=year, month=month)
+            db.add(row)
+        row.total_revenue = revenue
+        row.total_profit = profit
+        row.total_sales = total_sales
+        row.avg_margin = margin
+        row.updated_at = datetime.utcnow()
+        touched.append((year, month))
+
+    db.commit()
+    return touched
+
+
+def create_sale_record(
+    db: Session,
+    *,
+    product_name: str,
+    sale_price: float,
+    supplier_cost: float,
+    shipping_cost: float,
+    ebay_fees: float,
+    quantity: int,
+    sale_date: datetime,
+    category: str = "",
+    buyer_location: str = "",
+    notes: str = "",
+) -> Sale:
+    profit, margin = sale_money(
+        sale_price=sale_price,
+        supplier_cost=supplier_cost,
+        shipping_cost=shipping_cost,
+        ebay_fees=ebay_fees,
+        quantity=quantity,
+    )
+    sale = Sale(
+        product_name=product_name,
+        category=category,
+        sale_price=sale_price,
+        supplier_cost=supplier_cost,
+        shipping_cost=shipping_cost,
+        ebay_fees=ebay_fees,
+        profit=profit,
+        margin_percent=margin,
+        quantity=quantity,
+        sale_date=sale_date,
+        buyer_location=buyer_location,
+        notes=notes,
+    )
+    db.add(sale)
+    db.flush()
+    recompute_monthly_stats(db, [(sale_date.year, sale_date.month)])
+    db.refresh(sale)
+    return sale
+
+
+def update_sale_record(db: Session, sale: Sale, **fields) -> Sale:
+    old_pair = (sale.sale_date.year, sale.sale_date.month)
+    for key, value in fields.items():
+        setattr(sale, key, value)
+    sale.profit, sale.margin_percent = sale_money(
+        sale_price=sale.sale_price,
+        supplier_cost=sale.supplier_cost,
+        shipping_cost=sale.shipping_cost,
+        ebay_fees=sale.ebay_fees,
+        quantity=sale.quantity,
+    )
+    db.flush()
+    new_pair = (sale.sale_date.year, sale.sale_date.month)
+    recompute_monthly_stats(db, {old_pair, new_pair})
+    db.refresh(sale)
+    return sale
+
+
+def delete_sale_record(db: Session, sale: Sale) -> None:
+    pair = (sale.sale_date.year, sale.sale_date.month)
+    db.delete(sale)
+    db.flush()
+    recompute_monthly_stats(db, [pair])

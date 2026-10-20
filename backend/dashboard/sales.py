@@ -1,6 +1,12 @@
-"""Log and manage sales."""
+"""Legacy sales helpers, now backed by the Phase I sales rules.
 
-from datetime import datetime, date
+The API owns the routes (`api/sales.py`); this module remains for exports and
+any older internal caller. Every write goes through `db.queries`, so it also
+recomputes `monthly_stats`. Costs default to None rather than 0.0: a caller
+that does not know a cost must not be given invented profit.
+"""
+
+from datetime import date, datetime
 from typing import Optional
 
 from db.database import SessionLocal
@@ -10,26 +16,28 @@ from db.models import Sale
 def log_sale(
     product_name: str,
     sale_price: float,
-    supplier_cost: float = 0.0,
-    shipping_cost: float = 0.0,
-    ebay_fees: float = 0.0,
+    supplier_cost: Optional[float] = None,
+    shipping_cost: Optional[float] = None,
+    ebay_fees: Optional[float] = None,
     quantity: int = 1,
     sale_date: Optional[date] = None,
     category: str = "",
     buyer_location: str = "",
     notes: str = "",
 ) -> Optional[Sale]:
-    """Log a new sale."""
+    """Log a new sale and recompute the month it belongs to."""
+    from db.queries import recompute_monthly_stats, sale_money
+
     db = SessionLocal()
     try:
-        # Calculate profit
-        revenue = sale_price * quantity
-        costs = (supplier_cost + shipping_cost + ebay_fees) * quantity
-        profit = revenue - costs
-
-        # Calculate margin
-        margin = (profit / revenue * 100) if revenue > 0 else 0
-
+        when = datetime.combine(sale_date, datetime.min.time()) if sale_date else datetime.utcnow()
+        profit, margin = sale_money(
+            sale_price=sale_price,
+            supplier_cost=supplier_cost,
+            shipping_cost=shipping_cost,
+            ebay_fees=ebay_fees,
+            quantity=quantity,
+        )
         sale = Sale(
             product_name=product_name,
             category=category,
@@ -40,17 +48,18 @@ def log_sale(
             profit=profit,
             margin_percent=margin,
             quantity=quantity,
-            sale_date=sale_date or datetime.utcnow(),
+            sale_date=when,
             buyer_location=buyer_location,
             notes=notes,
         )
         db.add(sale)
-        db.commit()
+        db.flush()
+        recompute_monthly_stats(db, [(when.year, when.month)])
         db.refresh(sale)
         return sale
 
-    except Exception as e:
-        print(f"[ERROR] Failed to log sale: {e}")
+    except Exception as exc:  # noqa: BLE001 - legacy helper returns None
+        print(f"[ERROR] Failed to log sale: {exc}")
         db.rollback()
         return None
     finally:
@@ -58,28 +67,33 @@ def log_sale(
 
 
 def update_sale(sale_id: int, **kwargs) -> bool:
-    """Update a sale."""
+    """Update a sale, recalculating profit and both affected months."""
+    from db.queries import recompute_monthly_stats, sale_money
+
     db = SessionLocal()
     try:
         sale = db.query(Sale).filter(Sale.id == sale_id).first()
         if not sale:
             return False
 
+        old_pair = (sale.sale_date.year, sale.sale_date.month)
         for key, value in kwargs.items():
             if hasattr(sale, key):
                 setattr(sale, key, value)
-
-        # Recalculate profit and margin
-        revenue = sale.sale_price * sale.quantity
-        costs = (sale.supplier_cost + sale.shipping_cost + sale.ebay_fees) * sale.quantity
-        sale.profit = revenue - costs
-        sale.margin_percent = (sale.profit / revenue * 100) if revenue > 0 else 0
-
-        db.commit()
+        sale.profit, sale.margin_percent = sale_money(
+            sale_price=sale.sale_price,
+            supplier_cost=sale.supplier_cost,
+            shipping_cost=sale.shipping_cost,
+            ebay_fees=sale.ebay_fees,
+            quantity=sale.quantity,
+        )
+        db.flush()
+        new_pair = (sale.sale_date.year, sale.sale_date.month)
+        recompute_monthly_stats(db, {old_pair, new_pair})
         return True
 
-    except Exception as e:
-        print(f"[ERROR] Failed to update sale: {e}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[ERROR] Failed to update sale: {exc}")
         db.rollback()
         return False
     finally:
@@ -87,18 +101,22 @@ def update_sale(sale_id: int, **kwargs) -> bool:
 
 
 def delete_sale(sale_id: int) -> bool:
-    """Delete a sale."""
+    """Delete a sale and remove or recompute its month."""
+    from db.queries import recompute_monthly_stats
+
     db = SessionLocal()
     try:
         sale = db.query(Sale).filter(Sale.id == sale_id).first()
-        if sale:
-            db.delete(sale)
-            db.commit()
-            return True
-        return False
+        if not sale:
+            return False
+        pair = (sale.sale_date.year, sale.sale_date.month)
+        db.delete(sale)
+        db.flush()
+        recompute_monthly_stats(db, [pair])
+        return True
 
-    except Exception as e:
-        print(f"[ERROR] Failed to delete sale: {e}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[ERROR] Failed to delete sale: {exc}")
         db.rollback()
         return False
     finally:
@@ -106,37 +124,14 @@ def delete_sale(sale_id: int) -> bool:
 
 
 def get_sales(limit: int = 100, offset: int = 0) -> list[dict]:
-    """Get sales with pagination."""
+    """Get sales with pagination, labelled as user-declared."""
+    from db.queries import list_sales, sale_to_dict
+
     db = SessionLocal()
     try:
-        sales = (
-            db.query(Sale)
-            .order_by(Sale.sale_date.desc())
-            .offset(offset)
-            .limit(limit)
-            .all()
-        )
-        return [
-            {
-                "id": s.id,
-                "product_name": s.product_name,
-                "category": s.category,
-                "sale_price": s.sale_price,
-                "supplier_cost": s.supplier_cost,
-                "shipping_cost": s.shipping_cost,
-                "ebay_fees": s.ebay_fees,
-                "profit": s.profit,
-                "margin_percent": s.margin_percent,
-                "quantity": s.quantity,
-                "sale_date": s.sale_date.isoformat() if s.sale_date else None,
-                "buyer_location": s.buyer_location,
-                "notes": s.notes,
-            }
-            for s in sales
-        ]
-
-    except Exception as e:
-        print(f"[ERROR] Failed to get sales: {e}")
+        return [sale_to_dict(sale) for sale in list_sales(db, limit=limit, offset=offset)]
+    except Exception as exc:  # noqa: BLE001
+        print(f"[ERROR] Failed to get sales: {exc}")
         return []
     finally:
         db.close()
@@ -144,6 +139,8 @@ def get_sales(limit: int = 100, offset: int = 0) -> list[dict]:
 
 def get_sales_by_date_range(start_date: date, end_date: date) -> list[dict]:
     """Get sales within a date range."""
+    from db.queries import sale_to_dict
+
     db = SessionLocal()
     try:
         sales = (
@@ -153,22 +150,9 @@ def get_sales_by_date_range(start_date: date, end_date: date) -> list[dict]:
             .order_by(Sale.sale_date.desc())
             .all()
         )
-        return [
-            {
-                "id": s.id,
-                "product_name": s.product_name,
-                "category": s.category,
-                "sale_price": s.sale_price,
-                "profit": s.profit,
-                "margin_percent": s.margin_percent,
-                "quantity": s.quantity,
-                "sale_date": s.sale_date.isoformat() if s.sale_date else None,
-            }
-            for s in sales
-        ]
-
-    except Exception as e:
-        print(f"[ERROR] Failed to get sales by date range: {e}")
+        return [sale_to_dict(sale) for sale in sales]
+    except Exception as exc:  # noqa: BLE001
+        print(f"[ERROR] Failed to get sales by date range: {exc}")
         return []
     finally:
         db.close()
@@ -176,10 +160,12 @@ def get_sales_by_date_range(start_date: date, end_date: date) -> list[dict]:
 
 def get_sale_count() -> int:
     """Get total sale count."""
+    from db.queries import count_sales
+
     db = SessionLocal()
     try:
-        return db.query(Sale).count()
-    except Exception:
+        return count_sales(db)
+    except Exception:  # noqa: BLE001
         return 0
     finally:
         db.close()

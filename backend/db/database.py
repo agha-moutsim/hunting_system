@@ -170,6 +170,101 @@ def ensure_query_observations_table() -> bool:
     return True
 
 
+def _monthly_stats_unique_sets() -> list[tuple[str, ...]]:
+    """The unique column sets currently enforced on `monthly_stats`."""
+    inspector = inspect(engine)
+    if not inspector.has_table("monthly_stats"):
+        return []
+    found: list[tuple[str, ...]] = []
+    for constraint in inspector.get_unique_constraints("monthly_stats"):
+        columns = tuple(constraint.get("column_names") or ())
+        if columns:
+            found.append(columns)
+    for index in inspector.get_indexes("monthly_stats"):
+        if not index.get("unique"):
+            continue
+        columns = tuple(index.get("column_names") or ())
+        if columns and columns not in found:
+            found.append(columns)
+    return found
+
+
+def ensure_monthly_stats_constraint() -> str:
+    """Give `monthly_stats` ONE unique constraint on `(year, month)`.
+
+    Returns ``"created"`` when the table did not exist, ``"migrated"`` when it
+    was rebuilt, and ``"present"`` when it already had the right rule.
+
+    The original model declared ``unique=True`` on `year` and on `month`
+    separately. That is not merely redundant: it makes every October share one
+    row, so a second year cannot be stored at all. SQLite has no
+    `DROP CONSTRAINT`, and the offending rules are table-level UNIQUE
+    constraints, so the only safe repair is a table rebuild:
+
+        rename -> create from the model -> copy -> drop the old table
+
+    Everything runs in one transaction, and duplicate `(year, month)` pairs
+    are rejected with a sentence before any data is moved. The function is
+    idempotent; `db/models.py` calls it on every import, and the second call
+    is a no-op.
+    """
+    inspector = inspect(engine)
+    if not inspector.has_table("monthly_stats"):
+        from db.models import MonthlyStat  # deferred: db.models imports this
+
+        MonthlyStat.__table__.create(bind=engine)
+        return "created"
+
+    unique_sets = _monthly_stats_unique_sets()
+    desired = [("year", "month")]
+    if unique_sets == desired:
+        return "present"
+
+    old_name = "monthly_stats__pre_composite"
+    with engine.begin() as conn:
+        from db.models import MonthlyStat  # deferred: db.models imports this
+
+        conn.execute(text("DROP TABLE IF EXISTS monthly_stats__pre_composite"))
+        conn.execute(
+            text(f'ALTER TABLE monthly_stats RENAME TO "{old_name}"')
+        )
+
+        old_columns = {
+            column["name"]
+            for column in inspect(conn).get_columns(old_name)
+        }
+        declared = [column.name for column in MonthlyStat.__table__.columns]
+        copy_columns = [name for name in declared if name in old_columns]
+        quoted = ", ".join(f'"{name}"' for name in copy_columns)
+
+        duplicate = conn.execute(
+            text(
+                f'SELECT year, month, COUNT(*) FROM "{old_name}" '
+                "GROUP BY year, month HAVING COUNT(*) > 1"
+            )
+        ).fetchall()
+        if duplicate:
+            pairs = ", ".join(f"{year}-{month:02d}" for year, month, _ in duplicate)
+            # Raising inside engine.begin() rolls the rename back, so the old
+            # table is still the live table when the caller sees this sentence.
+            raise RuntimeError(
+                "monthly_stats cannot be migrated because these year-month "
+                f"pairs appear more than once: {pairs}. Merge or delete the "
+                "duplicates, then start the app again."
+            )
+
+        MonthlyStat.__table__.create(bind=conn)
+        conn.execute(
+            text(
+                f'INSERT INTO monthly_stats ({quoted}) '
+                f'SELECT {quoted} FROM "{old_name}"'
+            )
+        )
+        conn.execute(text(f'DROP TABLE "{old_name}"'))
+
+    return "migrated"
+
+
 def get_db():
     """Dependency for FastAPI routes."""
     db = SessionLocal()

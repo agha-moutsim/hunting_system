@@ -45,26 +45,48 @@ def get_profit_trend(days: int = 30) -> dict:
         start_date = datetime.utcnow() - timedelta(days=days)
         sales = db.query(Sale).filter(Sale.sale_date >= start_date).all()
 
-        # Group by day
+        # Group by day. A day holding an undeclared-cost sale has unknown
+        # profit for that day, not a zero.
         daily_profit = defaultdict(float)
+        incomplete_days = set()
         for s in sales:
             if s.sale_date:
                 day = s.sale_date.date().isoformat()
-                daily_profit[day] += s.profit
+                if s.profit is None:
+                    incomplete_days.add(day)
+                else:
+                    daily_profit[day] += s.profit
 
         # Fill in missing days
         dates = []
         values = []
         for i in range(days):
             d = (datetime.utcnow() - timedelta(days=days - 1 - i)).date()
-            dates.append(d.isoformat())
-            values.append(round(daily_profit.get(d.isoformat(), 0), 2))
+            key = d.isoformat()
+            dates.append(key)
+            values.append(
+                None if key in incomplete_days else round(daily_profit.get(key, 0), 2)
+            )
 
-        return {"dates": dates, "values": values, "total": round(sum(values), 2)}
+        complete = not incomplete_days
+        return {
+            "dates": dates,
+            "values": values,
+            "total": round(sum(value for value in values if value is not None), 2)
+            if complete
+            else None,
+            "profit_is_complete": complete,
+        }
 
     except Exception as e:
         print(f"[ERROR] Failed to get profit trend: {e}")
-        return {"dates": [], "values": [], "total": 0}
+        return {
+            "dates": [],
+            "values": [],
+            "total": None,
+            "profit_is_complete": False,
+            "reason": str(e),
+        }
     finally:
         db.close()
 
@@ -99,13 +121,19 @@ def get_monthly_comparison(months: int = 6) -> dict:
         start_date = datetime.utcnow() - timedelta(days=months * 30)
         sales = db.query(Sale).filter(Sale.sale_date >= start_date).all()
 
-        # Group by month
-        monthly = defaultdict(lambda: {"revenue": 0.0, "profit": 0.0})
+        # Group by month. A month with any undeclared-cost sale has unknown
+        # profit, which is kept as None rather than plotted as zero.
+        monthly = defaultdict(
+            lambda: {"revenue": 0.0, "profit": 0.0, "complete": True}
+        )
         for s in sales:
             if s.sale_date:
                 key = f"{s.sale_date.year}-{s.sale_date.month:02d}"
                 monthly[key]["revenue"] += s.sale_price * s.quantity
-                monthly[key]["profit"] += s.profit
+                if s.profit is None:
+                    monthly[key]["complete"] = False
+                else:
+                    monthly[key]["profit"] += s.profit
 
         # Sort by month
         sorted_months = sorted(monthly.keys())
@@ -113,16 +141,23 @@ def get_monthly_comparison(months: int = 6) -> dict:
         labels = []
         revenue_values = []
         profit_values = []
+        profit_complete = []
 
         for m in sorted_months:
             labels.append(m)
             revenue_values.append(round(monthly[m]["revenue"], 2))
-            profit_values.append(round(monthly[m]["profit"], 2))
+            complete = monthly[m]["complete"]
+            profit_values.append(
+                round(monthly[m]["profit"], 2) if complete else None
+            )
+            profit_complete.append(complete)
 
         return {
             "labels": labels,
             "revenue": revenue_values,
             "profit": profit_values,
+            "profit_is_complete": profit_complete,
+            "user_declared": True,
         }
 
     except Exception as e:

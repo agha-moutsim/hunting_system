@@ -1,5 +1,6 @@
 """Pydantic request/response models."""
 
+from datetime import date
 from typing import Any, Optional
 
 from pydantic import BaseModel, Field, field_validator
@@ -93,16 +94,43 @@ class SearchCreate(BaseModel):
 # ── Sales / Dashboard ──────────────────────────────────────────
 
 class SaleCreate(BaseModel):
-    product_name: str = Field(..., min_length=1)
+    """One sale the user declares.
+
+    Every money field is REQUIRED. A missing cost cannot be read as zero: that
+    would turn an unknown fee into profit. A genuine zero is still accepted,
+    but the caller has to state it. `sale_date` is required for the same
+    reason: defaulting to today would move a real sale into the wrong month.
+    """
+
+    product_name: str = Field(..., min_length=1, max_length=500)
     category: str = ""
     sale_price: float = Field(..., gt=0)
-    supplier_cost: float = 0.0
-    shipping_cost: float = 0.0
-    ebay_fees: float = 0.0
+    supplier_cost: float = Field(..., ge=0)
+    shipping_cost: float = Field(..., ge=0)
+    ebay_fees: float = Field(..., ge=0)
     quantity: int = Field(1, ge=1)
-    sale_date: Optional[str] = None  # YYYY-MM-DD
+    sale_date: date
     buyer_location: str = ""
     notes: str = ""
+
+    @field_validator("product_name")
+    @classmethod
+    def _product_name_not_blank(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("product_name must not be blank")
+        return cleaned
+
+
+class SalesCsvImport(BaseModel):
+    """The text of a CSV file, plus the name for the report.
+
+    The browser reads the file and posts its text, which keeps the API free of
+    a multipart dependency while still giving the user a normal file picker.
+    """
+
+    csv: str = Field(..., min_length=1, max_length=5_000_000)
+    filename: str = ""
 
 
 # ── Export ──────────────────────────────────────────────────────

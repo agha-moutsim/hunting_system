@@ -105,7 +105,7 @@ def export_csv(type: str = "sales"):
     writer = csv.writer(output)
     writer.writerow([
         "Date", "Product", "Category", "Sale Price", "Cost",
-        "Shipping", "Fees", "Profit", "Margin %", "Qty",
+        "Shipping", "Fees", "Profit", "Margin %", "Qty", "User Declared",
     ])
     for s in sales:
         writer.writerow([
@@ -119,6 +119,7 @@ def export_csv(type: str = "sales"):
             s["profit"],
             s["margin_percent"],
             s["quantity"],
+            "yes",
         ])
 
     return _csv_response(output.getvalue(), "sales_history.csv")

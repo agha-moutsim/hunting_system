@@ -4,13 +4,15 @@ SQLAlchemy models — one class per PostgreSQL table.
 
 from datetime import datetime
 from sqlalchemy import (
-    Column, Integer, String, Float, Boolean, Text, ForeignKey, JSON, DateTime
+    Column, Integer, String, Float, Boolean, Text, ForeignKey, JSON, DateTime,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
 from db.database import (
     Base,
     ensure_deal_items_table,
     ensure_listing_observations_table,
+    ensure_monthly_stats_constraint,
     ensure_query_observations_table,
 )
 from config import FILTERS
@@ -305,11 +307,14 @@ class Sale(Base):
     product_name = Column(Text, nullable=False)
     category = Column(String(128))
     sale_price = Column(Float, nullable=False)
-    supplier_cost = Column(Float, default=0.0)
-    shipping_cost = Column(Float, default=0.0)
-    ebay_fees = Column(Float, default=0.0)
-    profit = Column(Float, default=0.0)
-    margin_percent = Column(Float, default=0.0)
+    # No defaults on costs or profit: an undeclared cost must stay NULL, and
+    # NULL profit means unknown. A default of 0.0 would turn both into a real
+    # zero the user never stated (C1).
+    supplier_cost = Column(Float)
+    shipping_cost = Column(Float)
+    ebay_fees = Column(Float)
+    profit = Column(Float)
+    margin_percent = Column(Float)
     quantity = Column(Integer, default=1)
     sale_date = Column(DateTime, nullable=False)
     buyer_location = Column(String(128))
@@ -318,15 +323,29 @@ class Sale(Base):
 
 
 class MonthlyStat(Base):
+    """One calendar month of user-declared sales.
+
+    `year` and `month` are unique TOGETHER, never separately. Separate
+    `unique=True` flags made October 2025 and October 2026 collide, so the
+    table could only ever hold twelve months in total. The old database is
+    rebuilt by `db.database.ensure_monthly_stats_constraint()` because SQLite
+    cannot drop the single-column UNIQUE constraints in place.
+    """
+
     __tablename__ = "monthly_stats"
+    __table_args__ = (
+        UniqueConstraint("year", "month", name="uq_monthly_stats_year_month"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    year = Column(Integer, nullable=False, unique=True)
-    month = Column(Integer, nullable=False, unique=True)
-    total_revenue = Column(Float, default=0.0)
-    total_profit = Column(Float, default=0.0)
+    year = Column(Integer, nullable=False)
+    month = Column(Integer, nullable=False)
+    total_revenue = Column(Float)
+    # NULL means at least one sale in the month did not declare every cost,
+    # so profit is unknown rather than zero (C1).
+    total_profit = Column(Float)
     total_sales = Column(Integer, default=0)
-    avg_margin = Column(Float, default=0.0)
+    avg_margin = Column(Float)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
@@ -490,3 +509,4 @@ class QueryObservation(Base):
 ensure_deal_items_table()
 ensure_listing_observations_table()
 ensure_query_observations_table()
+ensure_monthly_stats_constraint()
