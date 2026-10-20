@@ -15,6 +15,7 @@ import IconHistory from "@/components/icons/IconHistory";
 import IconDeals from "@/components/icons/IconDeals";
 import IconFees from "@/components/icons/IconFees";
 import IconAlerts from "@/components/icons/IconAlerts";
+import IconTitles from "@/components/icons/IconTitles";
 import { fetchAlertCount, unreadBadge } from "@/lib/alerts";
 
 type NavIcon = (props: { className?: string }) => ReactNode;
@@ -115,6 +116,16 @@ const NAV: {
     key: "",
     group: "Review",
     Icon: IconAlerts,
+  },
+  // The twelfth entry also has no digit shortcut. Grouped under Research
+  // because the helper is a research surface; its position here has no effect
+  // on the shortcut range, which counts entries that own a digit.
+  {
+    href: "/titles",
+    label: "Title Helper",
+    key: "",
+    group: "Research",
+    Icon: IconTitles,
   },
 ];
 
