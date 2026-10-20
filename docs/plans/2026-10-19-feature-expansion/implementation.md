@@ -258,7 +258,7 @@ Beyond the file table: `backend/scrapers/ebay.py` gained `search_titles()` - one
 search with no price band, the New-only condition gate intact, and a failure that reaches
 the route instead of becoming an empty list. `tests/test_titles_scraper.py` pins that seam.
 `tests/test_titles_api.py` covers the HTTP door, `frontend/lib/titles.ts` carries the typed
-request and meter helpers with 12 vitest cases, and the sidebar entry is in
+request and meter helpers with 13 vitest cases, and the sidebar entry is in
 `frontend/components/Layout.tsx` with `frontend/components/icons/IconTitles.tsx`. The title
 suite is 42 tests: 29 engine, 11 API, 2 scraper.
 
