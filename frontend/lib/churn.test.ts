@@ -158,4 +158,11 @@ describe("the copy never says what happened to the listing", () => {
       expect(readFileSync(file, "utf8").toLowerCase()).not.toContain("sold");
     }
   });
+
+  it("uses the churn list header named in the design", () => {
+    const page = readFileSync(resolve(HERE, "../app/churn/page.tsx"), "utf8");
+    expect(page).toContain(
+      "Listings observed before, not present in the latest observation."
+    );
+  });
 });

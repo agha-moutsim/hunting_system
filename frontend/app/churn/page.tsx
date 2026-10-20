@@ -110,9 +110,18 @@ function Summary({ label, value }: { label: string; value: string | number }) {
 }
 
 function churnSuppressionTitle(result: ChurnResponse): string {
-  if (result.observations === 0) return "No observations yet";
-  if (result.observations === 1) return "One observation";
+  if (result.observations < 2) return "Not enough observations yet";
   return "Samples are not comparable";
+}
+
+function churnSuppressionMessage(result: ChurnResponse): string {
+  const reason = result.reason || "Churn needs a second observation.";
+  if (result.observations < 2) {
+    // The empty state named in design.md: a normal state, not an error and not
+    // a zero. It says how it fills in rather than leaving a blank.
+    return `${reason} This fills in as the tool is used.`;
+  }
+  return reason;
 }
 
 export default function ChurnPage() {
@@ -247,12 +256,12 @@ export default function ChurnPage() {
               <EmptyState
                 icon="🕒"
                 title={churnSuppressionTitle(result)}
-                message={result.reason || "A second observation is needed."}
+                message={churnSuppressionMessage(result)}
               />
             </Card>
           ) : (
             <Card
-              title="No longer listed"
+              title="Listings observed before, not present in the latest observation."
               action={
                 <span className="text-xs text-text-dim">
                   {result.churned?.length ?? 0} of{" "}
