@@ -318,6 +318,72 @@ meaningless query, not a stubbed response.
 - Age is computed from eBay's own creation date, not from our first sighting, and the two are
   labelled differently when both are shown.
 
+### Shipped 2026-10-20
+
+Beyond the file table: `query_observations` / `QueryObservation` is a new result-set log. One
+row stores the whole set a completed search returned - including a search that returned zero
+listings - because `listing_observations` is change-only and can never prove that a stable
+listing was present in a later search. Each row carries the normalised query, UTC timestamp,
+source, exact Browse filter, sample limit, count and a JSON snapshot of
+`listing_id`/`title`/`item_url`/`price`/`currency`/`item_creation_date`. A failed or unreadable
+Browse answer writes no row. `backend/scrapers/ebay.py` records the set in `_search_api` only;
+the demand and item-detail calls are not query observations. `backend/analysis_pipeline.py`
+drains both stores independently, and `save_analysis_to_db` now persists a no-product run's
+search set, so a query that found nothing usable is not silently absent from churn history.
+The pipeline's `finally` also copies the completed sets into the caller's sink, and the
+timeout branch saves them: a supplier or model hang does not erase a search that already ran.
+
+`tests/test_query_observations.py` (24) covers the table, store, zero-result run, failed search,
+snapshot fields, scraper capture, the no-product pipeline path and the timeout path.
+`tests/test_observations_api.py` (14) covers both HTTP doors. `frontend/lib/churn.ts` and
+`frontend/lib/churn.test.ts` (19) carry the typed client, labels, price formatting and the
+no-"sold" source check. The whole Phase G suite is 67 backend tests; the full backend suite is
+1652 passed, 9 deselected. Frontend:
+180 tests across 12 files, typecheck clean, build 16 route rows including `_not-found` and
+`/churn`.
+
+Rules, as code:
+
+- A query lane is trimmed, whitespace-collapsed and lower-cased, so "Garden Hose" and
+  "garden hose" share one history.
+- A search that completed before a pipeline timeout is still stored: the pipeline copies the
+  set into the caller's sink and the timeout branch persists it. A timeout before any search
+  writes nothing, so a hang cannot become a fabricated observation.
+- Churn compares the latest stored set with **every** earlier set, not just the one before
+  it. A listing that reappears in the latest set is not reported; its last-seen date is the
+  most recent run that actually contained it.
+- Fewer than two observations returns `churned: null` and a sentence. Two observations with
+  different price filters or sample limits also returns `null`, because they describe
+  different populations. Two comparable observations with nothing missing returns `[]` and
+  a measured-zero sentence - never `null`.
+- Age is computed only from eBay's `item_creation_date`. A missing or future date produces no
+  age claim; "first seen here" is a separate label from "listed", and the listing API names
+  its latest stored reading rather than calling it a last-seen time.
+- The engine, API, component and page sources contain no "sold"; tests check the engine and
+  page/component/client, plus the response keys. There is no rate, percentage or trend field:
+  the sample is reported, not extrapolated.
+- `/churn` is read-only and spends no Browse call. It reads the rows the analyses already
+  stored. The route order keeps `/observations/churn` from being captured as a listing id.
+- Existing `listing_observations` rows have no query attribution and are not backfilled;
+  churn history begins with the new table.
+
+Live evidence from the running stack, 2026-10-20. Both rows came from real
+`POST /api/analyze` runs through an in-process TestClient with the real `.env`; each run made
+its real eBay Browse search (and normal demand/supplier calls):
+
+| What    | Inputs                                             | Answer                                                                                                                                                          |
+| ------- | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Store   | two Analyze runs for "garden hose"                 | 2 `query_observations`, 5 listings each, same filter `buyingOptions:{FIXED_PRICE},deliveryCountry:GB,conditions:{NEW},price:[5..35],priceCurrency:GBP`, limit 5 |
+| Churn   | `GET /api/observations/churn?query=garden hose`    | observations 2, comparable true, latest 5, earlier 5, **1** churned: listing `318706761430`, last seen `2026-10-20T14:21:32Z`, `no_longer_listed`               |
+| Age     | `GET /api/observations/157783405092`               | age **209 days** (`neutral`), creation `2026-03-25T08:12:22Z`; first seen `2026-10-20T14:21:55Z`; 2 readings                                                    |
+| Refusal | `GET /api/observations/churn?query=cordless drill` | observations 0, `comparable: false`, `churned: null`, "No search observation is stored for this query yet."                                                     |
+| Page    | `GET /churn`                                       | 200; heading, query form and empty state in the served HTML; no "sold" in the served HTML                                                                       |
+
+The live churn row is one listing missing from a **5-listing** sample, 34 seconds after the
+previous sample. It says only that the listing was not in the latest search sample; it makes
+no claim about why, and it is not a churn rate. The live age sample contained 26, 209, 1556,
+1658 and 1680 days, so the 0-6 day `info` tone is covered by tests rather than this sample.
+
 ---
 
 ## Phase H - Seller footprint
