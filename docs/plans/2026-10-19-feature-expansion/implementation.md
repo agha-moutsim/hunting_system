@@ -404,6 +404,55 @@ no claim about why, and it is not a churn rate. The live age sample contained 26
   signals would be a guess.
 - The panel carries the standing disclaimer that it describes active listings only.
 
+### Shipped 2026-10-20
+
+Beyond the file table above: `backend/db/queries.py` gains
+`get_seller_observations()` (case-insensitive seller lookup with an optional listing-id
+filter); `frontend/lib/sellers.ts` and `frontend/lib/sellers.test.ts` (17 tests) carry the
+typed client, path builders and the display labels; `frontend/components/SellerPanel.tsx`
+is the client panel and `frontend/app/sellers/[username]/page.tsx` is the server shell.
+The Scorecard seller metric links to the page, and Analyze passes the query that produced
+the result; a URL analysis passes no query lane. The page is read-only and spends no Browse
+call.
+
+Rules, as code:
+
+- Seller names are matched case-insensitively; the response echoes the spelling stored in
+  the reading rather than rewriting the seller's name.
+- The aggregation reads `listing_observations`. `query_observations` snapshots do not carry
+  seller fields, so a query lane contributes only the listing ids in its **latest** stored
+  set. Earlier observations and differently filtered samples are never unioned into one
+  footprint. The response reports the number of stored observations and the latest sample
+  size beside the seller count.
+- Every per-listing value comes from the latest reading that carried it. Feedback
+  percentage and score are read from one reading, never stitched across readings; the
+  region's country and postal code also come from one reading.
+- Condition shares divide by the listings whose condition was actually read, and the
+  unknown count is reported separately. Asking range and median use one price per listing;
+  a mixed-currency sample returns `null` with a sentence rather than a converted range.
+- Listed age comes from eBay's `item_creation_date`; a missing or future date produces no
+  age claim. A single observed price is shown once instead of as a fake low-high range.
+- There is no computed seller score and no revenue, sales, sold or turnover field. A test
+  checks the response keys. The page carries the required sentence exactly.
+- An unknown seller is HTTP 200 with `observed_listings: 0`, null sections and a sentence;
+  it is not a 404 and it is not a zero-filled panel.
+
+Live evidence from the running stack, 2026-10-20:
+
+| What              | Inputs                                              | Answer                                                                                                                                                                        |
+| ----------------- | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Seller, query     | `GET /api/sellers/agprefect_09?query=garden%20hose` | 1 observed listing from the latest 5-listing sample; 2 readings; feedback **99.9% (27,956)**, `BUSINESS`, `GB - WR4***`, 100% New, GBP 16.99, 209 days; 2 stored observations |
+| Seller, all reads | `GET /api/sellers/mountainwarehouse`                | 8 observed listings from 32 readings; feedback **99.8% (214,302)**, `BUSINESS`, `GB - PE3***`, 100% New with tags, GBP 13.99 - GBP 99.99, median GBP 22.99; 42-2446 days      |
+| Refusal           | `GET /api/sellers/nobody`                           | 0 observed listings; feedback, account type, region, prices and age all null; "No stored Browse reading names nobody."                                                        |
+| Page              | `/sellers/agprefect_09?query=garden%20hose`         | 200; headless Chromium rendered the seller rows, query sample, the required disclaimer and no revenue or turnover field                                                       |
+| Checks            | -                                                   | backend **1667 passed, 9 deselected**; frontend **197 tests across 13 files**, typecheck clean; build **17 route rows**, including dynamic `/sellers/[username]`              |
+
+The `agprefect_09` row is one seller listing inside a five-listing search sample, not a
+seller-wide census. The `mountainwarehouse` row is eight observed listings, not its whole
+inventory. The live database still holds 487 `listing_observations`, 252 distinct seller
+names, 2 `query_observations`, 43 products, 24 analyses and 73 `deal_items`; the seller
+route wrote none of them.
+
 ---
 
 ## Phase I - Own-sales P&L and feedback

@@ -1,6 +1,6 @@
 # Handoff - current state
 
-Last updated: 2026-10-20, at the close of Phase G.
+Last updated: 2026-10-20, at the close of Phase H.
 Read this first, then `implementation.md` (phase specs and rules) and `design.md` (surfaces).
 
 ## Where the work stands
@@ -16,7 +16,7 @@ The ten-feature expansion lives in this folder. Baseline phases 1 and 2 are comp
 | E     | Alerts and saved searches     | shipped, closed at `19f7578`            |
 | F     | Title helper                  | shipped, closed at `5fd581f`            |
 | G     | Listing age and churn         | shipped, closed at `1b42dce`            |
-| H     | Seller footprint              | not started                             |
+| H     | Seller footprint              | shipped                                 |
 | I     | Own-sales P&L and feedback    | not started                             |
 | J     | Marketplace expansion         | not started                             |
 
@@ -25,12 +25,14 @@ lands, with evidence in the phase's "Shipped" block in `implementation.md`.
 
 ## Next move
 
-Phase H - seller footprint (`implementation.md` Phase H, `design.md` §3.9). Build
-`backend/engine/sellers.py` (aggregate stored observations by username),
-`GET /api/sellers/{username}`, the `/sellers/[username]` panel, and `tests/test_sellers.py`.
-Rules: feedback and account type come from Browse verbatim, never a computed "score"; the
-panel describes active listings only and carries that disclaimer; no revenue, sales, sold or
-turnover field. Read the Phase H block before choosing the exact response shape.
+Phase I - own-sales P&L and feedback (`implementation.md` Phase I, `design.md` §3.10). Build
+`backend/api/sales.py` (CRUD, summary, CSV import), `backend/engine/thresholds.py` (replay
+stored verdicts against the C14 thresholds, report differences only), the `/sales` entry and
+import surface, and real revenue/profit/margin/monthly trend on the dashboard. Phase I also
+fixes `monthly_stats`' separate unique constraints on `year` and `month` to one composite
+constraint, with a migration. Sales are user-declared and must be labelled as such; threshold
+replay never auto-changes a threshold. Read the Phase I block before choosing the exact
+response shape.
 
 ## Live state, measured 2026-10-20
 
@@ -51,6 +53,15 @@ turnover field. Read the Phase H block before choosing the exact response shape.
   attribution.
 - Age route sample: listing `157783405092` is **209 days** old from eBay's
   `2026-03-25T08:12:22Z` creation date; this app first saw it on 2026-10-20.
+- Seller footprint, measured 2026-10-20: `GET /api/sellers/agprefect_09?query=garden%20hose`
+  returns 1 observed listing from the latest **5-listing** sample (2 stored observations),
+  feedback **99.9% (27,956)**, `BUSINESS`, `GB - WR4***`, 100% New, GBP 16.99, 209 days.
+  `GET /api/sellers/mountainwarehouse` returns 8 observed listings from 32 readings, feedback
+  **99.8% (214,302)**, `BUSINESS`, `GB - PE3***`, 100% New with tags, GBP 13.99 - GBP 99.99,
+  median GBP 22.99, 42-2446 days. Neither is a seller-wide census. The route is read-only and
+  writes no table.
+- There are **252 distinct seller names** in the 487 `listing_observations`; the top observed
+  seller is `mountainwarehouse` with 32 readings across 8 listings.
 - Title helper: no table writes. A live `GET /api/titles?q=garden hose` read 50 listings on
   2026-10-20; a deliberately meaningless query returned a measured zero with a sentence.
 
@@ -78,11 +89,11 @@ turnover field. Read the Phase H block before choosing the exact response shape.
 - Servers: backend `uvicorn main:app --host 127.0.0.1 --port 8000` from `backend/`
   (logs `.logs/backend.log`); frontend `next start -p 3000` from `frontend/`
   (`frontend/.logs-web.log`). `start.ps1` / `stop.ps1` exist.
-- Backend tests from the repo root: `python -m pytest tests/ -q` (~3 min; expect 1652 passed,
+- Backend tests from the repo root: `python -m pytest tests/ -q` (~3 min; expect 1667 passed,
   9 deselected).
-- Frontend from `frontend/`: `npm run typecheck`, `npx vitest run` (180 tests),
-  `npm run build` (16 route rows including `_not-found`; `/churn` and `/titles` are two of
-  them).
+- Frontend from `frontend/`: `npm run typecheck`, `npx vitest run` (197 tests),
+  `npm run build` (17 route rows including `_not-found`; `/churn`, `/titles` and dynamic
+  `/sellers/[username]` are three of them).
 - The pre-commit hook runs prettier, typecheck and the full backend suite. A failed hook
   leaves no commit - always check `git log --oneline -1` after committing.
 - Commit identity: `Agha Moutsim <131957706+agha-moutsim@users.noreply.github.com>`.
