@@ -365,7 +365,15 @@ class DealItem(Base):
     __tablename__ = "deal_items"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    listing_id = Column(String(32), nullable=False, unique=True, index=True)
+    #: Unique per market, not globally: the same eBay listing can be
+    #: merchandised on two marketplaces, and one market's refresh must never
+    #: steal or delete the other market's row.
+    listing_id = Column(String(32), nullable=False, index=True)
+    #: Phase J — which marketplace's deals page produced this row. Existing
+    #: rows predate the column and are eBay UK observations; the ALTER in
+    #: db/database.py gives them that default rather than leaving them
+    #: unassigned. The board reads one market at a time and never mixes them.
+    marketplace = Column(String(16), nullable=False, default="EBAY_GB", index=True)
     title = Column(Text, nullable=False)
     item_url = Column(Text, nullable=False)
     image_url = Column(Text, default="")
@@ -387,6 +395,13 @@ class DealItem(Base):
     source_label = Column(String(128), default="")
     fetched_at = Column(
         DateTime, nullable=False, default=datetime.utcnow, index=True
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "marketplace", "listing_id",
+            name="uq_deal_items_marketplace_listing",
+        ),
     )
 
 

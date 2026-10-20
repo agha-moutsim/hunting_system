@@ -11,9 +11,12 @@ import RangeControl from "@/components/ui/RangeControl";
 import ProvenanceSelect from "@/components/ui/ProvenanceSelect";
 import EbayStoresCard from "@/components/EbayStoresCard";
 import { apiFetch, apiPost } from "@/lib/api";
+import { useMarketplace } from "@/lib/marketplace";
 import { AnalyzeResponse, FiltersResponse, PriceRange } from "@/lib/types";
 
 export default function AnalyzePage() {
+  const { marketplace } = useMarketplace();
+  const marketIsUk = marketplace.id === "EBAY_GB";
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,12 +63,19 @@ export default function AnalyzePage() {
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-xl font-bold text-text-primary">Analyze</h1>
           <Badge tone="info">
-            Active range{" "}
-            {activeRange ? `£${activeRange.min}–£${activeRange.max}` : "…"}
+            {marketplace.label} · {marketplace.currency}
           </Badge>
+          {marketIsUk && (
+            <Badge tone="info">
+              Active range{" "}
+              {activeRange ? `£${activeRange.min}–£${activeRange.max}` : "…"}
+            </Badge>
+          )}
         </div>
         <p className="text-sm text-text-secondary mt-1">
-          Full sourcing analysis: eBay → demand → 7 suppliers → AI → scorecard
+          {marketIsUk
+            ? "Full sourcing analysis: eBay → demand → 7 suppliers → AI → scorecard"
+            : `Search-only ${marketplace.label} analysis: real eBay listing and demand prices. Supplier costs and profit stay UK-only.`}
         </p>
       </div>
 
@@ -75,7 +85,7 @@ export default function AnalyzePage() {
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Paste an eBay UK URL or type a search query (e.g. wireless earbuds)"
+              placeholder="Paste an eBay listing URL or type a search query (e.g. wireless earbuds)"
               disabled={loading}
             />
           </div>
@@ -93,7 +103,7 @@ export default function AnalyzePage() {
         </p>
       </Card>
 
-      <RangeControl onApplied={(r) => setActiveRange(r)} />
+      {marketIsUk && <RangeControl onApplied={(r) => setActiveRange(r)} />}
 
       {loading && (
         <Card>
@@ -116,6 +126,19 @@ export default function AnalyzePage() {
         </Card>
       )}
 
+      {!marketIsUk && (
+        <Card className="border-accent-amber/40">
+          <div className="text-sm text-accent-amber">
+            {marketplace.fee_warning}
+          </div>
+          <p className="mt-1 text-xs text-text-secondary">
+            Analyze can still read this market&apos;s eBay listing and demand
+            prices. It returns no supplier matches, profit or verdict because
+            those would mix {marketplace.currency} with GBP supplier costs.
+          </p>
+        </Card>
+      )}
+
       {error && (
         <Card className="border-accent-red/40">
           <div className="text-sm text-accent-red">⚠️ {error}</div>
@@ -135,6 +158,7 @@ export default function AnalyzePage() {
         <>
           <ProvenanceSelect />
           <Scorecard
+            currency={result.currency || marketplace.currency}
             ebayProduct={result.ebay_product}
             demand={result.demand}
             suppliers={result.supplier_matches || []}

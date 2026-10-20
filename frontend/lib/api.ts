@@ -1,5 +1,7 @@
 /** Single fetch wrapper for the FastAPI backend. */
 
+import { marketplaceHeaders } from "./marketplaceId";
+
 const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 /** Default per-endpoint timeouts (ms). Long ops can override.
@@ -43,12 +45,19 @@ export async function apiFetch<T>(
 
   try {
     const res = await fetch(url, {
+      // `...options` first: spreading it later would replace the merged
+      // headers below with `options.headers` alone and drop the marketplace,
+      // which is exactly the bug Phase J exists to prevent.
+      ...options,
       headers: {
         "Content-Type": "application/json",
+        // Phase J — every route sees the selected marketplace. Routes that
+        // cannot price another currency refuse with a sentence rather than
+        // silently running the UK path.
+        ...marketplaceHeaders(),
         ...(options.headers || {}),
       },
       signal: options.signal ?? controller.signal,
-      ...options,
     });
 
     if (!res.ok) {
@@ -114,9 +123,11 @@ export async function downloadFile(
   body?: unknown
 ): Promise<void> {
   const url = `${BASE}${path}`;
+  const headers: Record<string, string> = marketplaceHeaders();
+  if (body) headers["Content-Type"] = "application/json";
   const res = await fetch(url, {
     method,
-    headers: body ? { "Content-Type": "application/json" } : undefined,
+    headers,
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) throw new ApiError(res.status, "Download failed");

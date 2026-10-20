@@ -1,7 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from config import EBAY_MARKETPLACE
 from scrapers.base import ScrapedProduct, DemandData
 from engine.profit import calculate_profit
 from engine.price_gate import clamp_band
@@ -66,8 +65,12 @@ class DecisionEngine:
         filters: list[FilterResult] = []
 
         # --- Marketplace filter ---
-        marketplace_pass = "ebay" in product.source.lower() and "uk" in (
-            product.source.lower() + EBAY_MARKETPLACE.lower()
+        # Phase J — EBAY_GB keeps its historical `ebay_uk` source token, and
+        # `ebay_gb` is accepted too for any registry-era row. Both are the UK
+        # marketplace; the verdict is only ever computed for the UK card.
+        source = product.source.lower()
+        marketplace_pass = source.startswith("ebay_") and (
+            source.endswith("_uk") or source.endswith("_gb")
         )
         filters.append(FilterResult(
             name="Marketplace",

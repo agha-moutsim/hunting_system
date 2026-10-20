@@ -19,6 +19,7 @@ import IconTitles from "@/components/icons/IconTitles";
 import IconChurn from "@/components/icons/IconChurn";
 import IconSales from "@/components/icons/IconSales";
 import { fetchAlertCount, unreadBadge } from "@/lib/alerts";
+import { useMarketplace } from "@/lib/marketplace";
 
 type NavIcon = (props: { className?: string }) => ReactNode;
 
@@ -196,6 +197,13 @@ export default function Layout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [alertCount, setAlertCount] = useState(0);
+  const {
+    id: marketplaceId,
+    marketplace,
+    marketplaces,
+    loading: marketsLoading,
+    selectMarketplace,
+  } = useMarketplace();
 
   // The badge polls rather than living only on the alerts page: the point of
   // an inbox is that you can see it arrive. 60 s against a local backend is
@@ -267,6 +275,40 @@ export default function Layout({ children }: { children: ReactNode }) {
 
         <div className="px-4 py-3 border-b border-border">
           <StatusDots />
+        </div>
+
+        <div className="px-4 py-3 border-b border-border">
+          <label
+            htmlFor="marketplace-select"
+            className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim mb-1.5"
+          >
+            eBay marketplace
+          </label>
+          <select
+            id="marketplace-select"
+            value={marketplaceId}
+            onChange={(event) => selectMarketplace(event.target.value)}
+            disabled={marketsLoading}
+            className="w-full bg-bg-base border border-border rounded-control px-2 py-1.5 text-xs text-white focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-brand-lime"
+          >
+            {marketplaces.map((market) => (
+              <option key={market.id} value={market.id}>
+                {market.label} ({market.currency})
+              </option>
+            ))}
+          </select>
+          {marketplace.fee_warning ? (
+            <p
+              className="mt-1.5 text-[10px] leading-snug text-accent-amber"
+              title={marketplace.fee_warning}
+            >
+              {marketplace.currency} search · fee and profit stay UK-only
+            </p>
+          ) : (
+            <p className="mt-1.5 text-[10px] leading-snug text-text-dim">
+              Analyze, Deals and Titles follow this market.
+            </p>
+          )}
         </div>
 
         <nav className="flex-1 overflow-y-auto p-2">

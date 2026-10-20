@@ -12,7 +12,9 @@ one, and an invented number would be worse than a missing one.
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
+
+from api.market_context import marketplace_for_optional_request
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -20,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 @router.get("/titles")
 def title_counts(
+    request: Request = None,
     q: str = Query(..., min_length=1, max_length=200),
     limit: int = Query(50, ge=1, le=50),
 ):
@@ -38,6 +41,8 @@ def title_counts(
     if not query:
         raise HTTPException(status_code=422, detail="q must not be blank")
 
+    market = marketplace_for_optional_request(request)
+
     from config import EBAY_CLIENT_ID, EBAY_CLIENT_SECRET
 
     if not EBAY_CLIENT_ID or not EBAY_CLIENT_SECRET:
@@ -52,7 +57,7 @@ def title_counts(
     from engine.titles import analyse_titles
     from scrapers.ebay import EbayScraper
 
-    scraper = EbayScraper()
+    scraper = EbayScraper(market["id"])
     try:
         listings = scraper.search_titles(query, limit=limit)
     except Exception as exc:  # noqa: BLE001 - the route must say why it is empty
@@ -70,7 +75,12 @@ def title_counts(
     result = analyse_titles(
         [getattr(listing, "title", "") for listing in listings]
     )
-    payload = {"query": query, **result}
+    payload = {
+        "query": query,
+        "marketplace": market["id"],
+        "currency": market["currency"],
+        **result,
+    }
     payload["reason"] = (
         None
         if result["listings_analysed"]

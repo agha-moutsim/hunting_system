@@ -82,15 +82,17 @@ PROFILE_NOT_STOREFRONT = (
 # is canonical for a real username, and says plainly that it is not a
 # storefront.
 
-def seller_profile_url(username: str) -> str:
+def seller_profile_url(username: str, site_base: str = EBAY_UK_BASE) -> str:
     """Canonical seller-profile URL. Valid for any real eBay username.
 
     This is the honest fallback: eBay's own canonical form for an account, so
     it resolves whenever the username is real, and it makes no claim about the
-    seller owning a storefront.
+    seller owning a storefront. `site_base` follows the selected marketplace;
+    the UK default keeps every existing caller on the same host.
     """
     name = normalise_username(username)
-    return SELLER_PROFILE_URL_TEMPLATE.format(username=name) if name else ""
+    base = (site_base or EBAY_UK_BASE).rstrip("/")
+    return f"{base}/usr/{name}" if name else ""
 
 
 def store_url_from_observed_slug(slug: str) -> str:
@@ -103,12 +105,14 @@ def store_url_from_observed_slug(slug: str) -> str:
     return STORE_URL_TEMPLATE.format(slug=clean) if clean else ""
 
 
-def is_observed_store_url(url: Any) -> bool:
-    """True only for an https ``/str/`` href on eBay's own host.
+def is_observed_store_url(url: Any, site_base: str = EBAY_UK_BASE) -> bool:
+    """True only for an https ``/str/`` href on the selected eBay host.
 
     The host check is load-bearing: a hostile or scraped-elsewhere value such
     as ``https://evil.example/str/x`` has the right shape but is not something
     eBay served us, so it must never be presented as an observed storefront.
+    A URL on a different eBay marketplace is not an observed storefront for
+    this card either, so the expected host comes from the market.
     """
     text = str(url or "").strip()
     if not text.lower().startswith("https://"):
@@ -117,9 +121,10 @@ def is_observed_store_url(url: Any) -> bool:
         return False
     try:
         host = urlparse(text).hostname or ""
+        expected = urlparse(site_base or EBAY_UK_BASE).hostname or "ebay.co.uk"
     except ValueError:
         return False
-    return host == "ebay.co.uk" or host.endswith(".ebay.co.uk")
+    return host == expected or host.endswith(f".{expected}")
 
 
 # ---------------------------------------------------------------------------

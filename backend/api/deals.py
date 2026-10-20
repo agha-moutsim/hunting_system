@@ -15,7 +15,9 @@ scrapers/ebay_deals.py for what was measured and rejected).
 
 import logging
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query, Request
+
+from api.market_context import marketplace_for_optional_request
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -23,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 @router.get("/deals")
 def list_deals(
+    request: Request = None,
     limit: int = Query(0, ge=0, le=200),
     refresh: bool = Query(False),
 ):
@@ -39,17 +42,20 @@ def list_deals(
     from db.database import SessionLocal
     from hunter import deals
 
+    market = marketplace_for_optional_request(request)
     db = SessionLocal()
     try:
-        meta = deals.board_meta(db)
+        meta = deals.board_meta(db, marketplace=market["id"])
         wants_refresh = refresh or (
             deals.auto_refresh_enabled() and (meta["stale"] or not meta["total"])
         )
         if wants_refresh:
-            deals.start_background_refresh()
+            deals.start_background_refresh(marketplace=market["id"])
         meta["refresh_started"] = wants_refresh
 
-        items = deals.load_deals(db, limit or None)
+        items = deals.load_deals(
+            db, limit or None, marketplace=market["id"]
+        )
         return {"meta": meta, "count": len(items), "items": items}
     finally:
         db.close()
@@ -57,6 +63,7 @@ def list_deals(
 
 @router.post("/deals/refresh")
 def refresh_deals(
+    request: Request = None,
     limit: int = Query(0, ge=0, le=200),
     enrich: bool = Query(True),
 ):
@@ -69,5 +76,20 @@ def refresh_deals(
     """
     from hunter import deals
 
-    result = deals.refresh(limit=limit or None, enrich=enrich)
+    market = marketplace_for_optional_request(request)
+    try:
+        result = deals.refresh(
+            limit=limit or None,
+            enrich=enrich,
+            marketplace=market["id"],
+        )
+    except Exception as exc:  # noqa: BLE001 - reported as a refusal sentence
+        logger.warning("deals refresh failed for %s: %s", market["id"], exc)
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                f"eBay did not answer the {market['label']} deals page, so no "
+                f"new pool was stored. The error was: {exc}"
+            ),
+        ) from exc
     return result

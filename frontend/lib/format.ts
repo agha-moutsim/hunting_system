@@ -1,8 +1,30 @@
 /** Display formatters. */
 
-export function formatGBP(n: number | null | undefined): string {
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  GBP: "£",
+  USD: "$",
+  EUR: "€",
+  AUD: "A$",
+  CAD: "C$",
+};
+
+/**
+ * One amount in its own currency. Never converts and never adds two
+ * currencies: an unrecognised code is spelled out beside the number rather
+ * than dressed in a symbol it does not own.
+ */
+export function formatMoney(
+  n: number | null | undefined,
+  currency = "GBP"
+): string {
   if (n === null || n === undefined || Number.isNaN(n)) return "—";
-  return `£${n.toFixed(2)}`;
+  const code = (currency || "GBP").toUpperCase();
+  const symbol = CURRENCY_SYMBOLS[code];
+  return symbol ? `${symbol}${n.toFixed(2)}` : `${n.toFixed(2)} ${code}`;
+}
+
+export function formatGBP(n: number | null | undefined): string {
+  return formatMoney(n, "GBP");
 }
 
 export function formatGBPCompact(n: number | null | undefined): string {

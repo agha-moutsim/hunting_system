@@ -77,16 +77,17 @@ from config import (
     EBAY_API_BASE,
     EBAY_CLIENT_ID,
     EBAY_CLIENT_SECRET,
-    EBAY_MARKETPLACE,
-    EBAY_UK_BASE,
     SCRAPE_CONFIG,
 )
 from engine.stores import is_observed_store_url, seller_profile_url
+from marketplaces import get_marketplace
 from scrapers.browse_fields import SOURCE_ITEM, SOURCE_SUMMARY
 
 logger = logging.getLogger(__name__)
 
-DEALS_URL = f"{EBAY_UK_BASE}/deals"
+#: Kept for callers that imported the old UK constant directly. New code uses
+#: `EbayDealsScraper.deals_url`, which follows the selected marketplace.
+DEALS_URL = get_marketplace("EBAY_GB")["deals_url"]
 
 #: The one label this board is allowed to wear. eBay curates the page; the
 #: word "popular" or "best selling" would be a claim nobody measured.
@@ -103,6 +104,32 @@ _CARD_RE = re.compile(r'\{[^{}]{0,1200}?"listingId"\s*:\s*"(\d{9,15})"[^{}]{0,12
 _TITLE_RE = re.compile(r'"(?:title|itemTitle)"\s*:\s*"((?:[^"\\]|\\.)*)"')
 _IMAGE_RE = re.compile(r'"(?:imageUrl|imageURL)"\s*:\s*"([^"]+)"')
 _ITEM_URL_RE = re.compile(r'"(?:itemWebUrl|itemUrl)"\s*:\s*"([^"]+)"')
+
+# Some markets (eBay US's /globaldeals, and the AU/CA pages on the day this
+# was measured) serialise a card as nested objects instead of the flat JSON
+# the regex above expects: title and image are objects, and the price lives in
+# `displayPrice.value`. These patterns are applied to the slice between one
+# `listingId` and the next, so a match cannot reach into a neighbouring card.
+# They are an addition, not a replacement: the saved UK/DE pages still parse
+# through the original path.
+_NESTED_ID_RE = re.compile(r'"listingId"\s*:\s*"(\d{9,15})"')
+_NESTED_TITLE_RE = re.compile(
+    r'"title"\s*:\s*\{\s*"_type"\s*:\s*"TextualDisplay".*?'
+    r'"textSpans"\s*:\s*\[\s*\{\s*"_type"\s*:\s*"TextSpan"\s*,\s*'
+    r'"text"\s*:\s*"((?:[^"\\]|\\.)*)"',
+    re.S,
+)
+_NESTED_IMAGE_RE = re.compile(
+    r'"image"\s*:\s*\{\s*"_type"\s*:\s*"Image".*?'
+    r'"URL"\s*:\s*"([^"]+)"',
+    re.S,
+)
+_NESTED_PRICE_RE = re.compile(
+    r'"displayPrice"\s*:\s*\{.*?'
+    r'"value"\s*:\s*\{\s*"value"\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*,\s*'
+    r'"currency"\s*:\s*"([A-Z]{3})"',
+    re.S,
+)
 
 #: eBay serves image URLs at whatever size the page asked for. The card wants a
 #: fixed box, and eBay's own convention is that the `s-lNNN` segment sets the
@@ -165,16 +192,21 @@ class DealItem:
     price_read: bool = False
 
 
-def parse_deals_page(html: str) -> list[DealItem]:
+def parse_deals_page(html: str, site_base: Optional[str] = None) -> list[DealItem]:
     """Pull the merchandised cards out of an eBay deals page.
 
     Pure: no network, no globals, so the parser can be pinned against a saved
     page. Returns the cards in page order, de-duplicated by listing id — the
     page repeats entries across its sections and a duplicated card would
     otherwise occupy two slots in the rotation.
+
+    `site_base` is the host used only when a card carries no item URL of its
+    own. It defaults to the selected marketplace's site, never a hardcoded
+    ebay.co.uk, so a USD card can never fall back to a UK link.
     """
     if not html:
         return []
+    base = (site_base or get_marketplace()["site_base"]).rstrip("/")
 
     seen: dict[str, DealItem] = {}
     for position, match in enumerate(_CARD_RE.finditer(html)):
@@ -200,15 +232,54 @@ def parse_deals_page(html: str) -> list[DealItem]:
             item_url=(url_match.group(1) if url_match else "") or "",
         )
         if not item.item_url:
-            item.item_url = f"{EBAY_UK_BASE}/itm/{listing_id}"
+            item.item_url = f"{base}/itm/{listing_id}"
 
         # First occurrence wins: the earliest slot is where eBay put it.
+        seen.setdefault(listing_id, item)
+
+    # Nested-card markets. The slice starts at this card's `listingId` and
+    # stops at the next one, so a missing field in this card can never be
+    # filled from its neighbour.
+    spans = list(_NESTED_ID_RE.finditer(html))
+    for index, match in enumerate(spans):
+        listing_id = match.group(1)
+        if listing_id in seen:
+            continue
+        end = (
+            spans[index + 1].start()
+            if index + 1 < len(spans)
+            else min(len(html), match.start() + 4000)
+        )
+        body = html[match.start():end]
+        title_match = _NESTED_TITLE_RE.search(body)
+        if not title_match:
+            continue
+        title = _decode(title_match.group(1)).strip()
+        if not title:
+            continue
+        image_match = _NESTED_IMAGE_RE.search(body)
+        price_match = _NESTED_PRICE_RE.search(body)
+        price = float(price_match.group(1)) if price_match else None
+        currency = price_match.group(2) if price_match else ""
+        item = DealItem(
+            listing_id=listing_id,
+            title=title,
+            position=len(seen),
+            image_url=(
+                _upgrade_image(image_match.group(1)) if image_match else ""
+            ),
+            item_url=f"{base}/itm/{listing_id}",
+            price=price,
+            currency=currency,
+            # Still False: this price came from the page, not a Browse call.
+            price_read=False,
+        )
         seen.setdefault(listing_id, item)
 
     return list(seen.values())
 
 
-def _price_of(payload: dict) -> tuple[Optional[float], str]:
+def _price_of(payload: dict, default_currency: str = "") -> tuple[Optional[float], str]:
     """Read `price` whether it arrives as an object or a bare string.
 
     eBay is not consistent about this between the two item endpoints, and the
@@ -222,7 +293,7 @@ def _price_of(payload: dict) -> tuple[Optional[float], str]:
         text = raw.strip()
         match = re.search(r"([\d.,]+)", text)
         value = match.group(1).replace(",", "") if match else None
-        currency = "GBP" if "£" in text else ""
+        currency = "GBP" if "£" in text else default_currency
     else:
         return None, ""
     if value is None:
@@ -239,12 +310,15 @@ class EbayDealsScraper:
     def __init__(
         self,
         on_observation: Optional[Callable[[str, dict, str], None]] = None,
+        marketplace: Optional[str] = None,
     ) -> None:
         #: Called with (listing_id, payload, source) for every real reading this
         #: scraper takes. None by default - the scraper neither knows nor cares
         #: what a caller does with a reading, which is what keeps it free of
         #: database knowledge and testable without one.
         self.on_observation = on_observation
+        self.marketplace = get_marketplace(marketplace)
+        self.deals_url = self.marketplace["deals_url"]
         self.session = requests.Session()
         self.session.headers.update({
             "User-Agent": SCRAPE_CONFIG["user_agent"],
@@ -296,7 +370,7 @@ class EbayDealsScraper:
                 params=params,
                 headers={
                     "Authorization": f"Bearer {self._get_token()}",
-                    "X-EBAY-C-MARKETPLACE-ID": EBAY_MARKETPLACE,
+                    "X-EBAY-C-MARKETPLACE-ID": self.marketplace["id"],
                     "Accept": "application/json",
                 },
                 timeout=20,
@@ -353,7 +427,7 @@ class EbayDealsScraper:
         One place, so the by-id path and the search fallback cannot disagree
         about what a card ends up holding.
         """
-        price, currency = _price_of(payload)
+        price, currency = _price_of(payload, self.marketplace["currency"])
         if price is None:
             return False
 
@@ -369,11 +443,13 @@ class EbayDealsScraper:
         # `/str/` URL is an observed storefront, anything else falls back to the
         # seller's profile, which claims nothing about owning a store.
         observed = str(seller.get("storeUrl") or "")
-        if is_observed_store_url(observed):
+        if is_observed_store_url(observed, self.marketplace["site_base"]):
             item.store_url = observed
             item.store_verified = True
         else:
-            item.store_url = seller_profile_url(item.seller)
+            item.store_url = seller_profile_url(
+                item.seller, self.marketplace["site_base"]
+            )
             item.store_verified = False
 
         if payload.get("condition"):
@@ -430,11 +506,11 @@ class EbayDealsScraper:
 
     # -- Page ---------------------------------------------------------------
 
-    def fetch_page(self, url: str = DEALS_URL) -> str:
-        """Fetch the deals page. Raises on a non-200 rather than parsing HTML
-        that is really an error page — a 403 body would otherwise parse to
-        zero cards and read as "eBay has no deals today"."""
-        resp = self.session.get(url, timeout=30)
+    def fetch_page(self, url: Optional[str] = None) -> str:
+        """Fetch this market's deals page. Raises on a non-200 rather than
+        parsing HTML that is really an error page — a 403 body would otherwise
+        parse to zero cards and read as "eBay has no deals today"."""
+        resp = self.session.get(url or self.deals_url, timeout=30)
         if resp.status_code != 200:
             raise RuntimeError(f"eBay deals page returned HTTP {resp.status_code}")
         return resp.text
@@ -450,7 +526,9 @@ class EbayDealsScraper:
         `limit` exists for a cheap partial refresh and for tests; the scheduled
         job passes None and prices the whole page.
         """
-        items = parse_deals_page(self.fetch_page())
+        items = parse_deals_page(
+            self.fetch_page(), site_base=self.marketplace["site_base"]
+        )
         if not enrich:
             return items[:limit] if limit else items
 

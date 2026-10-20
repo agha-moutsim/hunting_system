@@ -28,6 +28,7 @@ from typing import Iterable, Optional
 
 from db.models import DealItem as DealItemRow
 from db.queries import save_listing_observations
+from marketplaces import format_money, get_marketplace
 from scrapers.ebay_deals import SOURCE, SOURCE_LABEL, DealItem, EbayDealsScraper
 
 #: How long a pool is considered current. One hour holds the Browse spend at
@@ -40,10 +41,26 @@ DEALS_TTL_S = 3600
 #: one, and so the scheduled job and the API cannot fetch simultaneously.
 _refresh_lock = threading.Lock()
 
+# The background thread's failure has no HTTP response to travel on. Without
+# this, a fetch that raised would leave an empty board looking like "eBay has
+# no deals" ? the exact claim this module refuses to make. Process-local and
+# cleared by the next successful refresh; the timestamp says how old it is.
+_REFRESH_ERRORS: dict[str, tuple[str, datetime]] = {}
+_REFRESH_ERRORS_LOCK = threading.Lock()
+
+
+def _clear_refresh_error(market_id: str) -> None:
+    with _REFRESH_ERRORS_LOCK:
+        _REFRESH_ERRORS.pop(market_id, None)
+
+
+def _record_refresh_error(market_id: str, message: str) -> None:
+    with _REFRESH_ERRORS_LOCK:
+        _REFRESH_ERRORS[market_id] = (message, datetime.utcnow())
+
 # Naive UTC throughout, matching the DateTime columns in db/models.py. Mixing
 # aware and naive values here would raise on the subtraction in `board_meta`,
 # so the whole module stays naive on purpose rather than by oversight.
-_CURRENCY_SYMBOLS = {"GBP": "£", "USD": "$", "EUR": "€"}
 
 
 def auto_refresh_enabled() -> bool:
@@ -66,10 +83,7 @@ def price_label(price: Optional[float], currency: str = "") -> str:
     """
     if price is None:
         return ""
-    symbol = _CURRENCY_SYMBOLS.get((currency or "").upper(), "")
-    if symbol:
-        return f"{symbol}{price:,.2f}"
-    return f"{price:,.2f} {currency}".strip()
+    return format_money(price, (currency or "").upper())
 
 
 def serialize(row: DealItemRow) -> dict:
@@ -81,6 +95,7 @@ def serialize(row: DealItemRow) -> dict:
     """
     return {
         "listing_id": row.listing_id,
+        "marketplace": row.marketplace or "EBAY_GB",
         "title": row.title,
         "image_url": row.image_url,
         "item_url": row.item_url,
@@ -100,17 +115,26 @@ def serialize(row: DealItemRow) -> dict:
     }
 
 
-def board_meta(session) -> dict:
-    """Everything the board needs to describe its own freshness."""
+def board_meta(session, marketplace: Optional[str] = None) -> dict:
+    """Everything the board needs to describe its own freshness.
+
+    Counts are for ONE market. A pool from eBay US must never make an empty
+    eBay UK board look populated, and a stale timestamp from another market
+    must not make this one look fresh.
+    """
+    market = get_marketplace(marketplace)
+    market_filter = DealItemRow.marketplace == market["id"]
     newest = (
         session.query(DealItemRow.fetched_at)
+        .filter(market_filter)
         .order_by(DealItemRow.fetched_at.desc())
         .first()
     )
     stamped = newest[0] if newest and newest[0] else None
-    total = session.query(DealItemRow).count()
+    total = session.query(DealItemRow).filter(market_filter).count()
     priced = (
         session.query(DealItemRow)
+        .filter(market_filter)
         .filter(DealItemRow.price.isnot(None))
         .count()
     )
@@ -119,7 +143,11 @@ def board_meta(session) -> dict:
     if stamped:
         age = int((datetime.utcnow() - stamped).total_seconds())
         stale = age > DEALS_TTL_S
+    with _REFRESH_ERRORS_LOCK:
+        last_error = _REFRESH_ERRORS.get(market["id"])
     return {
+        "marketplace": market["id"],
+        "currency": market["currency"],
         "total": total,
         "priced": priced,
         "unpriced": total - priced,
@@ -130,30 +158,50 @@ def board_meta(session) -> dict:
         "source": SOURCE,
         "source_label": SOURCE_LABEL,
         "auto_refresh": auto_refresh_enabled(),
+        "last_refresh_error": last_error[0] if last_error else None,
+        "last_refresh_error_at": (
+            last_error[1].isoformat() if last_error else None
+        ),
     }
 
 
-def load_deals(session, limit: Optional[int] = None) -> list[dict]:
-    """Read the stored pool in the order eBay presented it."""
-    query = session.query(DealItemRow).order_by(
-        DealItemRow.position.asc(), DealItemRow.id.asc()
+def load_deals(
+    session, limit: Optional[int] = None,
+    marketplace: Optional[str] = None,
+) -> list[dict]:
+    """Read one market's stored pool in the order eBay presented it."""
+    market = get_marketplace(marketplace)
+    query = (
+        session.query(DealItemRow)
+        .filter(DealItemRow.marketplace == market["id"])
+        .order_by(DealItemRow.position.asc(), DealItemRow.id.asc())
     )
     if limit:
         query = query.limit(limit)
     return [serialize(row) for row in query.all()]
 
 
-def save_deals(items: Iterable[DealItem], session) -> dict:
-    """Replace the board's contents with one refresh's observations.
+def save_deals(
+    items: Iterable[DealItem], session,
+    marketplace: Optional[str] = None,
+) -> dict:
+    """Replace one market's board contents with one refresh's observations.
 
     Upsert-by-listing-id rather than delete-then-insert, so a row keeps its
     primary key across refreshes: a row that vanishes and comes back with a new
     id would make the client re-mount the card and lose its place. Rows eBay
-    has stopped featuring are removed, because "still on the board" has to mean
-    "was on the page at the last refresh".
+    has stopped featuring in THIS market are removed, because "still on the
+    board" has to mean "was on the page at the last refresh". Rows belonging to
+    another marketplace are untouched.
     """
+    market = get_marketplace(marketplace)
     now = datetime.utcnow()
-    existing = {row.listing_id: row for row in session.query(DealItemRow).all()}
+    existing = {
+        row.listing_id: row
+        for row in session.query(DealItemRow)
+        .filter(DealItemRow.marketplace == market["id"])
+        .all()
+    }
     seen: set[str] = set()
     added = updated = 0
 
@@ -161,11 +209,18 @@ def save_deals(items: Iterable[DealItem], session) -> dict:
         seen.add(item.listing_id)
         row = existing.get(item.listing_id)
         if row is None:
-            row = DealItemRow(listing_id=item.listing_id)
+            # Uniqueness is (marketplace, listing_id). The same eBay listing
+            # appearing on a second market gets its own row rather than
+            # stealing the first market's card or tripping a global index.
+            row = DealItemRow(
+                listing_id=item.listing_id,
+                marketplace=market["id"],
+            )
             session.add(row)
             added += 1
         else:
             updated += 1
+            row.marketplace = market["id"]
         row.title = item.title
         row.item_url = item.item_url
         row.image_url = item.image_url
@@ -225,6 +280,7 @@ def refresh(
     limit: Optional[int] = None,
     enrich: bool = True,
     scraper=None,
+    marketplace: Optional[str] = None,
 ) -> dict:
     """Fetch eBay's deals page and store it.
 
@@ -243,7 +299,8 @@ def refresh(
 
     readings: list[tuple] = []
     if scraper is None:
-        scraper = EbayDealsScraper()
+        scraper = EbayDealsScraper(marketplace=marketplace)
+    market = getattr(scraper, "marketplace", None) or get_marketplace(marketplace)
     # Readings are collected here and written in one batch after the fetch, so
     # no write transaction is open while ~108 Browse calls are in flight.
     scraper.on_observation = (
@@ -254,14 +311,29 @@ def refresh(
 
     try:
         items = scraper.fetch_deals(limit=limit, enrich=enrich)
-        result = save_deals(items, session)
+        result = save_deals(items, session, marketplace=market["id"])
+        # `listing_observations` has no marketplace key. Storing a US reading
+        # there would mix it into UK seller footprints and time series, so a
+        # non-UK refresh says the evidence store was skipped rather than
+        # contaminating the one it cannot label.
+        observations = (
+            _record_observations(session, readings)
+            if market["id"] == "EBAY_GB"
+            else {
+                "readings": len(readings),
+                "skipped": "listing observations are not keyed by marketplace",
+            }
+        )
+        _clear_refresh_error(market["id"])
         result.update({
+            "marketplace": market["id"],
+            "currency": market["currency"],
             "cards": len(items),
             "priced": sum(1 for i in items if i.price is not None),
             "api_calls": scraper.api_calls,
             "price_failures": scraper.price_failures,
             "source_label": SOURCE_LABEL,
-            "observations": _record_observations(session, readings),
+            "observations": observations,
         })
         return result
     finally:
@@ -269,7 +341,10 @@ def refresh(
             session.close()
 
 
-def refresh_if_stale(session=None, force: bool = False) -> Optional[dict]:
+def refresh_if_stale(
+    session=None, force: bool = False,
+    marketplace: Optional[str] = None,
+) -> Optional[dict]:
     """Refresh when the pool is missing or older than the TTL.
 
     Returns the refresh result, or None when the pool was still current or
@@ -283,15 +358,22 @@ def refresh_if_stale(session=None, force: bool = False) -> Optional[dict]:
         session = SessionLocal()
 
     try:
-        meta = board_meta(session)
+        meta = board_meta(session, marketplace=marketplace)
         if not force and meta["total"] and not meta["stale"]:
             return None
         if not _refresh_lock.acquire(blocking=False):
             return None
         try:
-            return refresh(session=session)
+            _clear_refresh_error(get_marketplace(marketplace)["id"])
+            return refresh(session=session, marketplace=marketplace)
         except Exception as exc:  # noqa: BLE001 - reported, never raised upward
-            return {"error": str(exc), "source_label": SOURCE_LABEL}
+            market = get_marketplace(marketplace)
+            _record_refresh_error(market["id"], str(exc))
+            return {
+                "error": str(exc),
+                "source_label": SOURCE_LABEL,
+                "marketplace": market["id"],
+            }
         finally:
             _refresh_lock.release()
     finally:
@@ -299,24 +381,29 @@ def refresh_if_stale(session=None, force: bool = False) -> Optional[dict]:
             session.close()
 
 
-def start_background_refresh() -> threading.Thread:
-    """Kick off a refresh on a worker thread and return it.
+def start_background_refresh(marketplace: Optional[str] = None) -> threading.Thread:
+    """Kick off one market's refresh on a worker thread and return it.
 
     Used by the API route so a stale board still answers immediately: the
     response carries whatever is stored plus an honest `stale` flag, and the
     new data is picked up by the client's next poll.
     """
     thread = threading.Thread(
-        target=refresh_if_stale, name="deals-refresh", daemon=True
+        target=refresh_if_stale,
+        kwargs={"marketplace": marketplace},
+        name="deals-refresh",
+        daemon=True,
     )
     thread.start()
     return thread
 
 
-def latest_fetch(session) -> Optional[datetime]:
-    """When the pool was last refreshed, or None if it never was."""
+def latest_fetch(session, marketplace: Optional[str] = None) -> Optional[datetime]:
+    """When one market's pool was last refreshed, or None if it never was."""
+    market = get_marketplace(marketplace)
     newest = (
         session.query(DealItemRow.fetched_at)
+        .filter(DealItemRow.marketplace == market["id"])
         .order_by(DealItemRow.fetched_at.desc())
         .first()
     )

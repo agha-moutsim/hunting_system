@@ -108,6 +108,123 @@ def ensure_demand_data_columns() -> list[str]:
 ensure_demand_data_columns()
 
 
+# Phase J — a deals row now names its marketplace. The table already exists on
+# every deployed database, so the column is ALTERed in place. The default is
+# the historical truth: every row written before this change came from the UK
+# deals page, and leaving those rows unset would make them disappear from a
+# board that filters by market.
+_DEAL_ITEM_ADDITIONS = (
+    ("marketplace", "VARCHAR(16) NOT NULL DEFAULT 'EBAY_GB'"),
+)
+
+
+def ensure_deal_item_columns() -> list[str]:
+    """Bring `deal_items` up to the columns the model declares."""
+    inspector = inspect(engine)
+    if not inspector.has_table("deal_items"):
+        return []
+    existing = {c["name"] for c in inspector.get_columns("deal_items")}
+    added: list[str] = []
+    for name, ddl in _DEAL_ITEM_ADDITIONS:
+        if name in existing:
+            continue
+        with engine.begin() as conn:
+            conn.execute(
+                text(f"ALTER TABLE deal_items ADD COLUMN {name} {ddl}")
+            )
+        added.append(name)
+    return added
+
+
+def _deal_item_unique_sets() -> set[tuple[str, ...]]:
+    """Every unique rule on `deal_items`, whether an index or a constraint."""
+    inspector = inspect(engine)
+    sets = {
+        tuple(constraint.get("column_names") or ())
+        for constraint in inspector.get_unique_constraints("deal_items")
+    }
+    sets.update(
+        tuple(index.get("column_names") or ())
+        for index in inspector.get_indexes("deal_items")
+        if index.get("unique")
+    )
+    return sets
+
+
+def ensure_deal_items_marketplace_unique() -> str:
+    """Give `deal_items` uniqueness on `(marketplace, listing_id)`.
+
+    The original table made `listing_id` unique on its own. That is wrong once
+    two marketplaces are stored: the same eBay listing can be merchandised on
+    both pages, and a global unique index either rejects the second row or
+    forces `save_deals` to move the first market's row to the second. SQLite
+    cannot drop a table-level UNIQUE, so this is the same idempotent
+    rename/create/copy/drop rebuild used for `monthly_stats`.
+
+    Returns ``"missing"`` (no table), ``"migrated"``, or ``"present"``.
+    """
+    inspector = inspect(engine)
+    if not inspector.has_table("deal_items"):
+        return "missing"
+
+    unique_sets = _deal_item_unique_sets()
+    desired = ("marketplace", "listing_id")
+    if desired in unique_sets and ("listing_id",) not in unique_sets:
+        return "present"
+
+    old_name = "deal_items__pre_market_unique"
+    with engine.begin() as conn:
+        from db.models import DealItem  # deferred: db.models imports this
+
+        conn.execute(text(f'DROP TABLE IF EXISTS "{old_name}"'))
+        conn.execute(
+            text(f'ALTER TABLE deal_items RENAME TO "{old_name}"')
+        )
+
+        # Index names are database-global in SQLite and survive a table
+        # rename. Leaving the old `ix_deal_items_*` names behind makes
+        # creating the new table fail on the first CREATE INDEX.
+        for index in inspect(conn).get_indexes(old_name):
+            index_name = index.get("name")
+            if index_name:
+                conn.execute(text(f'DROP INDEX IF EXISTS "{index_name}"'))
+
+        old_columns = {
+            column["name"]
+            for column in inspect(conn).get_columns(old_name)
+        }
+        declared = [column.name for column in DealItem.__table__.columns]
+        copy_columns = [name for name in declared if name in old_columns]
+        quoted = ", ".join(f'"{name}"' for name in copy_columns)
+
+        duplicate = conn.execute(
+            text(
+                f'SELECT marketplace, listing_id, COUNT(*) FROM "{old_name}" '
+                "GROUP BY marketplace, listing_id HAVING COUNT(*) > 1"
+            )
+        ).fetchall()
+        if duplicate:
+            pairs = ", ".join(
+                f"{market}/{listing_id}" for market, listing_id, _ in duplicate
+            )
+            raise RuntimeError(
+                "deal_items cannot be migrated because these market/listing "
+                f"pairs appear more than once: {pairs}. Delete the duplicates, "
+                "then start the app again."
+            )
+
+        DealItem.__table__.create(bind=conn)
+        conn.execute(
+            text(
+                f"INSERT INTO deal_items ({quoted}) "
+                f'SELECT {quoted} FROM "{old_name}"'
+            )
+        )
+        conn.execute(text(f'DROP TABLE "{old_name}"'))
+
+    return "migrated"
+
+
 # The deals board reads a table nothing else creates on the way in, so it
 # self-heals exactly the way the column ALTERs above do.
 def ensure_deal_items_table() -> bool:
@@ -120,10 +237,14 @@ def ensure_deal_items_table() -> bool:
     finishes loading before models.py reaches its last line.
 
     Built from Base.metadata rather than raw DDL so the model stays the single
-    definition of the table and the two can never drift apart.
+    definition of the table and the two can never drift apart. An existing
+    table still gets the Phase J `marketplace` column and the composite
+    uniqueness the registry needs.
     """
     inspector = inspect(engine)
     if inspector.has_table("deal_items"):
+        ensure_deal_item_columns()
+        ensure_deal_items_marketplace_unique()
         return False
     from db.models import DealItem  # deferred: db.models imports this module
     Base.metadata.create_all(bind=engine, tables=[DealItem.__table__])

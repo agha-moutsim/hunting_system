@@ -17,8 +17,9 @@ returns - including its refusal sentence when it declines to price a sale
 
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
+from api.market_context import marketplace_for_optional_request, require_fee_market
 from api.schemas import FeeCalculateRequest
 from config import SELLER_PROFILE
 
@@ -62,14 +63,18 @@ def _seller_side(req: FeeCalculateRequest) -> dict:
 
 
 @router.get("/fees/table")
-def fee_table(key: Optional[str] = None):
+def fee_table(request: Request = None, key: Optional[str] = None):
     """The table the calculator prices with, plus who is selling.
 
     `key` selects a specific table; omitted means the active one. An unknown
     key is refused with the known tables listed rather than silently priced
-    under a different card.
+    under a different card. A non-UK marketplace is refused with a sentence:
+    the only table shipped is eBay UK's.
     """
     from engine import fees as engine_fees
+
+    market = marketplace_for_optional_request(request)
+    require_fee_market(market)
 
     try:
         table = engine_fees.get_fee_table(key)
@@ -80,11 +85,13 @@ def fee_table(key: Optional[str] = None):
         "fee_table": table,
         "categories": engine_fees.list_categories(table),
         "profile": SELLER_PROFILE,
+        "marketplace": market["id"],
+        "currency": market["currency"],
     }
 
 
 @router.post("/fees/calculate")
-def calculate(req: FeeCalculateRequest):
+def calculate(req: FeeCalculateRequest, request: Request = None):
     """One sale, forward or reverse, priced by the engine.
 
     Forward: `{mode, fee_table, calculation}` - the full money view, whose
@@ -94,6 +101,9 @@ def calculate(req: FeeCalculateRequest):
     can show the breakdown it just solved for.
     """
     from engine import fees as engine_fees
+
+    market = marketplace_for_optional_request(request)
+    require_fee_market(market)
 
     if req.sale_price is not None and req.target_margin is not None:
         raise HTTPException(

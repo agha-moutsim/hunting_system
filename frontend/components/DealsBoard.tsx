@@ -7,6 +7,7 @@ import Card from "@/components/ui/Card";
 import EmptyState from "@/components/EmptyState";
 import Spinner from "@/components/Spinner";
 import { apiFetch } from "@/lib/api";
+import { useMarketplace } from "@/lib/marketplace";
 import { asUtc, timeAgo } from "@/lib/format";
 import { DealItem, DealsMeta, DealsResponse } from "@/lib/types";
 import { describeStoreLink } from "@/lib/storeLinks";
@@ -123,6 +124,7 @@ function DealCard({ item }: { item: DealItem }) {
 }
 
 export default function DealsBoard() {
+  const { marketplace } = useMarketplace();
   const [pool, setPool] = useState<DealItem[]>([]);
   const [meta, setMeta] = useState<DealsMeta | null>(null);
   const [loading, setLoading] = useState(true);
@@ -132,23 +134,49 @@ export default function DealsBoard() {
   const [offset, setOffset] = useState(0);
   const [cycleStart, setCycleStart] = useState(() => Date.now());
   const [now, setNow] = useState(() => Date.now());
+  const [settleAttempts, setSettleAttempts] = useState(0);
 
   const load = useCallback(async () => {
     try {
       const d = await apiFetch<DealsResponse>("/api/deals");
       setPool(d.items || []);
       setMeta(d.meta || null);
-      setError(null);
+      setError(d.meta?.last_refresh_error || null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load deals");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [marketplace.id]);
 
   useEffect(() => {
+    // A pool belongs to one market. Switching markets starts from an empty
+    // board rather than rotating yesterday's UK cards under a US heading.
+    setPool([]);
+    setMeta(null);
+    setOffset(0);
+    setLoading(true);
+    setSettleAttempts(0);
     load();
-  }, [load]);
+  }, [load, marketplace.id]);
+
+  // The read route starts the first refresh on a worker thread. Without a
+  // bounded wait here, a refresh that fails seconds later would leave the
+  // empty state looking like a measured "no deals". Ten polls at 3 s is
+  // enough for a normal page and stops instead of hammering eBay.
+  const awaitingFirstPool =
+    Boolean(meta?.refresh_started) &&
+    pool.length === 0 &&
+    !error &&
+    !meta?.last_fetched;
+  useEffect(() => {
+    if (!awaitingFirstPool || settleAttempts >= 10) return;
+    const timer = setTimeout(() => {
+      setSettleAttempts((count) => count + 1);
+      load();
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [awaitingFirstPool, settleAttempts, load]);
 
   // A one-second display clock. Separate from the rotation timer so the
   // countdown can freeze when paused without stopping the clock itself.
@@ -206,14 +234,31 @@ export default function DealsBoard() {
     try {
       const started = await apiFetch<DealsResponse>("/api/deals?refresh=true");
       setMeta(started.meta || null);
+      let arrived = false;
+      let failure: string | null = started.meta?.last_refresh_error || null;
       for (let attempt = 0; attempt < 20; attempt += 1) {
         await new Promise((r) => setTimeout(r, 3000));
         const d = await apiFetch<DealsResponse>("/api/deals");
         setPool(d.items || []);
         setMeta(d.meta || null);
-        if (!d.meta?.stale && d.count > 0) break;
+        if (d.meta?.last_refresh_error) {
+          failure = d.meta.last_refresh_error;
+          break;
+        }
+        if (!d.meta?.stale && d.count > 0) {
+          arrived = true;
+          break;
+        }
       }
-      setError(null);
+      if (failure) {
+        setError(failure);
+      } else if (!arrived) {
+        setError(
+          "No deals arrived within 60 seconds. The board still holds whatever was stored before; this is not a claim that eBay has no deals."
+        );
+      } else {
+        setError(null);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Refresh failed");
     } finally {
@@ -261,6 +306,9 @@ export default function DealsBoard() {
             title="eBay selects these items. This app does not rank them."
           >
             curated by eBay
+          </Badge>
+          <Badge tone="info" title={marketplace.fee_warning || undefined}>
+            {marketplace.label} · {marketplace.currency}
           </Badge>
           <span className="text-text-secondary">
             {meta ? `${meta.total} listing${meta.total === 1 ? "" : "s"}` : "—"}
@@ -311,7 +359,11 @@ export default function DealsBoard() {
           <EmptyState
             icon="🏷️"
             title="No deals stored yet"
-            message="The board reads a stored pool so a page view never waits on eBay. Press Refresh now to collect it — the fetch takes about half a minute."
+            message={
+              meta?.refresh_started && !error
+                ? `The first ${marketplace.label} refresh is still running. No listings have been stored yet — this is not a measured zero.`
+                : "The board reads a stored pool so a page view never waits on eBay. Press Refresh now to collect it — the fetch takes about half a minute."
+            }
           />
         </Card>
       ) : (

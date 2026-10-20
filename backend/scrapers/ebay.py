@@ -12,9 +12,10 @@ from bs4 import BeautifulSoup
 from scrapers.base import ScrapedProduct, DemandData, read_shipping, read_stock
 from scrapers.availability import ebay_item_availability
 from config import (
-    EBAY_UK_BASE, EBAY_CLIENT_ID, EBAY_CLIENT_SECRET,
-    EBAY_MARKETPLACE, EBAY_API_BASE, EBAY_ENVIRONMENT, SCRAPE_CONFIG,
+    EBAY_CLIENT_ID, EBAY_CLIENT_SECRET,
+    EBAY_API_BASE, EBAY_ENVIRONMENT, SCRAPE_CONFIG,
 )
+from marketplaces import get_marketplace
 from engine.price_gate import active_bounds, in_band, in_band_range
 from engine.condition_gate import api_condition_filter, html_condition_param, is_new
 from scrapers.browse_fields import (
@@ -26,7 +27,12 @@ from scrapers.browse_fields import (
 
 # Query-time New-only (C10). Composed at CALL TIME so a changed active
 # condition reaches the very next request — never an import-time literal.
-_BASE_API_FILTER = "buyingOptions:{FIXED_PRICE},deliveryCountry:GB"
+# Phase J: deliveryCountry is the selected market's, not a GB constant.
+def _base_api_filter(market: dict) -> str:
+    return (
+        "buyingOptions:{FIXED_PRICE},"
+        f"deliveryCountry:{market['delivery_country']}"
+    )
 
 
 class _Unset:
@@ -50,20 +56,27 @@ _SOLD_SOURCE_LABEL = (
     "returned. Supply, not sales - this app has no sold-listing search, so "
     "this call cannot produce a sold count at all."
 )
+#: Non-GBP markets do not get the GBP band, so the UK label's "in-band" would
+#: be a claim about a restriction this response never had.
+_SOLD_SOURCE_LABEL_UNRESTRICTED = (
+    "ebay_browse_active_listings: New ACTIVE listings the search returned. "
+    "Supply, not sales - this app has no sold-listing search, so this call "
+    "cannot produce a sold count at all."
+)
 # Deliberately free of the words "verified" and "exact". The label is shown
 # and, worse, may be string-matched by a renderer - a source string containing
 # "verified" can light a green badge on a figure that is only a count of
 # returned listings.
 
 
-def _api_filter(band_api: str) -> str:
+def _api_filter(band_api: str, market: dict | None = None) -> str:
     """Compose the Browse API filter: base + active condition (C10) + band.
 
     Condition is appended at CALL TIME so a changed active condition
     reaches the very next request — never an import-time literal.
     """
     cond = api_condition_filter()
-    parts = [_BASE_API_FILTER]
+    parts = [_base_api_filter(market or get_marketplace())]
     if cond:
         parts.append(cond)
     if band_api:
@@ -72,9 +85,15 @@ def _api_filter(band_api: str) -> str:
 
 
 class EbayScraper:
-    """Scraper for eBay UK — API-first, scraping fallback."""
+    """Scraper for one eBay marketplace — API-first, scraping fallback.
 
-    def __init__(self):
+    `marketplace=None` keeps the historical EBAY_GB behaviour. A route that
+    accepted a market passes its id here; the Browse header, delivery country,
+    price currency, site host and item source all follow that one record.
+    """
+
+    def __init__(self, marketplace: str | None = None):
+        self.marketplace = get_marketplace(marketplace)
         self.session = requests.Session()
         self.session.headers.update({
             "User-Agent": SCRAPE_CONFIG["user_agent"],
@@ -93,6 +112,18 @@ class EbayScraper:
         #: this records PRESENCE (the set), while observations record CHANGE
         #: (a reading that differed). The analysis pipeline drains both.
         self.query_observations: list[dict] = []
+
+    @property
+    def source(self) -> str:
+        """The stored source token for this market.
+
+        EBAY_GB keeps the historical `ebay_uk` token: millions of stored rows
+        and the verdict's marketplace gate already use it, and renaming the
+        same marketplace's evidence would split its history in two. Other
+        markets use their registry country code.
+        """
+        code = self.marketplace["country_code"].lower()
+        return "ebay_uk" if code == "gb" else f"ebay_{code}"
 
     def _observe(self, payload: dict, source: str) -> None:
         """Keep one Browse payload as a reading rather than dropping it.
@@ -201,14 +232,14 @@ class EbayScraper:
         """Headers for Browse API calls."""
         return {
             "Authorization": f"Bearer {self._get_token()}",
-            "X-EBAY-C-MARKETPLACE-ID": EBAY_MARKETPLACE,
+            "X-EBAY-C-MARKETPLACE-ID": self.marketplace["id"],
             "Content-Type": "application/json",
         }
 
     def search(self, query: str, limit: int = 10,
                price_band: tuple[float, float] | None | _Unset = _UNSET
                ) -> list[ScrapedProduct]:
-        """Search eBay UK via Browse API.
+        """Search the selected eBay marketplace via Browse API.
 
         `price_band` overrides the ACTIVE range for this call only, with
         three distinct states (omitted / a band / explicit None for "no
@@ -217,13 +248,29 @@ class EbayScraper:
         argument preserves the original behaviour exactly.
         """
         if not EBAY_CLIENT_ID or not EBAY_CLIENT_SECRET:
-            print("[INFO] No eBay API keys — returning empty. Add EBAY_CLIENT_ID/EBAY_CLIENT_SECRET to .env")
+            print("[INFO] No eBay API keys - returning empty. Add EBAY_CLIENT_ID/EBAY_CLIENT_SECRET to .env")
             return []
         try:
-            return self._search_api(query, limit, price_band=price_band)
+            return self.search_checked(query, limit, price_band=price_band)
         except Exception as e:
             print(f"[WARN] API search failed: {e}")
             return []
+
+    def search_checked(self, query: str, limit: int = 10,
+                       price_band: tuple[float, float] | None | _Unset = _UNSET
+                       ) -> list[ScrapedProduct]:
+        """Search and let a failure reach the caller.
+
+        `search()` deliberately returns [] when eBay does not answer, which is
+        right for a pipeline that can carry on with fewer competitors. It is
+        wrong for a route that must distinguish "eBay returned no listing"
+        from "eBay never answered"; those routes call this instead.
+        """
+        if not EBAY_CLIENT_ID or not EBAY_CLIENT_SECRET:
+            raise ValueError(
+                "eBay API credentials are not configured, so no search was made."
+            )
+        return self._search_api(query, limit, price_band=price_band)
 
     def _search_api(self, query: str, limit: int = 10,
                     price_band: tuple[float, float] | None | _Unset = _UNSET
@@ -236,8 +283,16 @@ class EbayScraper:
         listings the local filter would then discard.
         """
         if isinstance(price_band, _Unset):
-            lo, hi = active_bounds()
-            unrestricted = False
+            if self.marketplace["currency"] == "GBP":
+                lo, hi = active_bounds()
+                unrestricted = False
+            else:
+                # The active band is a GBP decision. On a USD/EUR/AUD/CAD
+                # marketplace there is no conversion here, so the only honest
+                # default is an unrestricted search rather than filtering a
+                # dollar price against pound bounds.
+                lo, hi = 0.0, 1_000_000.0
+                unrestricted = True
         elif price_band is None:
             lo, hi = 0.0, 1_000_000.0
             unrestricted = True
@@ -246,9 +301,10 @@ class EbayScraper:
             unrestricted = False
 
         band_api = ("" if unrestricted
-                    else f"price:[{lo:.0f}..{hi:.0f}],priceCurrency:GBP")
+                    else f"price:[{lo:.0f}..{hi:.0f}],"
+                         f"priceCurrency:{self.marketplace['currency']}")
         sample_limit = min(limit, 50)
-        api_filter = _api_filter(band_api)
+        api_filter = _api_filter(band_api, self.marketplace)
         resp = requests.get(
             f"{EBAY_API_BASE}/buy/browse/v1/item_summary/search",
             params={
@@ -283,13 +339,17 @@ class EbayScraper:
         for item in data.get("itemSummaries", []):
             price_info = item.get("price", {})
             price = float(price_info.get("value", 0))
-            if not unrestricted and not in_band_range(price, lo, hi):
+            if (
+                self.marketplace["currency"] == "GBP"
+                and not unrestricted
+                and not in_band_range(price, lo, hi)
+            ):
                 continue  # defence in depth — PR-2 layer 1 (search time)
             condition = item.get("condition", "")
             if not is_new(condition):
                 continue  # defence in depth — C10 condition gate
             results.append(ScrapedProduct(
-                source="ebay_uk",
+                source=self.source,
                 title=item.get("title", ""),
                 price=price,
                 url=item.get("itemWebUrl", ""),
@@ -298,6 +358,7 @@ class EbayScraper:
                 seller=item.get("seller", {}).get("username"),
                 condition=condition,
                 verified=True,
+                currency=self.marketplace["currency"],
                 # P4 — stock/shipping only from what the Browse API
                 # actually carried; absent keys stay unknown (C13/C1).
                 **ebay_item_availability(item),
@@ -323,11 +384,18 @@ class EbayScraper:
     def _search_scrape(self, query: str) -> list[ScrapedProduct]:
         """Fallback: scrape search page (may be blocked)."""
         lo, hi = active_bounds()
+        currency = self.marketplace["currency"]
+        # The active buying band is expressed in GBP. Re-imposing those
+        # numbers on a USD/EUR/AUD/CAD page would filter against a currency
+        # we are not reading, so the fallback only applies the band in GBP.
+        band_clause = (
+            f"&_udlo={lo:.0f}&_udhi={hi:.0f}" if currency == "GBP" else ""
+        )
         search_url = (
-            f"{EBAY_UK_BASE}/sch/i.html?"
+            f"{self.marketplace['site_base']}/sch/i.html?"
             f"_nkw={query.replace(' ', '+')}"
             f"&LH_BIN=1&LH_PrefLoc=1"
-            f"&_udlo={lo:.0f}&_udhi={hi:.0f}"
+            f"{band_clause}"
             f"{html_condition_param()}"   # C10 — query-time New-only
         )
         try:
@@ -346,8 +414,8 @@ class EbayScraper:
                     continue
                 price_match = re.search(r"[\d,.]+", price_el.get_text(strip=True).replace(",", ""))
                 price = float(price_match.group()) if price_match else 0
-                if not in_band(price):
-                    continue  # PR-2 layer 1 (search time)
+                if currency == "GBP" and not in_band(price):
+                    continue  # PR-2 layer 1 (search time), GBP only
                 # C10 — read the condition the page actually shows. A row we
                 # cannot read is NOT New: fail closed, never default it.
                 condition = self._read_condition(item)
@@ -359,12 +427,13 @@ class EbayScraper:
                 stock_state, stock_raw = read_stock(item)
                 ship_cost, ship_days, ship_raw = read_shipping(item)
                 results.append(ScrapedProduct(
-                    source="ebay_uk",
+                    source=self.source,
                     title=title,
                     price=price,
                     url=item_url,
                     condition=condition,
                     verified=True,
+                    currency=currency,
                     in_stock=stock_state,
                     stock_raw=stock_raw,
                     availability_url=item_url if stock_raw else "",
@@ -474,7 +543,7 @@ class EbayScraper:
             )
 
         return ScrapedProduct(
-            source="ebay_uk",
+            source=self.source,
             title=item.get("title", ""),
             price=float(price.get("value", 0)),
             url=item.get("itemWebUrl", ""),
@@ -482,6 +551,7 @@ class EbayScraper:
             seller=seller.get("username"),
             condition=condition,
             verified=True,
+            currency=price.get("currency") or self.marketplace["currency"],
             # P4 — availability/shippingOptions off the item payload (C13).
             **ebay_item_availability(item),
         )
@@ -513,7 +583,7 @@ class EbayScraper:
         ship_cost, ship_days, ship_raw = read_shipping(soup)
 
         return ScrapedProduct(
-            source="ebay_uk",
+            source=self.source,
             title=title.get_text(strip=True) if title else "",
             price=self._parse_price(price.get_text(strip=True) if price else "0"),
             url=url,
@@ -521,6 +591,7 @@ class EbayScraper:
             seller=seller.get_text(strip=True) if seller else None,
             condition=condition_text,
             verified=True,
+            currency=self.marketplace["currency"],
             in_stock=stock_state,
             stock_raw=stock_raw,
             availability_url=url if stock_raw else "",
@@ -529,20 +600,55 @@ class EbayScraper:
             shipping_raw=ship_raw,
         )
 
-    def get_sold_data(self, query: str) -> DemandData:
-        """Get sold data — tries API search for completed items."""
+    def get_sold_data(
+        self, query: str,
+        price_band: tuple[float, float] | None | _Unset = _UNSET,
+    ) -> DemandData:
+        """Get sold data — tries API search for completed items.
+
+        `price_band` has the same three-state contract as `search`: omitted
+        means the active GBP band on the UK market (and no band elsewhere),
+        a tuple is used verbatim, and None asks for no price restriction.
+        """
         if not EBAY_CLIENT_ID or not EBAY_CLIENT_SECRET:
-            return DemandData(verified=False)
+            return DemandData(verified=False, currency=self.marketplace["currency"])
         try:
-            return self._get_sold_api(query)
+            return self._get_sold_api(query, price_band)
         except Exception as e:
             print(f"[WARN] API sold data failed: {e}")
-            return DemandData(verified=False)
+            return DemandData(verified=False, currency=self.marketplace["currency"])
 
-    def _get_sold_api(self, query: str) -> DemandData:
+    def _get_sold_api(
+        self, query: str,
+        price_band: tuple[float, float] | None | _Unset = _UNSET,
+    ) -> DemandData:
         """Get sold data via Browse API (search completed listings)."""
-        lo, hi = active_bounds()
-        band_api = f"price:[{lo:.0f}..{hi:.0f}],priceCurrency:GBP"
+        currency = self.marketplace["currency"]
+        if isinstance(price_band, _Unset):
+            if currency == "GBP":
+                lo, hi = active_bounds()
+                band_api = (
+                    f"price:[{lo:.0f}..{hi:.0f}],priceCurrency:{currency}"
+                )
+                apply_band = True
+            else:
+                lo, hi = _UNRESTRICTED_BOUNDS
+                band_api = ""
+                apply_band = False
+        elif price_band is None:
+            lo, hi = _UNRESTRICTED_BOUNDS
+            band_api = ""
+            apply_band = False
+        else:
+            lo, hi = float(price_band[0]), float(price_band[1])
+            band_api = (
+                f"price:[{lo:.0f}..{hi:.0f}],priceCurrency:{currency}"
+            )
+            apply_band = True
+        source_label = (
+            _SOLD_SOURCE_LABEL if apply_band
+            else _SOLD_SOURCE_LABEL_UNRESTRICTED
+        )
         resp = requests.get(
             f"{EBAY_API_BASE}/buy/browse/v1/item_summary/search",
             params={
@@ -550,7 +656,7 @@ class EbayScraper:
                 "limit": 50,
                 # C10 — condition goes into the DEMAND query too, so Used
                 # sales can never inflate sold_count / avg price.
-                "filter": _api_filter(band_api),
+                "filter": _api_filter(band_api, self.marketplace),
                 "sort": "-dateSold",
             },
             headers=self._api_headers(),
@@ -569,7 +675,8 @@ class EbayScraper:
             # asked" (C13).
             return DemandData(
                 verified=False,
-                data_source=_SOLD_SOURCE_LABEL,
+                data_source=source_label,
+                currency=currency,
             )
 
         now = datetime.now()
@@ -592,7 +699,7 @@ class EbayScraper:
                 slot[0] += 1
                 slot[1] += price
 
-            if not in_band(price):
+            if apply_band and not in_band(price):
                 excluded += 1  # demand stats must reflect in-band sales only — PR-1/PR-4
                 continue
             if not is_new(condition):
@@ -631,7 +738,8 @@ class EbayScraper:
             # however many listings came back.
             verified=False,
             excluded_over_band=excluded,
-            data_source=_SOLD_SOURCE_LABEL,
+            data_source=source_label,
+            currency=currency,
         )
         # C11 — build the shared 4-store list from what this call observed.
         if seller_tally:

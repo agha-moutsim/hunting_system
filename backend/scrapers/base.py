@@ -159,6 +159,10 @@ class ScrapedProduct:
     #   a constructor that has not read anything must not claim it did.
     provenance: str = ""
     provenance_label: str = ""
+    # Phase J — the ISO currency of `price`, when the source stated it. ''
+    # means the source did not say, never an assumed GBP. Appended last so
+    # existing positional constructions cannot shift.
+    currency: str = ""
 
 
 @dataclass
@@ -240,6 +244,9 @@ class DemandData:
     #: eBay returned them. Carried rather than re-derived, so a chart plots
     #: exactly the numbers the metrics show.
     active_prices: list = field(default_factory=list)
+    #: Phase J — the ISO currency of every price above. '' means the source
+    #: did not state one; an empty string is never rendered as GBP.
+    currency: str = ""
 
 
 class BaseScraper(ABC):

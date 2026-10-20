@@ -1,5 +1,32 @@
 /** TypeScript mirrors of FastAPI Phase A responses. */
 
+// ── Marketplace (Phase J) ───────────────────────────────────────
+
+/**
+ * One eBay marketplace the selector may offer.
+ *
+ * `fee_warning` is not decoration: it is the sentence that must replace a fee
+ * or profit figure, because only the UK has a registered fee table. The UI
+ * must never fall back to a GBP number when `fee_table` is null.
+ */
+export interface MarketplaceInfo {
+  id: string;
+  label: string;
+  country_code: string;
+  currency: string;
+  currency_symbol: string;
+  fee_table: string | null;
+  fee_warning: string | null;
+  deals_url: string | null;
+  deals_http_status: number | null;
+  deals_checked_at: string | null;
+}
+
+export interface MarketsResponse {
+  default: string;
+  marketplaces: MarketplaceInfo[];
+}
+
 // ── Provenance (C13) ────────────────────────────────────────────
 
 /** Four-tier provenance stamp on every factual value. */
@@ -155,6 +182,8 @@ export interface ScrapedProduct extends MatchAvailabilityFields {
   source: string;
   title: string;
   price: number;
+  /** ISO currency of `price`; absent means the source did not state one. */
+  currency?: string;
   url: string;
   image_url?: string | null;
   delivery_days_min?: number | null;
@@ -198,6 +227,8 @@ export interface SourcedFigure {
 export interface DemandData {
   sold_count_30d?: number | null;
   sold_count_7d?: number | null;
+  /** ISO currency of every price in this block, when the source stated it. */
+  currency?: string;
   last_sale_date?: string | null;
   avg_sold_price?: number | null;
   lowest_sold_price?: number | null;
@@ -280,6 +311,9 @@ export interface VerdictData {
 }
 
 export interface AnalyzeResponse {
+  /** Phase J — the market that answered, and the currency of its prices. */
+  marketplace?: string;
+  currency?: string;
   ebay_product: ScrapedProduct | null;
   demand: DemandData | null;
   supplier_matches: ScrapedProduct[];
@@ -975,6 +1009,12 @@ export interface DealItem {
 }
 
 export interface DealsMeta {
+  /** Phase J — which marketplace this pool belongs to, and its currency. */
+  marketplace?: string;
+  currency?: string;
+  /** The last background refresh's failure, if it had one. */
+  last_refresh_error?: string | null;
+  last_refresh_error_at?: string | null;
   total: number;
   priced: number;
   unpriced: number;
@@ -1135,6 +1175,9 @@ export interface FeeTableResponse {
   fee_table: FeeTable;
   categories: FeeCategory[];
   profile: SellerProfile;
+  /** Phase J — the table is UK-only; these say which market answered. */
+  marketplace?: string;
+  currency?: string;
 }
 
 export type FeeBuyerRegion =
@@ -1209,6 +1252,9 @@ export interface TitlePhraseCount {
  */
 export interface TitleCountsResponse {
   query: string;
+  /** Phase J — the marketplace that answered. */
+  marketplace?: string;
+  currency?: string;
   listings_analysed: number;
   unigrams: TitleWordCount[];
   bigrams: TitlePhraseCount[];

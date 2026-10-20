@@ -182,7 +182,13 @@ class TestNoSearchVolumeCanExist:
             "unigrams",
             "bigrams",
             "reason",
+            # Phase J — which marketplace answered, and that its prices are
+            # in this currency. Neither is a volume claim.
+            "marketplace",
+            "currency",
         }
+        assert body["marketplace"] == "EBAY_GB"
+        assert body["currency"] == "GBP"
         assert set(body["unigrams"][0]) == {"word", "count"}
         assert set(body["bigrams"][0]) == {"phrase", "count"}
 

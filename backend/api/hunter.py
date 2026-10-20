@@ -2,8 +2,9 @@
 
 import logging
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
+from api.market_context import marketplace_for_optional_request, require_uk_market
 from api.schemas import HunterLookupRequest, HunterScanRequest
 
 router = APIRouter()
@@ -23,7 +24,7 @@ def hunter_categories():
 
 
 @router.post("/hunter/scan")
-def hunter_scan(req: HunterScanRequest):
+def hunter_scan(req: HunterScanRequest, request: Request = None):
     """Browse a known category, or search eBay for what the user typed.
 
     REGRESSION-001: this used to resolve the text through
@@ -35,6 +36,8 @@ def hunter_scan(req: HunterScanRequest):
     from hunter.category_scan import scan_category
     from hunter.demand_check import batch_demand_check
     from utils.filters import load_filters
+
+    require_uk_market(marketplace_for_optional_request(request), "Category Hunter")
 
     # Active range (user-adjustable, PR-5/PR-7): omitted client values
     # resolve to the ACTIVE range; a client value is honoured only when
@@ -72,7 +75,7 @@ def hunter_scan(req: HunterScanRequest):
 
 
 @router.post("/hunter/lookup")
-def hunter_lookup(req: HunterLookupRequest):
+def hunter_lookup(req: HunterLookupRequest, request: Request = None):
     """Supplier lookup + profit calc + report for scanned products.
 
     Products are sent back from the client (stateless).
@@ -84,6 +87,8 @@ def hunter_lookup(req: HunterLookupRequest):
     from hunter.report import generate_report
     from engine.price_gate import clamp_band
     from utils.filters import load_filters
+
+    require_uk_market(marketplace_for_optional_request(request), "Category Hunter")
 
     # PR-5/PR-7: thresholds may come per-request; the price range always
     # resolves to the PERSISTED active value (same gate as the scan).

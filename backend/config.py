@@ -111,6 +111,107 @@ EBAY_CLIENT_ID = os.getenv("EBAY_CLIENT_ID", "")
 EBAY_CLIENT_SECRET = os.getenv("EBAY_CLIENT_SECRET", "")
 EBAY_MARKETPLACE = os.getenv("EBAY_MARKETPLACE", "EBAY_GB")
 
+# ============================================================
+# Marketplace registry (Phase J)
+# ============================================================
+#
+# One record per eBay marketplace this app may query. The Browse routes read
+# the marketplace id, site base, currency and delivery country from here;
+# nothing else hardcodes EBAY_GB or a £ sign.
+#
+# `fee_table` is the engine/fees.py key that prices a sale in that market.
+# Only the UK has a table. None is deliberate: a UK rate must never be applied
+# to a USD/EUR/AUD/CAD sale. The API refuses to price those markets instead.
+#
+# `deals_url` is marketplace-specific. Each URL below returned HTTP 200 on
+# 2026-10-21, and the cards were read from the returned page (UK 72, US 21,
+# DE 80, AU 76, CA 57). eBay US redirects /deals to /globaldeals, whose cards
+# use the nested shape `parse_deals_page` also handles. eBay Ireland's /deals
+# redirected into eBay's splashui challenge, not the deals board, so EBAY_IE
+# is deliberately absent rather than offered with an unverified URL.
+#
+# `deals_checked_at` is evidence, not a promise: eBay can bot-wall the page
+# later, and the deals refresh reports that failure instead of inventing zero
+# cards.
+MARKETPLACES = {
+    "EBAY_GB": {
+        "id": "EBAY_GB",
+        "label": "United Kingdom",
+        "country_code": "GB",
+        "site_base": "https://www.ebay.co.uk",
+        "currency": "GBP",
+        "currency_symbol": "£",
+        "delivery_country": "GB",
+        "fee_table": "uk-rate-card-2026-09-30",
+        "deals_url": "https://www.ebay.co.uk/deals",
+        "deals_http_status": 200,
+        "deals_checked_at": "2026-10-21",
+        "offered": True,
+    },
+    "EBAY_US": {
+        "id": "EBAY_US",
+        "label": "United States",
+        "country_code": "US",
+        "site_base": "https://www.ebay.com",
+        "currency": "USD",
+        "currency_symbol": "$",
+        "delivery_country": "US",
+        "fee_table": None,
+        "deals_url": "https://www.ebay.com/deals",
+        "deals_http_status": 200,
+        "deals_checked_at": "2026-10-21",
+        "offered": True,
+    },
+    "EBAY_DE": {
+        "id": "EBAY_DE",
+        "label": "Germany",
+        "country_code": "DE",
+        "site_base": "https://www.ebay.de",
+        "currency": "EUR",
+        "currency_symbol": "€",
+        "delivery_country": "DE",
+        "fee_table": None,
+        "deals_url": "https://www.ebay.de/deals",
+        "deals_http_status": 200,
+        "deals_checked_at": "2026-10-21",
+        "offered": True,
+    },
+    "EBAY_AU": {
+        "id": "EBAY_AU",
+        "label": "Australia",
+        "country_code": "AU",
+        "site_base": "https://www.ebay.com.au",
+        "currency": "AUD",
+        "currency_symbol": "A$",
+        "delivery_country": "AU",
+        "fee_table": None,
+        "deals_url": "https://www.ebay.com.au/deals",
+        "deals_http_status": 200,
+        "deals_checked_at": "2026-10-21",
+        "offered": True,
+    },
+    "EBAY_CA": {
+        "id": "EBAY_CA",
+        "label": "Canada",
+        "country_code": "CA",
+        "site_base": "https://www.ebay.ca",
+        "currency": "CAD",
+        "currency_symbol": "C$",
+        "delivery_country": "CA",
+        "fee_table": None,
+        "deals_url": "https://www.ebay.ca/deals",
+        "deals_http_status": 200,
+        "deals_checked_at": "2026-10-21",
+        "offered": True,
+    },
+}
+
+#: Used when a caller sends nothing. EBAY_MARKETPLACE stays the environment
+#: override for existing deployments that set it explicitly.
+DEFAULT_MARKETPLACE = (
+    EBAY_MARKETPLACE if EBAY_MARKETPLACE in MARKETPLACES else "EBAY_GB"
+)
+
 # Environment: "production" (real eBay) or "sandbox" (test data)
 EBAY_ENVIRONMENT = os.getenv("EBAY_ENVIRONMENT", "production").lower()
 

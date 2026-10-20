@@ -17,6 +17,7 @@ import {
   type FeeFormState,
   type FeeMode,
 } from "@/lib/fees";
+import { useMarketplace } from "@/lib/marketplace";
 import { formatGBP, formatPercent } from "@/lib/format";
 import type {
   FeeCalculateRequest,
@@ -95,6 +96,8 @@ function ModeToggle({
 }
 
 export default function FeesPage() {
+  const { marketplace } = useMarketplace();
+  const marketBlocked = !marketplace.fee_table;
   const [table, setTable] = useState<FeeTableResponse | null>(null);
   const [tableError, setTableError] = useState<string | null>(null);
   const [form, setForm] = useState<FeeFormState>(DEFAULT_FEE_FORM);
@@ -105,6 +108,17 @@ export default function FeesPage() {
   const [breakEven, setBreakEven] = useState<FeeSolveCheck | null>(null);
 
   useEffect(() => {
+    if (marketBlocked) {
+      // The only fee table is the UK card. Loading it under a US heading and
+      // letting a reader apply it would be the exact cross-currency error
+      // Phase J forbids, so the page shows the sentence instead.
+      setTable(null);
+      setTableError(null);
+      setForward(null);
+      setReverse(null);
+      setBreakEven(null);
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {
@@ -121,7 +135,7 @@ export default function FeesPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [marketBlocked, marketplace.id]);
 
   function patch(update: Partial<FeeFormState>) {
     setForm((current) => ({ ...current, ...update }));
@@ -143,6 +157,13 @@ export default function FeesPage() {
   async function run(e: FormEvent) {
     e.preventDefault();
     if (calculating) return;
+    if (marketBlocked) {
+      setError(
+        marketplace.fee_warning ||
+          "No fee table is registered for this marketplace."
+      );
+      return;
+    }
     const built = buildFeeRequest(form);
     if (!built.ok) {
       setError(built.error);
@@ -188,6 +209,19 @@ export default function FeesPage() {
           engine the verdict uses, so the numbers agree by construction.
         </p>
       </div>
+
+      {marketBlocked && (
+        <Card className="border-accent-amber/40">
+          <div className="text-sm text-accent-amber">
+            {marketplace.fee_warning}
+          </div>
+          <p className="mt-1 text-xs text-text-secondary">
+            Switch the marketplace in the header to United Kingdom to use the
+            calculator. No fee or profit figure was calculated for{" "}
+            {marketplace.label}.
+          </p>
+        </Card>
+      )}
 
       {table && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-text-dim">
@@ -351,7 +385,11 @@ export default function FeesPage() {
             </label>
 
             <div className="pt-1">
-              <Button type="submit" disabled={calculating} className="w-full">
+              <Button
+                type="submit"
+                disabled={calculating || marketBlocked}
+                className="w-full"
+              >
                 {calculating
                   ? "Calculating…"
                   : mode === "forward"

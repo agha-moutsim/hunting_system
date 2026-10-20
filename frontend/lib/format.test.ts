@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { asUtc, formatObservedAt, timeAgo } from "./format";
+import { asUtc, formatMoney, formatObservedAt, timeAgo } from "./format";
 
 /**
  * The naive-UTC rule, in one place.
@@ -78,5 +78,24 @@ describe("timeAgo", () => {
   it("says never rather than 1970 for an unusable value", () => {
     expect(timeAgo("")).toBe("never");
     expect(timeAgo("not a date")).toBe("never");
+  });
+});
+
+describe("formatMoney", () => {
+  it("uses the currency's own symbol, not GBP for every market", () => {
+    expect(formatMoney(12.5, "GBP")).toBe("£12.50");
+    expect(formatMoney(12.5, "USD")).toBe("$12.50");
+    expect(formatMoney(12.5, "EUR")).toBe("€12.50");
+    expect(formatMoney(12.5, "AUD")).toBe("A$12.50");
+    expect(formatMoney(12.5, "CAD")).toBe("C$12.50");
+  });
+
+  it("spells out a code it does not own instead of borrowing a symbol", () => {
+    expect(formatMoney(12.5, "JPY")).toBe("12.50 JPY");
+  });
+
+  it("never turns an unread amount into zero", () => {
+    expect(formatMoney(null, "USD")).toBe("\u2014");
+    expect(formatMoney(undefined, "USD")).toBe("\u2014");
   });
 });

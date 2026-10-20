@@ -47,12 +47,17 @@ class TestTheFieldItself:
     ):
         """ScrapedProduct is constructed positionally across the codebase;
         inserting a field before the existing ones silently shifts every
-        argument after it. Both fields added later sit at the tail, in the
+        argument after it. The fields added later sit at the tail, in the
         order they were added, and `image_hash` — the last original field —
         still comes before them."""
         names = [f.name for f in fields(ScrapedProduct)]
-        assert names[-3:] == ["fetch_method", "provenance", "provenance_label"]
-        assert names.index("image_hash") == len(names) - 4
+        assert names[-4:] == [
+            "fetch_method",
+            "provenance",
+            "provenance_label",
+            "currency",
+        ]
+        assert names.index("image_hash") == len(names) - 5
         assert asdict(_row())["fetch_method"] == ""
 
     def test_only_the_two_documented_values_are_meaningful(self):

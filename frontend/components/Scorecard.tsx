@@ -16,7 +16,7 @@ import FilterChecks from "@/components/FilterChecks";
 import { fieldProvenance, infoTitle } from "@/lib/provenance";
 import { saleEvidence } from "@/lib/saleEvidence";
 import { sellerPagePath } from "@/lib/sellers";
-import { formatGBP, formatObservedAt, formatPercent } from "@/lib/format";
+import { formatMoney, formatObservedAt, formatPercent } from "@/lib/format";
 import { SoldPriceDistribution } from "@/components/charts";
 import SupplierCard from "@/components/SupplierCard";
 
@@ -169,7 +169,10 @@ export default function Scorecard({
   scorecard,
   provenance,
   sellerQuery,
+  currency = "GBP",
 }: {
+  /** ISO currency of the eBay/demand figures. Supplier rows stay GBP. */
+  currency?: string;
   ebayProduct: ScrapedProduct;
   demand?: DemandData | null;
   suppliers: ScrapedProduct[];
@@ -181,6 +184,8 @@ export default function Scorecard({
   sellerQuery?: string | null;
 }) {
   const v = (verdict?.verdict || "pending").toLowerCase();
+  const ebayCurrency = ebayProduct.currency || currency;
+  const demandCurrency = demand?.currency || currency;
   // Two price ranges, kept apart. One is a SALE range and only exists when a
   // sale was observed; the other is what live listings are ASKING right now.
   // They are never merged, and each tile is labelled to match the range beside
@@ -189,13 +194,13 @@ export default function Scorecard({
     demand &&
     demand.lowest_sold_price != null &&
     demand.highest_sold_price != null
-      ? `${formatGBP(demand.lowest_sold_price)} – ${formatGBP(demand.highest_sold_price)}`
+      ? `${formatMoney(demand.lowest_sold_price, demandCurrency)} – ${formatMoney(demand.highest_sold_price, demandCurrency)}`
       : "⚠️ Unverified";
   const activeRange =
     demand &&
     demand.lowest_active_price != null &&
     demand.highest_active_price != null
-      ? `${formatGBP(demand.lowest_active_price)} – ${formatGBP(demand.highest_active_price)}`
+      ? `${formatMoney(demand.lowest_active_price, demandCurrency)} – ${formatMoney(demand.highest_active_price, demandCurrency)}`
       : "⚠️ Unverified";
   // Which KIND of evidence this run actually holds. Each block below renders
   // only on its own evidence, so the screen can never put an empty "Sold" row
@@ -259,7 +264,7 @@ export default function Scorecard({
                 emphasis
                 value={
                   <span className="inline-flex flex-wrap items-center gap-2">
-                    {formatGBP(ebayProduct.price)}
+                    {formatMoney(ebayProduct.price, ebayCurrency)}
                     {ebayProduct.outside_band && <OutsideBandBadge />}
                   </span>
                 }
@@ -326,7 +331,7 @@ export default function Scorecard({
                       profit > 0 ? "text-brand-lime" : "text-accent-red"
                     }
                   >
-                    {formatGBP(profit)}
+                    {formatMoney(profit, currency)}
                   </span>
                 )
               }
@@ -367,7 +372,7 @@ export default function Scorecard({
             <Metric
               label="eBay price"
               emphasis
-              value={formatGBP(ebayProduct.price)}
+              value={formatMoney(ebayProduct.price, ebayCurrency)}
             />
             {suppliers.map((s, i) => {
               const delta = ebayProduct.price - s.price;
@@ -377,14 +382,14 @@ export default function Scorecard({
                   label={s.source}
                   value={
                     <span className="flex flex-col gap-1">
-                      <span>{formatGBP(s.price)}</span>
+                      <span>{formatMoney(s.price, "GBP")}</span>
                       <span
                         className={`text-xs font-medium ${
                           delta > 0 ? "text-brand-lime" : "text-accent-red"
                         }`}
                       >
                         {delta > 0 ? "+" : ""}
-                        {formatGBP(delta)}
+                        {formatMoney(delta, "GBP")}
                       </span>
                     </span>
                   }
@@ -459,7 +464,7 @@ export default function Scorecard({
                     prov={demandField("avg_sold_price")}
                     value={
                       demand?.avg_sold_price != null
-                        ? formatGBP(demand.avg_sold_price)
+                        ? formatMoney(demand.avg_sold_price, demandCurrency)
                         : "Not stated"
                     }
                   />
@@ -532,7 +537,7 @@ export default function Scorecard({
                     prov={demandField("avg_active_price")}
                     value={
                       demand?.avg_active_price != null
-                        ? formatGBP(demand.avg_active_price)
+                        ? formatMoney(demand.avg_active_price, demandCurrency)
                         : "Not stated"
                     }
                   />

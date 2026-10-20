@@ -31,8 +31,9 @@ import threading
 import time
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
+from api.market_context import marketplace_for_optional_request, require_uk_market
 from api.schemas import DeepSearchRequest
 from api.provenance_block import build_provenance_block, unverified_stamp
 
@@ -63,13 +64,14 @@ _LOCK = threading.RLock()
 
 
 @router.post("/deep-search")
-def deep_search(req: DeepSearchRequest) -> dict:
+def deep_search(req: DeepSearchRequest, request: Request = None) -> dict:
     """Start a full deep research job and hand back its id at once.
 
     Returns immediately with `job_id` + `status`. The run itself — eBay
     query, supplier scrapes, then the LLM verdict — happens on a worker
     thread. Poll GET /deep-search/jobs/{job_id} for progress.
     """
+    require_uk_market(marketplace_for_optional_request(request), "Deep Search")
     job = _create_job(req.query)
     # Captured before the worker exists: read after _spawn_job this would
     # be a race, reporting whichever state the thread had reached by the
@@ -123,7 +125,7 @@ def deep_search_job(job_id: str) -> dict:
 
 
 @router.post("/deep-search/fast")
-def deep_search_fast(req: DeepSearchRequest):
+def deep_search_fast(req: DeepSearchRequest, request: Request = None):
     """Fast deep research: eBay sold + key supplier scrapes, NO LLM (~15-45s).
 
     Still synchronous: with the model out of the picture it finishes inside
@@ -131,6 +133,7 @@ def deep_search_fast(req: DeepSearchRequest):
     """
     from deep_search import deep_search_fast as _fast
 
+    require_uk_market(marketplace_for_optional_request(request), "Deep Search")
     sink: dict = {}
     try:
         result = asyncio.run(
