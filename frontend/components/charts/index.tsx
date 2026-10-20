@@ -88,12 +88,14 @@ export function RevenueProfitChart({
 }: {
   labels: string[];
   revenue: number[];
-  profit: number[];
+  profit: (number | null)[];
 }) {
   const data = labels.map((l, i) => ({
     month: l,
-    revenue: revenue[i] || 0,
-    profit: profit[i] || 0,
+    revenue: revenue[i] ?? 0,
+    // A null profit is unknown, not zero. Recharts leaves a gap rather than
+    // drawing a bar that would claim the month made no money.
+    profit: profit[i] ?? null,
   }));
   if (!data.length) {
     return (

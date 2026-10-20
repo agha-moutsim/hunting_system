@@ -666,22 +666,23 @@ export interface SearchPassResponse {
 
 export interface Kpis {
   total_revenue: number;
-  total_profit: number;
-  avg_margin: number;
+  total_profit: number | null;
+  avg_margin: number | null;
   total_sales: number;
   total_units: number;
-  best_product: string;
-  best_category: string;
-  growth_revenue: number;
-  growth_profit: number;
+  best_product: string | null;
+  best_category: string | null;
+  growth_revenue: number | null;
+  growth_profit: number | null;
   days: number;
   error?: string;
 }
 
 export interface TrendChart {
   dates: string[];
-  values: number[];
-  total: number;
+  values: (number | null)[];
+  total: number | null;
+  profit_is_complete?: boolean;
 }
 
 export interface CategoryBreakdown {
@@ -692,7 +693,8 @@ export interface CategoryBreakdown {
 export interface MonthlyComparison {
   labels: string[];
   revenue: number[];
-  profit: number[];
+  profit: (number | null)[];
+  profit_is_complete?: boolean[];
 }
 
 export interface TopItem {
@@ -708,15 +710,166 @@ export interface Sale {
   product_name: string;
   category: string;
   sale_price: number;
-  supplier_cost: number;
-  shipping_cost: number;
-  ebay_fees: number;
-  profit: number;
-  margin_percent: number;
+  supplier_cost: number | null;
+  shipping_cost: number | null;
+  ebay_fees: number | null;
+  profit: number | null;
+  margin_percent: number | null;
   quantity: number;
   sale_date?: string | null;
   buyer_location: string;
   notes: string;
+  created_at?: string | null;
+  user_declared: true;
+  profit_is_complete: boolean;
+  profit_missing_reason: string | null;
+}
+
+export interface SalesListResponse {
+  user_declared: true;
+  declaration: string;
+  sales: Sale[];
+  count: number;
+  limit: number;
+  offset: number;
+}
+
+export interface MonthlySalesPoint {
+  month: string;
+  label: string;
+  revenue: number;
+  profit: number | null;
+  margin: number | null;
+  total_sales: number;
+  total_units: number;
+  profit_is_complete: boolean;
+  profit_missing_reason: string | null;
+}
+
+export interface SalesSummary {
+  user_declared: true;
+  declaration: string;
+  currency: "GBP";
+  days: number;
+  period: { start: string; end: string };
+  previous_period: { start: string; end: string };
+  total_revenue: number;
+  total_profit: number | null;
+  avg_margin: number | null;
+  total_sales: number;
+  total_units: number;
+  best_product: string | null;
+  best_category: string | null;
+  profit_is_complete: boolean;
+  profit_missing_reason: string | null;
+  growth_revenue: number | null;
+  growth_profit: number | null;
+  growth_revenue_reason: string | null;
+  growth_profit_reason: string | null;
+  monthly: MonthlySalesPoint[];
+  monthly_window_months: number;
+}
+
+export interface SaleCreateRequest {
+  product_name: string;
+  category: string;
+  sale_price: number;
+  supplier_cost: number;
+  shipping_cost: number;
+  ebay_fees: number;
+  quantity: number;
+  sale_date: string;
+  buyer_location: string;
+  notes: string;
+}
+
+export interface SalesCsvError {
+  line: number;
+  reason: string;
+}
+
+export interface SalesCsvImportResult {
+  user_declared: true;
+  declaration: string;
+  filename: string;
+  rows_received: number;
+  rows_imported: number;
+  rows_rejected: number;
+  errors: SalesCsvError[];
+  errors_truncated: boolean;
+  imported_ids: number[];
+  months_recomputed: number;
+}
+
+export type ThresholdTier = "verified" | "unverified" | "no_match";
+
+export interface ThresholdCounts {
+  verified: number;
+  unverified: number;
+  no_match: number;
+}
+
+export interface ThresholdDifferenceRow {
+  product_id: number | null;
+  product_title: string | null;
+  supplier_name: string | null;
+  supplier_title: string | null;
+  verdict: "pass" | "fail" | "pending" | "not_recorded";
+  match_score: number;
+  current_tier: ThresholdTier;
+  proposed_tier: ThresholdTier;
+  change: string;
+}
+
+export interface ThresholdSweepRow {
+  verified_threshold: number;
+  unverified_threshold: number;
+  confirmed: number;
+  confirmed_lost_vs_current: number;
+  confirmed_gained_vs_current: number;
+  confirmed_pass: number;
+  confirmed_fail: number;
+  confirmed_pending: number;
+  confirmed_not_recorded: number;
+}
+
+export interface ThresholdReplay {
+  current: { verified: number; unverified: number };
+  proposed: { verified: number; unverified: number };
+  sample: {
+    stored_rows: number;
+    scored_rows: number;
+    unscored_rows: number;
+    products: number;
+    rows_with_a_verdict: number;
+  };
+  current_tiers: ThresholdCounts;
+  proposed_tiers: ThresholdCounts;
+  outcomes: {
+    current_confirmed_by_verdict: Record<string, number>;
+    proposed_confirmed_by_verdict: Record<string, number>;
+  };
+  differences: {
+    changed: number;
+    confirmed_lost: number;
+    confirmed_gained: number;
+    shown_lost: number;
+    shown_gained: number;
+    verified_to_unverified: number;
+    verified_to_no_match: number;
+    unverified_to_verified: number;
+    unverified_to_no_match: number;
+    no_match_to_verified: number;
+    no_match_to_unverified: number;
+    rows: ThresholdDifferenceRow[];
+    truncated: boolean;
+  };
+  sweep: ThresholdSweepRow[];
+  changes_applied: false;
+  note: string;
+  limitation: string;
+  source: string;
+  label: string;
 }
 
 // ── History ─────────────────────────────────────────────────────

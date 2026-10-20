@@ -17,6 +17,7 @@ import IconFees from "@/components/icons/IconFees";
 import IconAlerts from "@/components/icons/IconAlerts";
 import IconTitles from "@/components/icons/IconTitles";
 import IconChurn from "@/components/icons/IconChurn";
+import IconSales from "@/components/icons/IconSales";
 import { fetchAlertCount, unreadBadge } from "@/lib/alerts";
 
 type NavIcon = (props: { className?: string }) => ReactNode;
@@ -136,6 +137,16 @@ const NAV: {
     key: "",
     group: "Research",
     Icon: IconChurn,
+  },
+  // The fourteenth entry has no digit shortcut either. Sales is the user's
+  // own P&L and the C14 feedback surface; grouped under Review with the
+  // dashboard it feeds.
+  {
+    href: "/sales",
+    label: "Sales",
+    key: "",
+    group: "Review",
+    Icon: IconSales,
   },
 ];
 
