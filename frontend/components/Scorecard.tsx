@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   ScrapedProduct,
   DemandData,
@@ -14,6 +15,7 @@ import ProvenanceBadge from "@/components/ui/ProvenanceBadge";
 import FilterChecks from "@/components/FilterChecks";
 import { fieldProvenance, infoTitle } from "@/lib/provenance";
 import { saleEvidence } from "@/lib/saleEvidence";
+import { sellerPagePath } from "@/lib/sellers";
 import { formatGBP, formatObservedAt, formatPercent } from "@/lib/format";
 import { SoldPriceDistribution } from "@/components/charts";
 import SupplierCard from "@/components/SupplierCard";
@@ -166,6 +168,7 @@ export default function Scorecard({
   verdict,
   scorecard,
   provenance,
+  sellerQuery,
 }: {
   ebayProduct: ScrapedProduct;
   demand?: DemandData | null;
@@ -174,6 +177,8 @@ export default function Scorecard({
   verdict?: VerdictData | null;
   scorecard?: string;
   provenance?: ProvenanceBlock;
+  /** The search lane this result came from, when it was not a URL analysis. */
+  sellerQuery?: string | null;
 }) {
   const v = (verdict?.verdict || "pending").toLowerCase();
   // Two price ranges, kept apart. One is a SALE range and only exists when a
@@ -265,7 +270,19 @@ export default function Scorecard({
               />
               <Metric
                 label="Seller"
-                value={ebayProduct.seller || "Not stated"}
+                value={
+                  ebayProduct.seller ? (
+                    <Link
+                      href={sellerPagePath(ebayProduct.seller, sellerQuery)}
+                      className="text-brand-lime underline-offset-2 hover:underline"
+                      title="View this seller's stored footprint"
+                    >
+                      {ebayProduct.seller}
+                    </Link>
+                  ) : (
+                    "Not stated"
+                  )
+                }
               />
             </div>
 

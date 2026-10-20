@@ -1141,3 +1141,93 @@ export interface ChurnResponse {
   churned: ChurnListing[] | null;
   reason: string | null;
 }
+
+// ── Phase H: seller footprint ─────────────────────────────────────────────
+
+/**
+ * eBay's own feedback values for one seller.
+ *
+ * `percentage` and `score` are read from the same stored Browse reading, so a
+ * later reading that omitted one does not get stitched to an older value.
+ * Either may be null when eBay did not return it; a null is not zero.
+ */
+export interface SellerFeedback {
+  percentage: number | null;
+  score: number | null;
+  observed_at: string | null;
+}
+
+/** The item location eBay returned for the seller's observed listings. */
+export interface SellerRegion {
+  country: string | null;
+  postal_code: string | null;
+}
+
+export interface SellerConditionSlice {
+  condition: string;
+  count: number;
+  /** Share of the listings whose condition was actually read. */
+  share: number;
+}
+
+/**
+ * Condition counts over observed listings.
+ *
+ * `known` is the denominator behind each share; `unknown` is the number of
+ * observed listings for which no condition was read. An empty `values` list
+ * means no condition could be claimed, not that every listing was "New".
+ */
+export interface SellerConditionMix {
+  known: number;
+  unknown: number;
+  values: SellerConditionSlice[];
+}
+
+/** Asking-price distribution over the listings with a price and currency. */
+export interface SellerPriceStats {
+  currency: string;
+  min: number;
+  max: number;
+  median: number;
+  sample: number;
+}
+
+/** Age range from eBay's creation dates, in whole days. */
+export interface SellerAgeStats {
+  min_days: number;
+  max_days: number;
+  sample: number;
+}
+
+/** The latest stored search set the optional query filter used. */
+export interface SellerQueryContext {
+  observations: number;
+  latest_listing_count: number;
+  latest_observed_at: string | null;
+}
+
+/**
+ * One seller's supply-side footprint.
+ *
+ * There is deliberately no revenue, sales, sold or turnover field: Browse
+ * returns active listings, and this app never sees a seller's transactions.
+ * `reason` is a sentence when no reading names this seller; section-level
+ * reasons explain a missing price or age range.
+ */
+export interface SellerFootprintResponse {
+  username: string;
+  observed_listings: number;
+  readings: number;
+  latest_observed_at: string | null;
+  feedback: SellerFeedback | null;
+  account_type: string | null;
+  region: SellerRegion | null;
+  condition_mix: SellerConditionMix;
+  asking_prices: SellerPriceStats | null;
+  asking_prices_reason: string | null;
+  listed_age: SellerAgeStats | null;
+  listed_age_reason: string | null;
+  query: string | null;
+  query_context: SellerQueryContext | null;
+  reason: string | null;
+}

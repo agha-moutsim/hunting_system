@@ -18,6 +18,7 @@ export default function AnalyzePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
+  const [submittedQuery, setSubmittedQuery] = useState<string | null>(null);
   const [activeRange, setActiveRange] = useState<PriceRange | null>(null);
 
   useEffect(() => {
@@ -36,6 +37,7 @@ export default function AnalyzePage() {
       const is_url =
         query.toLowerCase().includes("ebay") &&
         (query.includes("/itm/") || query.includes("/sch/"));
+      setSubmittedQuery(is_url ? null : query.trim());
       const data = await apiPost<AnalyzeResponse>("/api/analyze", {
         query: query.trim(),
         is_url,
@@ -140,6 +142,7 @@ export default function AnalyzePage() {
             verdict={result.verdict}
             scorecard={result.scorecard}
             provenance={result.provenance}
+            sellerQuery={submittedQuery}
           />
           {Array.isArray(result.ebay_stores) && (
             <EbayStoresCard stores={result.ebay_stores} />
