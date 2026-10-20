@@ -37,8 +37,8 @@ a verification gap, not a missing phase.
 ### Phase J, measured 2026-10-21
 
 - `GET /api/markets` returns **5** markets (`EBAY_GB`, `EBAY_US`, `EBAY_DE`,
-  `EBAY_AU`, `EBAY_CA`) with `deals_http_status: 200` and `deals_checked_at:
-2026-10-21` on every one. Only `EBAY_GB` has a fee table; the other four
+  `EBAY_AU`, `EBAY_CA`) with `deals_http_status: 200` and a `deals_checked_at`
+  of **2026-10-21** on every one. Only `EBAY_GB` has a fee table; the other four
   return `fee_table: null`. `EBAY_IE` is absent because its `/deals` URL went
   into eBay's splashui challenge instead of a deals board.
 - Non-UK Analyze, one live US query (`"usb c cable"`): first listing **$0.99**,
