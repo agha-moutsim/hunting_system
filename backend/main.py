@@ -36,6 +36,7 @@ from api import (
     filters,
     history,
     hunter,
+    observations,
     status,
     titles,
     tracker,
@@ -96,6 +97,7 @@ app.include_router(tracker.router, prefix="/api", tags=["tracker"])
 app.include_router(watchlist.router, prefix="/api", tags=["watchlist"])
 app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
 app.include_router(history.router, prefix="/api", tags=["history"])
+app.include_router(observations.router, prefix="/api", tags=["observations"])
 app.include_router(demand_monitor.router, prefix="/api", tags=["demand-monitor"])
 app.include_router(filters.router, prefix="/api", tags=["filters"])
 app.include_router(export_api.router, prefix="/api", tags=["export"])
