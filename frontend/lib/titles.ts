@@ -13,6 +13,13 @@ import type { TitleCountsResponse } from "./types";
 /** eBay UK's title limit, and the denominator the meter shows. */
 export const TITLE_MAX_CHARS = 80;
 
+/**
+ * The most listings one Browse search returns to the helper: the API's
+ * default and its ceiling. The page names this sample rather than implying it
+ * read every matching title on eBay.
+ */
+export const TITLE_SAMPLE_LIMIT = 50;
+
 export interface TitleQuery {
   q: string;
   limit?: number;

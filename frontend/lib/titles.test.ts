@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   TITLE_MAX_CHARS,
+  TITLE_SAMPLE_LIMIT,
   titleLength,
   titleLimitState,
   titleMeterLabel,
@@ -19,6 +20,13 @@ describe("titlesPath", () => {
 
   it("omits the limit when the caller did not set one", () => {
     expect(titlesPath({ q: "garden hose" })).toBe("/api/titles?q=garden+hose");
+  });
+
+  it("names the one-page sample ceiling", () => {
+    expect(TITLE_SAMPLE_LIMIT).toBe(50);
+    expect(titlesPath({ q: "garden hose", limit: TITLE_SAMPLE_LIMIT })).toBe(
+      "/api/titles?q=garden+hose&limit=50"
+    );
   });
 
   it("encodes punctuation instead of leaving it in the URL", () => {

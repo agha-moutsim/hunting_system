@@ -9,6 +9,7 @@ import Input, { Label } from "@/components/ui/Input";
 import Spinner from "@/components/Spinner";
 import {
   TITLE_MAX_CHARS,
+  TITLE_SAMPLE_LIMIT,
   fetchTitleCounts,
   titleLength,
   titleLimitState,
@@ -105,7 +106,10 @@ export default function TitlesPage() {
     // new sample is loading. Clear first, then replace with the new answer.
     setResult(null);
     try {
-      const body = await fetchTitleCounts({ q: trimmed });
+      const body = await fetchTitleCounts({
+        q: trimmed,
+        limit: TITLE_SAMPLE_LIMIT,
+      });
       setResult(body);
     } catch (err) {
       setError(
@@ -170,8 +174,9 @@ export default function TitlesPage() {
           </Button>
         </form>
         <p className="mt-2 text-[11px] leading-relaxed text-text-dim">
-          One eBay Browse search per analysis. The sample is New listings for
-          the query, without your buying price band.
+          One eBay Browse search per analysis, returning up to{" "}
+          {TITLE_SAMPLE_LIMIT} New listings. The sample is the titles that
+          search returned, without your buying price band.
         </p>
       </Card>
 
