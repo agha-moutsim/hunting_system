@@ -1032,3 +1032,33 @@ export interface FeeReverseResult {
 }
 
 export type FeeCalculateResponse = FeeForwardResult | FeeReverseResult;
+
+// ── Phase F: title helper ───────────────────────────────────────
+
+/** One word and the number of listings whose title contained it. */
+export interface TitleWordCount {
+  word: string;
+  count: number;
+}
+
+/** One adjacent pair and the number of listings whose title contained it. */
+export interface TitlePhraseCount {
+  phrase: string;
+  count: number;
+}
+
+/**
+ * Counts over the listings eBay actually returned for the query.
+ *
+ * `listings_analysed` is the sample size and is always present. There is no
+ * search-volume field: eBay gives this app no such figure, and the tables
+ * are measurements of the sample, not an estimate of demand.
+ */
+export interface TitleCountsResponse {
+  query: string;
+  listings_analysed: number;
+  unigrams: TitleWordCount[];
+  bigrams: TitlePhraseCount[];
+  /** A sentence when the sample is empty; null when there are counts. */
+  reason: string | null;
+}
