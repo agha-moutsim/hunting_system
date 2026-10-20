@@ -37,6 +37,7 @@ from api import (
     history,
     hunter,
     status,
+    titles,
     tracker,
     watchlist,
 )
@@ -102,6 +103,7 @@ app.include_router(extension.router, prefix="/api", tags=["extension"])
 app.include_router(deals.router, prefix="/api", tags=["deals"])
 app.include_router(fees.router, prefix="/api", tags=["fees"])
 app.include_router(alerts.router, prefix="/api", tags=["alerts"])
+app.include_router(titles.router, prefix="/api", tags=["titles"])
 
 
 @app.get("/api/health", tags=["status"])
