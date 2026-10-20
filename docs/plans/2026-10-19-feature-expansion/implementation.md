@@ -606,7 +606,7 @@ Live evidence measured 2026-10-21:
 | Deals page reachability | one GET per registered `/deals` URL                    | HTTP 200 for all five; cards read: **GB 72, US 21, DE 80, AU 76, CA 57**. eBay US redirected to `/globaldeals`; IE redirected to splashui challenge and is not offered                |
 | US deals refresh        | `POST /api/deals/refresh` with `EBAY_US`               | 200; **21** cards stored, **21** priced, all `USD`; `GET /api/deals` returned **21** US rows, first label **`$38.91`**, `last_refresh_error: null`; UK board stayed **73** rows       |
 | Deals migration         | copy of the live 73-row database, then import twice    | both runs clean; **73** rows preserved, all `EBAY_GB`; old global `UNIQUE(listing_id)` replaced by `UNIQUE(marketplace, listing_id)`                                                  |
-| Checks                  | -                                                      | backend **1710 passed, 9 deselected**; frontend **216 tests across 16 files**, typecheck clean; build **18 route rows**                                                               |
+| Checks                  | -                                                      | backend **1712 passed, 9 deselected**; frontend **216 tests across 16 files**, typecheck clean; build **18 route rows**                                                               |
 
 The live US deals sample is **21 cards from one page load**, not a market census. The live Analyze
 sample is **one query** and one first listing; its demand figures describe the 50 active summaries

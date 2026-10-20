@@ -60,7 +60,7 @@ a verification gap, not a missing phase.
   `POST /api/deep-search` with `X-Ebay-Marketplace: EBAY_US` both returned
   **422** and the UK-only sentence. No non-UK fee or profit figure was
   produced, and no non-UK `listing_observations` were written.
-- Checks: backend **1710 passed, 9 deselected**; frontend **216 tests across
+- Checks: backend **1712 passed, 9 deselected**; frontend **216 tests across
   16 files**, typecheck clean; production build **18 route rows**.
 
 ### Earlier measurements, 2026-10-20
@@ -115,7 +115,8 @@ a verification gap, not a missing phase.
   may legitimately refuse with "no real supplier price was found".
 - The extension has never run in a real browser. The user must reload v1.1.1 on
   `chrome://extensions`, open ten listings, then `GET /api/extension/status` should report
-  `items_captured: 11`.
+  `items_captured: 11`. The manifest now declares localhost/127.0.0.1:8000 so the popup and
+  capture POST can reach the API.
 
 ## Security - outstanding user action
 
@@ -131,7 +132,7 @@ a verification gap, not a missing phase.
 - Servers: backend `uvicorn main:app --host 127.0.0.1 --port 8000` from `backend/`
   (logs `.logs/backend.log`); frontend `next start -p 3000` from `frontend/`
   (`frontend/.logs-web.log`). `start.ps1` / `stop.ps1` exist.
-- Backend tests from the repo root: `python -m pytest tests/ -q` (~3.5 min; expect 1710 passed,
+- Backend tests from the repo root: `python -m pytest tests/ -q` (~3.5 min; expect 1712 passed,
   9 deselected).
 - Frontend from `frontend/`: `npm run typecheck`, `npx vitest run` (216 tests across 16 files),
   `npm run build` (18 route rows including `_not-found`; `/sales`, `/churn`, `/titles` and
