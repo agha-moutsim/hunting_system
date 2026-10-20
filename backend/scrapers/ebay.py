@@ -232,6 +232,22 @@ class EbayScraper:
             ))
         return results
 
+    def search_titles(self, query: str, limit: int = 50) -> list[ScrapedProduct]:
+        """One Browse search for the title helper, with no price band.
+
+        `search()` deliberately swallows a failed request and returns an empty
+        list, which is right for an analysis that can carry on with fewer
+        competitors. The title helper reports a sample size, so it must be
+        able to tell "eBay returned nothing" from "eBay did not answer"; this
+        method lets the failure reach the caller.
+
+        The condition gate still applies (C10): only New listings reach the
+        count. The price band is dropped because the helper describes the
+        titles for a query, not the slice of them inside the user's buying
+        range.
+        """
+        return self._search_api(query, limit=limit, price_band=None)
+
     def _search_scrape(self, query: str) -> list[ScrapedProduct]:
         """Fallback: scrape search page (may be blocked)."""
         lo, hi = active_bounds()
