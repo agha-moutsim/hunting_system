@@ -168,6 +168,48 @@ export default function SupplierCard({
           </div>
           <AvailabilityRow line={stock} />
           <AvailabilityRow line={shipping} />
+          {supplier.total_landed_cost != null && (
+            <div className="text-xs text-text-dim mt-1">
+              <span className="font-semibold uppercase tracking-[0.06em] text-[10px] mr-1.5">
+                Total landed
+              </span>
+              <span className="font-mono tabular-nums">
+                {formatGBP(supplier.total_landed_cost)}
+              </span>
+            </div>
+          )}
+          {supplier.review_verified && (
+            <div className="text-xs text-text-dim mt-1">
+              <span className="font-semibold uppercase tracking-[0.06em] text-[10px] mr-1.5">
+                Review
+              </span>
+              <span className="font-mono tabular-nums">
+                {supplier.review_rating?.toFixed(1)}
+                {supplier.review_count != null
+                  ? ` (${supplier.review_count})`
+                  : ""}
+              </span>
+            </div>
+          )}
+          {supplier.standard_shipping_available === false && (
+            <div className="text-xs text-accent-amber mt-1">
+              Standard shipping unavailable
+              {supplier.standard_shipping_raw
+                ? `: ${supplier.standard_shipping_raw}`
+                : ""}
+            </div>
+          )}
+          {supplier.sourcing_preferred && (
+            <div className="mt-2">
+              <Badge tone="pass">Preferred sourcing</Badge>
+            </div>
+          )}
+          {supplier.sourcing_reasons &&
+            supplier.sourcing_reasons.length > 0 && (
+              <div className="mt-1 text-xs text-text-dim">
+                {supplier.sourcing_reasons.join(" · ")}
+              </div>
+            )}
         </div>
         <div className="text-right">
           <div className="text-lg font-bold text-white font-mono tabular-nums">
