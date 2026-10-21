@@ -29,6 +29,63 @@ class AliExpressScraper(BaseScraper):
     DELIVERY_DAYS_MIN = 12
     DELIVERY_DAYS_MAX = 25
 
+    @staticmethod
+    def _parse_review_text(text):
+        """Read a 0-5 product/seller rating and count from source text only."""
+        if not isinstance(text, str) or not text.strip():
+            return None, None, False
+        rating = None
+        count = None
+        match = re.search(r"(\d+(?:\.\d+)?)\s*(?:/|out of)\s*5", text, re.I)
+        if match:
+            rating = float(match.group(1))
+        else:
+            match = re.search(r"\b([0-5](?:\.\d+)?)\b", text)
+            if match:
+                rating = float(match.group(1))
+        count_match = re.search(r"\(([\d,]+)\)", text)
+        if not count_match:
+            count_match = re.search(r"([\d,]+)\s*reviews?\b", text, re.I)
+        if count_match:
+            count = int(count_match.group(1).replace(",", ""))
+        if rating is None or not (0.0 <= rating <= 5.0):
+            return None, count, False
+        return rating, count, True
+
+    @staticmethod
+    def _shipping_methods(text: str) -> list[str]:
+        found: list[str] = []
+        for method in (
+            "AliExpress Standard Shipping",
+            "Standard Shipping",
+            "ePacket",
+            "Expedited Shipping",
+            "Economy Shipping",
+        ):
+            if method.lower() in (text or "").lower() and method not in found:
+                found.append(method)
+        return found
+
+    @staticmethod
+    def _read_aliexpress_standard_shipping(text: str):
+        """Read AliExpress Standard Shipping from real text only."""
+        low = (text or "").lower()
+        if "standard shipping" not in low:
+            return None, None, None, None, ""
+        available = "unavailable" not in low and "not available" not in low
+        from scrapers.availability import parse_shipping_text
+
+        cost, days, raw = parse_shipping_text(text)
+        if not available:
+            cost = None
+            days = None
+            raw = text.strip()
+        elif cost <= 0 and "free" not in low:
+            cost = None
+        if days is not None and days <= 0:
+            days = None
+        return available, cost, days, days, (raw or text.strip())
+
     async def search(self, query: str) -> list[ScrapedProduct]:
         """Search AliExpress — RapidAPI disabled, falls back to scraping."""
         # Disabled API attempt first — returns no rows (P4), keeps the seam
@@ -212,6 +269,22 @@ class AliExpressScraper(BaseScraper):
         # layouts; no element means unknown, never a default (C1/C13).
         stock_state, stock_raw = self._read_stock(card, STOCK_SELECTORS)
         ship_cost, ship_days, ship_raw = self._read_shipping(card, DELIVERY_SELECTORS)
+        all_text = card.get_text(" ", strip=True)
+        review_rating, review_count, review_verified = self._parse_review_text(
+            seller_rating or rating_el.get_text(strip=True) if rating_el else None
+        )
+        shipping_methods = self._shipping_methods(all_text)
+        standard_available, standard_cost, standard_min, standard_max, standard_raw = (
+            self._read_aliexpress_standard_shipping(all_text)
+        )
+        if standard_available is True and standard_cost is None and ship_cost > 0:
+            standard_cost = ship_cost
+        if standard_available is True and standard_min is None:
+            standard_min = ship_days or self.DELIVERY_DAYS_MIN
+        if standard_available is True and standard_max is None:
+            standard_max = ship_days or self.DELIVERY_DAYS_MAX
+        if standard_available is True and "AliExpress Standard Shipping" not in shipping_methods and "Standard Shipping" in all_text:
+            shipping_methods.insert(0, "AliExpress Standard Shipping")
 
         return ScrapedProduct(
             source="aliexpress",
@@ -237,6 +310,16 @@ class AliExpressScraper(BaseScraper):
             shipping_cost=ship_cost,
             shipping_days=ship_days,
             shipping_raw=ship_raw,
+            review_rating=review_rating,
+            review_count=review_count,
+            review_verified=review_verified,
+            review_source="seller_rating" if review_verified else "",
+            shipping_methods=shipping_methods,
+            standard_shipping_available=standard_available,
+            standard_shipping_cost=standard_cost,
+            standard_shipping_days_min=standard_min,
+            standard_shipping_days_max=standard_max,
+            standard_shipping_raw=standard_raw,
         )
 
     async def get_details(self, url: str) -> ScrapedProduct:
@@ -312,6 +395,19 @@ class AliExpressScraper(BaseScraper):
         # unknown rather than a guessed "in stock".
         stock_state, stock_raw = self._read_stock(soup, STOCK_SELECTORS)
         ship_cost, ship_days, ship_raw = self._read_shipping(soup, DELIVERY_SELECTORS)
+        all_text = soup.get_text(" ", strip=True)
+        shipping_methods = self._shipping_methods(all_text)
+        standard_available, standard_cost, standard_min, standard_max, standard_raw = (
+            self._read_aliexpress_standard_shipping(all_text)
+        )
+        if standard_available is True and standard_cost is None and ship_cost > 0:
+            standard_cost = ship_cost
+        if standard_available is True and standard_min is None:
+            standard_min = ship_days or self.DELIVERY_DAYS_MIN
+        if standard_available is True and standard_max is None:
+            standard_max = ship_days or self.DELIVERY_DAYS_MAX
+        if standard_available is True and "AliExpress Standard Shipping" not in shipping_methods and "Standard Shipping" in all_text:
+            shipping_methods.insert(0, "AliExpress Standard Shipping")
 
         return ScrapedProduct(
             source="aliexpress",
@@ -333,4 +429,10 @@ class AliExpressScraper(BaseScraper):
             shipping_cost=ship_cost,
             shipping_days=ship_days,
             shipping_raw=ship_raw,
+            shipping_methods=shipping_methods,
+            standard_shipping_available=standard_available,
+            standard_shipping_cost=standard_cost,
+            standard_shipping_days_min=standard_min,
+            standard_shipping_days_max=standard_max,
+            standard_shipping_raw=standard_raw,
         )

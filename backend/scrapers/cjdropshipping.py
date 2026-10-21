@@ -210,6 +210,12 @@ class CJDropshippingScraper(BaseScraper):
                         seller_orders=f"{orders}+" if orders else None,
                         store_name=store_name,
                         verified=True,
+                        # CJ's rating is a real 0-5 score when present; the
+                        # orders figure is volume, not a review count.
+                        review_rating=float(rating) if rating not in ("", None) else None,
+                        review_count=None,
+                        review_verified=rating not in ("", None),
+                        review_source="seller_rating" if rating not in ("", None) else "",
                     ))
             return products
 

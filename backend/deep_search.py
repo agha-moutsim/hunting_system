@@ -26,6 +26,7 @@ from engine.price_gate import (
 )
 from engine.provenance import Provenance
 from engine.source_type import supplier_type as classify_source
+from engine.sourcing import apply_ranking
 from scrapers.availability import parse_stock_text, parse_shipping_text
 
 # The Ollama URL and model are still read locally here (pre-existing), but the
@@ -346,7 +347,18 @@ def _page_availability(html: str, url: str) -> dict:
     text = soup.get_text(" ", strip=True)
     in_stock, stock_raw = parse_stock_text(text)
     shipping_cost, shipping_days, shipping_raw = parse_shipping_text(text)
-    if not stock_raw and not shipping_raw:
+    shipping_methods = _shipping_methods(text)
+    is_aliexpress = "aliexpress" in (url or "").lower()
+    if is_aliexpress:
+        standard_available, standard_cost, standard_min, standard_max, standard_raw = (
+            _aliexpress_standard_shipping(text)
+        )
+    else:
+        standard_available, standard_cost, standard_min, standard_max, standard_raw = (
+            None, None, None, None, ""
+        )
+
+    if not stock_raw and not shipping_raw and not shipping_methods and not standard_raw:
         return {}
     return {
         "in_stock": in_stock,
@@ -355,7 +367,48 @@ def _page_availability(html: str, url: str) -> dict:
         "shipping_cost": shipping_cost,
         "shipping_days": shipping_days,
         "shipping_raw": shipping_raw,
+        "shipping_methods": shipping_methods,
+        "standard_shipping_available": standard_available,
+        "standard_shipping_cost": standard_cost,
+        "standard_shipping_days_min": standard_min,
+        "standard_shipping_days_max": standard_max,
+        "standard_shipping_raw": standard_raw,
     }
+
+
+def _shipping_methods(text: str) -> list[str]:
+    """Method names actually named in source text."""
+    found: list[str] = []
+    for method in (
+        "AliExpress Standard Shipping",
+        "Standard Shipping",
+        "ePacket",
+        "Expedited Shipping",
+        "Economy Shipping",
+    ):
+        if method.lower() in (text or "").lower() and method not in found:
+            found.append(method)
+    return found
+
+
+def _aliexpress_standard_shipping(text: str):
+    """Read AliExpress Standard Shipping from real text only."""
+    low = (text or "").lower()
+    if "standard shipping" not in low:
+        return None, None, None, None, ""
+    available = "unavailable" not in low and "not available" not in low
+    cost, days, raw = parse_shipping_text(text)
+    if cost <= 0 and "free" not in low:
+        cost = None
+    if days <= 0:
+        days = None
+    return (
+        available,
+        cost,
+        days,
+        days,
+        raw or text.strip(),
+    )
 
 
 def _reference_image_hash(sold_data) -> int | None:
@@ -619,6 +672,16 @@ def _discover_approved_suppliers(query: str) -> list[dict]:
             "shipping_cost": float(product.shipping_cost or 0.0),
             "shipping_days": int(product.shipping_days or 0),
             "shipping_raw": product.shipping_raw or "",
+            "review_rating": getattr(product, "review_rating", None),
+            "review_count": getattr(product, "review_count", None),
+            "review_verified": bool(getattr(product, "review_verified", False)),
+            "review_source": getattr(product, "review_source", "") or "",
+            "shipping_methods": list(getattr(product, "shipping_methods", []) or []),
+            "standard_shipping_available": getattr(product, "standard_shipping_available", None),
+            "standard_shipping_cost": getattr(product, "standard_shipping_cost", None),
+            "standard_shipping_days_min": getattr(product, "standard_shipping_days_min", None),
+            "standard_shipping_days_max": getattr(product, "standard_shipping_days_max", None),
+            "standard_shipping_raw": getattr(product, "standard_shipping_raw", "") or "",
         })
     return out
 
@@ -1054,11 +1117,14 @@ def deep_search_product(
             deadline=_deadline,
         )
     if verified_suppliers:
+        # Sourcing policy: rank by verified total landed cost, reviews,
+        # delivery, stock and match quality rather than price alone.
+        verified_suppliers = apply_ranking(verified_suppliers, "GB")
         result.suppliers = verified_suppliers
         valid = [s for s in verified_suppliers
                  if isinstance(s.get("price"), (int, float)) and s["price"] > 0]
         if valid:
-            best = min(valid, key=lambda s: s["price"])
+            best = valid[0]
             result.best_supplier_price = best["price"]
             # C14 â€” a merely plausible match may still set the profit input;
             # say so, because an unconfirmed identity underpins the verdict.
@@ -1309,9 +1375,10 @@ def deep_search_fast(
 
     # Find best supplier
     if result.suppliers:
+        result.suppliers = apply_ranking(result.suppliers, "GB")
         valid = [s for s in result.suppliers if isinstance(s.get("price"), (int, float)) and s["price"] > 0]
         if valid:
-            best = min(valid, key=lambda s: s["price"])
+            best = valid[0]
             result.best_supplier_price = best["price"]
 
     result.sources = sources
