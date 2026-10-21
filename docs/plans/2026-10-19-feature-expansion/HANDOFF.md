@@ -63,6 +63,23 @@ but it has not completed a successful capture. It is a verification gap, not a m
 - Checks: backend **1712 passed, 9 deselected**; frontend **216 tests across
   16 files**, typecheck clean; production build **18 route rows**.
 
+### Sourcing standard, measured 2026-10-21
+
+- Shared sourcing policy: `backend/engine/sourcing.py` plus `tests/test_sourcing.py`,
+  `tests/test_sourcing_consistency.py`, `tests/test_aliexpress_sourcing.py` and
+  `tests/test_sourcing_persistence.py`.
+- Analyze, Deep Search, Bulk and Category Hunter all rank suppliers through the
+  same policy. Supplier rows carry stock, shipping, review, AliExpress Standard
+  Shipping, total landed cost, preferred/eligible flags, reasons and score.
+- `SupplierMatch` now stores the sourcing evidence; Analyze persists it and
+  History replays it.
+- Frontend supplier cards and Analyze, Deep Search, Bulk and Hunter surfaces
+  render the sourcing evidence.
+- The policy refuses to treat missing price, stock, shipping, review or standard
+  shipping as a pass. `total_landed_cost` is null when shipping is unknown.
+- Checks: backend **1748 passed, 9 deselected**; frontend **216 tests across
+  16 files**, typecheck clean; production build **18 route rows**.
+
 ### Earlier measurements, 2026-10-20
 
 - `price_alerts`: 1 real row - cordless drill, query lane, average asking price £22.66 →
