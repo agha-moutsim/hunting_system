@@ -460,6 +460,47 @@ export default function DeepSearchPage() {
                             />
                           )}
                         </div>
+                        <div className="text-xs text-text-dim mt-1">
+                          Total landed:{" "}
+                          {s.total_landed_cost != null ? (
+                            <span className="font-mono tabular-nums">
+                              {formatGBP(s.total_landed_cost)}
+                            </span>
+                          ) : (
+                            "not measured"
+                          )}
+                          {s.review_verified && s.review_rating != null && (
+                            <>
+                              {" "}
+                              · Review:{" "}
+                              <span className="font-mono tabular-nums">
+                                {s.review_rating.toFixed(1)}
+                                {s.review_count != null
+                                  ? ` (${s.review_count})`
+                                  : ""}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                        {s.standard_shipping_available === false && (
+                          <div className="text-xs text-accent-amber mt-1">
+                            Standard shipping unavailable
+                            {s.standard_shipping_raw
+                              ? `: ${s.standard_shipping_raw}`
+                              : ""}
+                          </div>
+                        )}
+                        {s.sourcing_preferred && (
+                          <div className="mt-2">
+                            <Badge tone="pass">Preferred sourcing</Badge>
+                          </div>
+                        )}
+                        {s.sourcing_reasons &&
+                          s.sourcing_reasons.length > 0 && (
+                            <div className="mt-1 text-xs text-text-dim">
+                              {s.sourcing_reasons.join(" · ")}
+                            </div>
+                          )}
                         {(s.source_name || s.match_basis) && (
                           <div className="text-xs text-text-dim mt-1">
                             {/* Not a link: this row is already an <a>, and

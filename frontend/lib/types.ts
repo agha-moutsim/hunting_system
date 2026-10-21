@@ -366,6 +366,23 @@ export interface SupplierInfo extends Omit<
   source_url?: string;
   source_name?: string;
   match_basis?: string;
+  /** Sourcing policy fields — real evidence only; absent means not read. */
+  review_rating?: number | null;
+  review_count?: number | null;
+  review_verified?: boolean;
+  review_source?: string;
+  shipping_methods?: string[];
+  standard_shipping_available?: boolean | null;
+  standard_shipping_cost?: number | null;
+  standard_shipping_days_min?: number | null;
+  standard_shipping_days_max?: number | null;
+  standard_shipping_raw?: string | null;
+  total_landed_cost?: number | null;
+  sourcing_preferred?: boolean;
+  sourcing_eligible?: boolean;
+  sourcing_reasons?: string[];
+  sourcing_score?: number | null;
+  sourcing_policy_version?: string | null;
 }
 
 export interface TopSeller {
