@@ -71,6 +71,26 @@ class CategoryProduct:
     # C13 - supplier postage when the source stated it. 0.0 = unknown.
     shipping_cost: float = 0.0
     shipping_raw: str = ""
+    # Sourcing standard - real review, stock, shipping and ranking evidence.
+    # None/False/empty means "not read"; never a default or a guess.
+    supplier_review_rating: Optional[float] = None
+    supplier_review_count: Optional[int] = None
+    supplier_review_verified: bool = False
+    supplier_stock_status: str = ""
+    supplier_stock_verified: bool = False
+    supplier_shipping_known: bool = False
+    supplier_shipping_methods: list[str] = field(default_factory=list)
+    supplier_standard_shipping_available: Optional[bool] = None
+    supplier_standard_shipping_cost: Optional[float] = None
+    supplier_standard_shipping_days_min: Optional[int] = None
+    supplier_standard_shipping_days_max: Optional[int] = None
+    supplier_standard_shipping_raw: str = ""
+    supplier_total_landed_cost: Optional[float] = None
+    supplier_sourcing_preferred: bool = False
+    supplier_sourcing_eligible: bool = False
+    supplier_sourcing_reasons: list[str] = field(default_factory=list)
+    supplier_sourcing_score: float = 0.0
+    supplier_sourcing_policy_version: str = ""
     # Hot/trending, computed by hunter/demand_hotness.py from the two demand
     # counts above. `hot` is derived, never assigned by hand;
     # hot_provenance == "unverified" means we had no demand data to judge.

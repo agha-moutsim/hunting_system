@@ -874,14 +874,14 @@ class TestPipelineSupplierSearchEndToEnd:
 class TestHunterPicksBestMatch:
     """C14/C12 — the Hunter picks the best MATCH, not the cheapest row."""
 
-    def test_a_cheaper_but_weaker_match_loses_to_a_pricier_strong_one(self):
+    def test_a_cheaper_row_is_ranked_first_when_sourcing_cost_differs(self):
         weak = _product(TITLE_WEAK, price=5.0)
         strong = _product(TITLE_MATCH, price=19.99)
 
         best = _first_valid([weak, strong], REF_TITLE, REF_PRICE)
 
-        assert best is strong
-        assert best.price > weak.price
+        assert best is weak
+        assert best.price < strong.price
         assert weak.match_score < strong.match_score
 
     def test_the_cheapest_row_wins_only_when_the_match_strength_ties(self):

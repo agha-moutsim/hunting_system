@@ -9,6 +9,7 @@ from engine.match import TIER_NO_MATCH, compute_match, image_hash_for
 from engine.price_gate import in_band
 from engine.source_type import supplier_type
 from engine.provenance import Provenance
+from engine.sourcing import rank_suppliers, apply_assessment
 
 # Timeout for ONE supplier fetch inside a product lookup (seconds).
 SUPPLIER_FETCH_TIMEOUT = 10
@@ -48,8 +49,7 @@ def _first_valid(
     both sides have an image; with no reference hash nothing is downloaded,
     and an image that cannot be read stays unknown rather than guessed.
     """
-    best = None
-    best_key = None
+    valid: list = []
     for p in products:
         if not p.price or p.price <= 0:
             continue
@@ -71,12 +71,16 @@ def _first_valid(
             p.match_label = r.label
             p.match_basis = r.reason
             p.match_method = r.method
-        else:
-            r = None
-        key = (-getattr(p, "match_score", 0.0), p.price)
-        if best_key is None or key < best_key:
-            best, best_key = p, key
-    return best
+        valid.append(p)
+
+    if not valid:
+        return None
+    # Sourcing policy: a cheaper or better-verified supplier can outrank a
+    # merely stronger text match, but only after the match gate above.
+    ranked = rank_suppliers(valid, "GB")
+    for product, assessment in ranked:
+        apply_assessment(product, assessment)
+    return ranked[0][0] if ranked else None
 
 
 async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
@@ -136,6 +140,16 @@ async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
             "shipping_cost": getattr(hit, "shipping_cost", 0.0),
             "shipping_days": getattr(hit, "shipping_days", 0),
             "shipping_raw": getattr(hit, "shipping_raw", ""),
+            "review_rating": getattr(hit, "review_rating", None),
+            "review_count": getattr(hit, "review_count", None),
+            "review_verified": getattr(hit, "review_verified", False),
+            "review_source": getattr(hit, "review_source", "") or "",
+            "shipping_methods": list(getattr(hit, "shipping_methods", []) or []),
+            "standard_shipping_available": getattr(hit, "standard_shipping_available", None),
+            "standard_shipping_cost": getattr(hit, "standard_shipping_cost", None),
+            "standard_shipping_days_min": getattr(hit, "standard_shipping_days_min", None),
+            "standard_shipping_days_max": getattr(hit, "standard_shipping_days_max", None),
+            "standard_shipping_raw": getattr(hit, "standard_shipping_raw", "") or "",
             "found_via": "discovery",
         }
 
@@ -166,6 +180,21 @@ async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
                     "provenance": Provenance.VERIFIED.value,
                     "provenance_label": Provenance.VERIFIED.label,
                     "source_url": hit.url,
+                    "in_stock": getattr(hit, "in_stock", ""),
+                    "stock_raw": getattr(hit, "stock_raw", ""),
+                    "shipping_cost": getattr(hit, "shipping_cost", 0.0),
+                    "shipping_days": getattr(hit, "shipping_days", 0),
+                    "shipping_raw": getattr(hit, "shipping_raw", ""),
+                    "review_rating": getattr(hit, "review_rating", None),
+                    "review_count": getattr(hit, "review_count", None),
+                    "review_verified": getattr(hit, "review_verified", False),
+                    "review_source": getattr(hit, "review_source", "") or "",
+                    "shipping_methods": list(getattr(hit, "shipping_methods", []) or []),
+                    "standard_shipping_available": getattr(hit, "standard_shipping_available", None),
+                    "standard_shipping_cost": getattr(hit, "standard_shipping_cost", None),
+                    "standard_shipping_days_min": getattr(hit, "standard_shipping_days_min", None),
+                    "standard_shipping_days_max": getattr(hit, "standard_shipping_days_max", None),
+                    "standard_shipping_raw": getattr(hit, "standard_shipping_raw", "") or "",
                 }
         except (asyncio.TimeoutError, Exception):
             pass
@@ -207,6 +236,16 @@ async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
                     # browser read; say so rather than passing as generic.
                     "fetch_method": getattr(hit, "fetch_method", "") or "",
                     "source_url": hit.url,
+                    "review_rating": getattr(hit, "review_rating", None),
+                    "review_count": getattr(hit, "review_count", None),
+                    "review_verified": getattr(hit, "review_verified", False),
+                    "review_source": getattr(hit, "review_source", "") or "",
+                    "shipping_methods": list(getattr(hit, "shipping_methods", []) or []),
+                    "standard_shipping_available": getattr(hit, "standard_shipping_available", None),
+                    "standard_shipping_cost": getattr(hit, "standard_shipping_cost", None),
+                    "standard_shipping_days_min": getattr(hit, "standard_shipping_days_min", None),
+                    "standard_shipping_days_max": getattr(hit, "standard_shipping_days_max", None),
+                    "standard_shipping_raw": getattr(hit, "standard_shipping_raw", "") or "",
                 }
         except (asyncio.TimeoutError, Exception):
             pass
@@ -270,6 +309,16 @@ async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
             "shipping_cost": getattr(hit, "shipping_cost", 0.0),
             "shipping_days": getattr(hit, "shipping_days", 0),
             "shipping_raw": getattr(hit, "shipping_raw", ""),
+            "review_rating": getattr(hit, "review_rating", None),
+            "review_count": getattr(hit, "review_count", None),
+            "review_verified": getattr(hit, "review_verified", False),
+            "review_source": getattr(hit, "review_source", "") or "",
+            "shipping_methods": list(getattr(hit, "shipping_methods", []) or []),
+            "standard_shipping_available": getattr(hit, "standard_shipping_available", None),
+            "standard_shipping_cost": getattr(hit, "standard_shipping_cost", None),
+            "standard_shipping_days_min": getattr(hit, "standard_shipping_days_min", None),
+            "standard_shipping_days_max": getattr(hit, "standard_shipping_days_max", None),
+            "standard_shipping_raw": getattr(hit, "standard_shipping_raw", "") or "",
             "found_via": "joybuy_web",
         }
 
@@ -308,12 +357,16 @@ async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
         except Exception:
             results = []
 
-    # Return cheapest usable supplier price -------- supplier rows are never
-    # range-gated (PR-1); eBay-side rows were already gated above.
+    # Sourcing policy: rank the sources that returned a usable offer by
+    # verified total cost, reviews, delivery, stock and match quality. A
+    # cheaper row no longer wins on price alone (C12/C14 stay intact).
     if results:
         valid = [r for r in results if r.get("price", 0) > 0]
         if valid:
-            return min(valid, key=lambda r: r["price"])
+            ranked = rank_suppliers(valid, "GB")
+            for product, assessment in ranked:
+                apply_assessment(product, assessment)
+            return ranked[0][0] if ranked else None
 
     return None
 
@@ -383,6 +436,54 @@ def batch_supplier_lookup(
                 # than as free postage.
                 product.shipping_cost = supplier.get("shipping_cost", 0.0) or 0.0
                 product.shipping_raw = supplier.get("shipping_raw", "") or ""
+                product.supplier_review_rating = supplier.get("review_rating")
+                product.supplier_review_count = supplier.get("review_count")
+                product.supplier_review_verified = bool(
+                    supplier.get("review_verified", False)
+                )
+                product.supplier_stock_status = supplier.get("stock_status", "") or ""
+                product.supplier_stock_verified = bool(
+                    supplier.get("stock_verified", False)
+                )
+                product.supplier_shipping_known = bool(
+                    supplier.get("shipping_known", False)
+                )
+                product.supplier_shipping_methods = list(
+                    supplier.get("shipping_methods") or []
+                )
+                product.supplier_standard_shipping_available = supplier.get(
+                    "standard_shipping_available"
+                )
+                product.supplier_standard_shipping_cost = supplier.get(
+                    "standard_shipping_cost"
+                )
+                product.supplier_standard_shipping_days_min = supplier.get(
+                    "standard_shipping_days_min"
+                )
+                product.supplier_standard_shipping_days_max = supplier.get(
+                    "standard_shipping_days_max"
+                )
+                product.supplier_standard_shipping_raw = (
+                    supplier.get("standard_shipping_raw", "") or ""
+                )
+                product.supplier_total_landed_cost = supplier.get(
+                    "total_landed_cost"
+                )
+                product.supplier_sourcing_preferred = bool(
+                    supplier.get("sourcing_preferred", False)
+                )
+                product.supplier_sourcing_eligible = bool(
+                    supplier.get("sourcing_eligible", False)
+                )
+                product.supplier_sourcing_reasons = list(
+                    supplier.get("sourcing_reasons") or []
+                )
+                product.supplier_sourcing_score = float(
+                    supplier.get("sourcing_score", 0.0) or 0.0
+                )
+                product.supplier_sourcing_policy_version = (
+                    supplier.get("sourcing_policy_version", "") or ""
+                )
             else:
                 product.supplier_status = "no_supplier"
                 product.supplier_status_reason = (
