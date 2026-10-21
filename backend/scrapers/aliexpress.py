@@ -40,7 +40,7 @@ class AliExpressScraper(BaseScraper):
         if match:
             rating = float(match.group(1))
         else:
-            match = re.search(r"\b([0-5](?:\.\d+)?)\b", text)
+            match = re.search(r"\b([0-5](?:\.\d+)?)\b(?![\d,])", text)
             if match:
                 rating = float(match.group(1))
         count_match = re.search(r"\(([\d,]+)\)", text)
@@ -55,6 +55,7 @@ class AliExpressScraper(BaseScraper):
     @staticmethod
     def _shipping_methods(text: str) -> list[str]:
         found: list[str] = []
+        low_text = (text or "").lower()
         for method in (
             "AliExpress Standard Shipping",
             "Standard Shipping",
@@ -62,8 +63,15 @@ class AliExpressScraper(BaseScraper):
             "Expedited Shipping",
             "Economy Shipping",
         ):
-            if method.lower() in (text or "").lower() and method not in found:
-                found.append(method)
+            low_method = method.lower()
+            if low_method not in low_text:
+                continue
+            if any(
+                low_method in existing.lower() or existing.lower() in low_method
+                for existing in found
+            ):
+                continue
+            found.append(method)
         return found
 
     @staticmethod
@@ -75,16 +83,36 @@ class AliExpressScraper(BaseScraper):
         available = "unavailable" not in low and "not available" not in low
         from scrapers.availability import parse_shipping_text
 
-        cost, days, raw = parse_shipping_text(text)
+        cost, _parsed_days, raw = parse_shipping_text(text)
+        range_match = re.search(
+            r"(\d+)\s*(?:-|to|–|—)\s*(\d+)\s*(?:working|business)?\s*days?",
+            text,
+            re.I,
+        )
+        if range_match:
+            days_min = int(range_match.group(1))
+            days_max = int(range_match.group(2))
+        else:
+            single_match = re.search(
+                r"\b(\d+)\s*(?:working|business)?\s*days?\b", text, re.I
+            )
+            if single_match:
+                days_min = days_max = int(single_match.group(1))
+            else:
+                days_min = days_max = None
+
         if not available:
             cost = None
-            days = None
+            days_min = None
+            days_max = None
             raw = text.strip()
         elif cost <= 0 and "free" not in low:
             cost = None
-        if days is not None and days <= 0:
-            days = None
-        return available, cost, days, days, (raw or text.strip())
+        if days_min is not None and days_min <= 0:
+            days_min = None
+        if days_max is not None and days_max <= 0:
+            days_max = None
+        return available, cost, days_min, days_max, (raw or text.strip())
 
     async def search(self, query: str) -> list[ScrapedProduct]:
         """Search AliExpress — RapidAPI disabled, falls back to scraping."""
