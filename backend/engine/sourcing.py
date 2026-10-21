@@ -273,11 +273,15 @@ def assess_supplier(product: Any, destination_market: str = "GB") -> SourcingAss
     match_tier = str(_get(product, "match_tier", "") or "")
     product_match_verified = match_tier == "verified"
     review_rating, review_count, review_verified = _parse_review(product)
+    # A verified rating with no verified review volume is real evidence of a
+    # score, but not of "good customer reviews": the count is what makes the
+    # feedback auditable. Missing volume is reported, not treated as good.
     review_good = (
         review_verified
         and review_rating is not None
         and review_rating >= DEFAULT_MIN_REVIEW_RATING
-        and (review_count is None or review_count > 0)
+        and review_count is not None
+        and review_count > 0
     )
 
     is_aliexpress = source.lower().startswith("aliexpress")
