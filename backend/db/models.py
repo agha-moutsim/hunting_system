@@ -123,9 +123,30 @@ class SupplierMatch(Base):
     # ALTERs it on startup — create_all only makes MISSING TABLES.
     provenance = Column(String(32))
     provenance_label = Column(String(64))
-    # C13 — "api" / "browser" / NULL. NULL means the row never stated it,
+    # C13 — “api” / “browser” / NULL. NULL means the row never stated it,
     # which is unknown rather than a claim that an API produced it.
     fetch_method = Column(String(16))
+    # Sourcing standard — real review, stock, shipping and ranking evidence.
+    # NULL/False/empty means “not read”; never a default or a guess.
+    review_rating = Column(Float)
+    review_count = Column(Integer)
+    review_verified = Column(Boolean)
+    review_source = Column(String(32))
+    stock_status = Column(String(32))
+    stock_verified = Column(Boolean)
+    shipping_known = Column(Boolean)
+    shipping_methods = Column(JSON)
+    standard_shipping_available = Column(Boolean)
+    standard_shipping_cost = Column(Float)
+    standard_shipping_days_min = Column(Integer)
+    standard_shipping_days_max = Column(Integer)
+    standard_shipping_raw = Column(Text)
+    total_landed_cost = Column(Float)
+    sourcing_preferred = Column(Boolean)
+    sourcing_eligible = Column(Boolean)
+    sourcing_reasons = Column(JSON)
+    sourcing_score = Column(Float)
+    sourcing_policy_version = Column(String(32))
     created_at = Column(DateTime, default=datetime.utcnow)
 
     product = relationship("Product", back_populates="supplier_matches")

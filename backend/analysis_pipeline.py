@@ -845,6 +845,28 @@ def save_analysis_to_db(results: dict):
                 "provenance": getattr(s, "provenance", "") or None,
                 "provenance_label": getattr(s, "provenance_label", "") or None,
                 "fetch_method": getattr(s, "fetch_method", "") or None,
+                # Sourcing standard — the deterministic ranking evidence, so
+                # History does not have to recompute or invent it. NULL/False/
+                # empty means “not read”, never a default.
+                "review_rating": getattr(s, "review_rating", None),
+                "review_count": getattr(s, "review_count", None),
+                "review_verified": bool(getattr(s, "review_verified", False)),
+                "review_source": getattr(s, "review_source", "") or None,
+                "stock_status": getattr(s, "stock_status", "") or None,
+                "stock_verified": bool(getattr(s, "stock_verified", False)),
+                "shipping_known": bool(getattr(s, "shipping_known", False)),
+                "shipping_methods": list(getattr(s, "shipping_methods", []) or []),
+                "standard_shipping_available": getattr(s, "standard_shipping_available", None),
+                "standard_shipping_cost": getattr(s, "standard_shipping_cost", None),
+                "standard_shipping_days_min": getattr(s, "standard_shipping_days_min", None),
+                "standard_shipping_days_max": getattr(s, "standard_shipping_days_max", None),
+                "standard_shipping_raw": getattr(s, "standard_shipping_raw", "") or None,
+                "total_landed_cost": getattr(s, "total_landed_cost", None),
+                "sourcing_preferred": bool(getattr(s, "sourcing_preferred", False)),
+                "sourcing_eligible": bool(getattr(s, "sourcing_eligible", False)),
+                "sourcing_reasons": list(getattr(s, "sourcing_reasons", []) or []),
+                "sourcing_score": getattr(s, "sourcing_score", None),
+                "sourcing_policy_version": getattr(s, "sourcing_policy_version", "") or None,
                 # We read this row off a live scraper response — that IS
                 # the verification, so set it explicitly rather than
                 # inheriting the column default.

@@ -43,7 +43,30 @@ CREATE TABLE supplier_matches (
 )
 """
 
-NEW = ("provenance", "provenance_label", "fetch_method")
+NEW = (
+    "provenance",
+    "provenance_label",
+    "fetch_method",
+    "review_rating",
+    "review_count",
+    "review_verified",
+    "review_source",
+    "stock_status",
+    "stock_verified",
+    "shipping_known",
+    "shipping_methods",
+    "standard_shipping_available",
+    "standard_shipping_cost",
+    "standard_shipping_days_min",
+    "standard_shipping_days_max",
+    "standard_shipping_raw",
+    "total_landed_cost",
+    "sourcing_preferred",
+    "sourcing_eligible",
+    "sourcing_reasons",
+    "sourcing_score",
+    "sourcing_policy_version",
+)
 
 
 @pytest.fixture()
