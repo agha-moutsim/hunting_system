@@ -163,7 +163,22 @@ class ScrapedProduct:
     # means the source did not say, never an assumed GBP. Appended last so
     # existing positional constructions cannot shift.
     currency: str = ""
-
+    # Sourcing standard — real review evidence, when the source stated it.
+    # None means "not read", never a guessed rating or count.
+    review_rating: Optional[float] = None
+    review_count: Optional[int] = None
+    review_verified: bool = False
+    review_source: str = ""
+    # Sourcing standard — shipping methods the source actually named. Empty
+    # means none were read; a method is never invented.
+    shipping_methods: list[str] = field(default_factory=list)
+    # Sourcing standard — AliExpress Standard Shipping, verified from the
+    # listing. None means "not stated", False means "unavailable".
+    standard_shipping_available: Optional[bool] = None
+    standard_shipping_cost: Optional[float] = None
+    standard_shipping_days_min: Optional[int] = None
+    standard_shipping_days_max: Optional[int] = None
+    standard_shipping_raw: str = ""
 
 @dataclass
 class DemandData:
