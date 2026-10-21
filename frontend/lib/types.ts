@@ -488,6 +488,25 @@ export interface CategoryProduct extends MatchAvailabilityFields {
   /** Supplier postage when the source stated it. 0.0 = unknown, not free. */
   shipping_cost?: number;
   shipping_raw?: string;
+  /** Sourcing policy fields — real evidence only; absent means not read. */
+  supplier_review_rating?: number | null;
+  supplier_review_count?: number | null;
+  supplier_review_verified?: boolean;
+  supplier_stock_status?: string;
+  supplier_stock_verified?: boolean;
+  supplier_shipping_known?: boolean;
+  supplier_shipping_methods?: string[];
+  supplier_standard_shipping_available?: boolean | null;
+  supplier_standard_shipping_cost?: number | null;
+  supplier_standard_shipping_days_min?: number | null;
+  supplier_standard_shipping_days_max?: number | null;
+  supplier_standard_shipping_raw?: string | null;
+  supplier_total_landed_cost?: number | null;
+  supplier_sourcing_preferred?: boolean;
+  supplier_sourcing_eligible?: boolean;
+  supplier_sourcing_reasons?: string[];
+  supplier_sourcing_score?: number | null;
+  supplier_sourcing_policy_version?: string | null;
   /** Computed by hunter/demand_hotness.py from the two demand counts. */
   hot?: boolean;
   hot_basis?: string;
