@@ -194,6 +194,29 @@ export default function BulkPage() {
                       eBay avg {formatGBP(r.ebay_avg_price)} · Best supplier{" "}
                       {formatGBP(r.best_supplier_price)} · Sold 30d:{" "}
                       {r.ebay_total_sold_30d ?? "⚠️ Unverified"}
+                      {(() => {
+                        const preferred =
+                          r.suppliers?.filter((s) => s.sourcing_preferred)
+                            .length ?? 0;
+                        const bestTotal = (r.suppliers ?? []).reduce<
+                          number | null
+                        >(
+                          (min, s) =>
+                            s.total_landed_cost != null &&
+                            (min == null || s.total_landed_cost < min)
+                              ? s.total_landed_cost
+                              : min,
+                          null
+                        );
+                        if (!preferred && bestTotal == null) return null;
+                        return (
+                          <>
+                            {preferred > 0 && ` · ${preferred} preferred`}
+                            {bestTotal != null &&
+                              ` · best total ${formatGBP(bestTotal)}`}
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
                   <div className="text-right">
