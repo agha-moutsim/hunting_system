@@ -34,6 +34,7 @@ from engine.price_gate import (
 )
 from engine.match import TIER_NO_MATCH, compute_match, image_hash_for
 from engine.provenance import stamp_scraped_product
+from engine.sourcing import apply_ranking
 from engine.scorecard import format_scorecard
 from engine.source_type import supplier_type
 from engine.stores import resolve_stores, store_provenance_block
@@ -607,14 +608,14 @@ async def run_analysis_pipeline(
                 "(Unverified)."
             )
             _report("– Image match skipped (scoring budget) — title and price only")
-        # C12 — a ceiling, never a target. Rank by how confidently the matcher
-        # identified the product, then by price, and keep at most 7. Sorting
-        # also makes `supplier_results[0]` (used for best_supplier_price
-        # below) the strongest confirmed match instead of whichever scraper
+        # C12 — a ceiling, never a target. The sourcing policy ranks by
+        # verified total landed cost, review evidence, delivery, stock and
+        # match confidence, not by price alone, so a cheaper row with an
+        # unverified or unavailable shipping method cannot win. Sorting also
+        # makes `supplier_results[0]` (used for best_supplier_price below)
+        # the preferred sourcing option rather than whichever scraper
         # happened to answer first.
-        supplier_results.sort(
-            key=lambda s: (-s.match_score, s.price or 0.0)
-        )
+        supplier_results = apply_ranking(supplier_results, "GB")
         supplier_results = supplier_results[:MAX_SUPPLIERS]
         # C13 — the label is data, and these rows reach the UI unlabelled
         # without it: ScrapedProduct only carried the `verified` bool, so

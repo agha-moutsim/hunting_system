@@ -688,9 +688,10 @@ class TestAnalyzeEndToEnd:
         for row in kept:
             _assert_scored(row)
 
-    def test_the_cap_keeps_the_strongest_matches_not_the_cheapest(self, monkeypatch):
-        # C12/C14 — ranking is by match strength first, so a confirmed match
-        # outranks an unconfirmed one however the two are priced.
+    def test_the_cap_ranks_by_sourcing_score_not_price_alone(self, monkeypatch):
+        # The sourcing policy weighs total cost above match score, so a cheaper
+        # unverified row can outrank a dearer verified one. Match strength is
+        # still a component and the no-match gate is unchanged.
         rows = [
             _product(TITLE_WEAK, price=5.0, source="cheap_weak"),
             _product(TITLE_MATCH, price=19.99, source="dearer_strong"),
@@ -699,7 +700,7 @@ class TestAnalyzeEndToEnd:
         results = _run_analysis(monkeypatch, rows)
 
         kept = results["supplier_matches"]
-        assert [s.source for s in kept] == ["dearer_strong", "cheap_weak"]
+        assert [s.source for s in kept] == ["cheap_weak", "dearer_strong"]
 
     def test_two_qualifying_rows_stay_two_and_are_never_padded(self, monkeypatch):
         # C12 — "fewer is correct". The result must be exactly two rows.
