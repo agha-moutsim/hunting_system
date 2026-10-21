@@ -135,14 +135,28 @@ export function SupplierCell({
 }) {
   if (row.supplier_name) {
     return (
-      <a
-        href={row.supplier_url || "#"}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-accent-blue hover:underline"
-      >
-        {row.supplier_name} {formatGBP(row.supplier_price ?? 0)}
-      </a>
+      <div className="space-y-1">
+        <a
+          href={row.supplier_url || "#"}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-accent-blue hover:underline"
+        >
+          {row.supplier_name} {formatGBP(row.supplier_price ?? 0)}
+        </a>
+        {row.supplier_total_landed_cost != null && (
+          <div className="text-[11px] text-text-dim">
+            Landed {formatGBP(row.supplier_total_landed_cost)}
+            {row.supplier_sourcing_preferred ? " · preferred" : ""}
+          </div>
+        )}
+        {row.supplier_sourcing_reasons &&
+          row.supplier_sourcing_reasons.length > 0 && (
+            <div className="text-[11px] text-text-dim">
+              {row.supplier_sourcing_reasons.join(" · ")}
+            </div>
+          )}
+      </div>
     );
   }
   if (!report) return <span className="text-text-dim">…</span>;
