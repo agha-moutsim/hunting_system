@@ -307,6 +307,56 @@ def _row_for(slug: str, item: dict, store: dict) -> ScrapedProduct | None:
         return None  # nothing priced/linked/titled — drop, never guess (C1)
 
     shown = str(store.get("name") or item.get("source") or "").strip() or None
+    availability = _offer_availability(store)
+    shipping_line = str(store.get("shipping") or "").strip()
+    shipping_methods = []
+    if shipping_line:
+        for method in (
+            "AliExpress Standard Shipping",
+            "Standard Shipping",
+            "ePacket",
+            "Expedited Shipping",
+            "Economy Shipping",
+        ):
+            if method.lower() in shipping_line.lower() and method not in shipping_methods:
+                shipping_methods.append(method)
+    if slug == "aliexpress" and "standard shipping" in shipping_line.lower():
+        from scrapers.availability import parse_shipping_text
+
+        standard_available = "unavailable" not in shipping_line.lower()
+        standard_cost, standard_days, standard_raw = parse_shipping_text(
+            shipping_line
+        )
+        if standard_cost <= 0 and "free" not in shipping_line.lower():
+            standard_cost = None
+        if standard_days <= 0:
+            standard_days = None
+        if "AliExpress Standard Shipping" not in shipping_methods and "Standard Shipping" in shipping_line:
+            shipping_methods.insert(0, "AliExpress Standard Shipping")
+        availability.update(
+            {
+                "standard_shipping_available": standard_available,
+                "standard_shipping_cost": standard_cost,
+                "standard_shipping_days_min": standard_days,
+                "standard_shipping_days_max": standard_days,
+                "standard_shipping_raw": standard_raw or shipping_line,
+            }
+        )
+    else:
+        availability.update(
+            {
+                "standard_shipping_available": None,
+                "standard_shipping_cost": None,
+                "standard_shipping_days_min": None,
+                "standard_shipping_days_max": None,
+                "standard_shipping_raw": "",
+            }
+        )
+    availability["shipping_methods"] = shipping_methods
+    availability.setdefault("review_rating", None)
+    availability.setdefault("review_count", None)
+    availability.setdefault("review_verified", False)
+    availability.setdefault("review_source", "")
     return ScrapedProduct(
         source=cfg["label"],
         title=title,
@@ -322,7 +372,7 @@ def _row_for(slug: str, item: dict, store: dict) -> ScrapedProduct | None:
         condition="",
         verified=True,
         supplier_type=classify_source(name=cfg["label"], url=url),
-        **_offer_availability(store),
+        **availability,
     )
 
 
