@@ -34,7 +34,7 @@ from engine.price_gate import (
 )
 from engine.match import TIER_NO_MATCH, compute_match, image_hash_for
 from engine.provenance import stamp_scraped_product
-from engine.sourcing import apply_ranking
+from engine.sourcing import apply_ranking, shipping_is_known
 from engine.scorecard import format_scorecard
 from engine.source_type import supplier_type
 from engine.stores import resolve_stores, store_provenance_block
@@ -852,9 +852,14 @@ def save_analysis_to_db(results: dict):
                 "review_count": getattr(s, "review_count", None),
                 "review_verified": bool(getattr(s, "review_verified", False)),
                 "review_source": getattr(s, "review_source", "") or None,
-                "stock_status": getattr(s, "stock_status", "") or None,
-                "stock_verified": bool(getattr(s, "stock_verified", False)),
-                "shipping_known": bool(getattr(s, "shipping_known", False)),
+                "stock_status": getattr(s, "stock_status", None)
+                or getattr(s, "in_stock", "") or None,
+                "stock_verified": bool(
+                    getattr(s, "stock_raw", "") or getattr(s, "stock_verified", False)
+                ),
+                # `shipping_known` is a derived fact about the source row, so
+                # derive it here rather than trusting the field's False default.
+                "shipping_known": shipping_is_known(s),
                 "shipping_methods": list(getattr(s, "shipping_methods", []) or []),
                 "standard_shipping_available": getattr(s, "standard_shipping_available", None),
                 "standard_shipping_cost": getattr(s, "standard_shipping_cost", None),
