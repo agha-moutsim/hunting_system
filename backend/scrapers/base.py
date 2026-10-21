@@ -179,7 +179,19 @@ class ScrapedProduct:
     standard_shipping_days_min: Optional[int] = None
     standard_shipping_days_max: Optional[int] = None
     standard_shipping_raw: str = ""
-
+    # Sourcing standard — deterministic policy output. These are computed by
+    # engine.sourcing, never by an LLM or a hidden threshold. Appended last so
+    # existing positional constructions cannot shift.
+    sourcing_preferred: bool = False
+    sourcing_eligible: bool = False
+    sourcing_reasons: list[str] = field(default_factory=list)
+    total_landed_cost: Optional[float] = None
+    review_good: bool = False
+    stock_verified: bool = False
+    shipping_known: bool = False
+    standard_shipping_applicable: bool = False
+    sourcing_score: float = 0.0
+    sourcing_policy_version: str = ""
 @dataclass
 class DemandData:
     """Sales demand evidence from eBay.

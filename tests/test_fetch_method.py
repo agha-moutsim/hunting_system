@@ -52,12 +52,12 @@ class TestTheFieldItself:
         still comes before them."""
         names = [f.name for f in fields(ScrapedProduct)]
         assert names[-4:] == [
-            "standard_shipping_cost",
-            "standard_shipping_days_min",
-            "standard_shipping_days_max",
-            "standard_shipping_raw",
+            "shipping_known",
+            "standard_shipping_applicable",
+            "sourcing_score",
+            "sourcing_policy_version",
         ]
-        assert names.index("image_hash") == len(names) - 15
+        assert names.index("image_hash") == len(names) - 25
         assert asdict(_row())["fetch_method"] == ""
 
     def test_only_the_two_documented_values_are_meaningful(self):
