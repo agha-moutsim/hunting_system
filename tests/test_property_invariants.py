@@ -65,7 +65,10 @@ class TestProfitProperties:
         """
         without = calculate_profit(ebay, supplier)["profit"]
         with_shipping = calculate_profit(ebay, supplier, shipping_cost=shipping)["profit"]
-        assert abs((without - with_shipping) - round(shipping, 2)) <= 0.01
+        # Floating-point subtraction can land a few ulps past the penny; round
+        # the discrepancy before comparing, so a real penny mismatch still
+        # fails but binary noise does not.
+        assert round(abs((without - with_shipping) - round(shipping, 2)), 2) <= 0.01
 
     @given(ebay=_money, supplier=_money)
     @settings(max_examples=200, deadline=None)

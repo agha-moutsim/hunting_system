@@ -325,6 +325,55 @@ market-wired.
 
 ---
 
+## Sourcing standard
+
+Every product-discovery feature now ranks suppliers through one deterministic policy in
+`backend/engine/sourcing.py`. Analyze, Deep Search, Bulk and Category Hunter all use it.
+
+**Mandatory eligibility.** A supplier is preferred only when all of these are true:
+
+- the product match is verified;
+- the product price is a real positive value;
+- stock is verified as available;
+- shipping cost is known;
+- the listing URL is real;
+- the source row is verified;
+- AliExpress rows have verified AliExpress Standard Shipping when standard shipping
+  is required.
+
+Missing data is reported as a reason. It is never treated as a pass.
+
+**Weighted score.**
+
+| Criterion                         | Weight |
+| --------------------------------- | -----: |
+| Total sourcing cost               |    35% |
+| Customer reviews and ratings      |    20% |
+| Delivery reliability              |    15% |
+| Stock availability                |    15% |
+| Product match and listing quality |    10% |
+| Supplier reliability              |     5% |
+
+`total_landed_cost` is `product price + shipping cost` only when shipping is known.
+If shipping is unknown, the total is `null` and the supplier is not preferred.
+Taxes and other unverified costs are identified as excluded, not invented.
+
+**AliExpress standard shipping.** The scraper reads whether AliExpress Standard Shipping
+is available, its cost, and its estimated delivery window. If it is unavailable, the
+supplier is flagged and is not a preferred option. Available alternatives are shown
+with their own costs and estimates.
+
+**Consistency.** The same policy orders suppliers in Analyze, Deep Search, Bulk and
+Category Hunter. A missing price, stock status, shipping cost, review, or standard
+shipping method is never converted into a zero or a pass.
+
+**Surfaces.** Supplier cards and the Analyze, Deep Search, Bulk and Hunter pages show
+total landed cost, review evidence, stock status, standard shipping status, sourcing
+score and the reasons a supplier is not preferred.
+
+**Evidence.** Backend sourcing tests cover eligibility, ranking, missing data, AliExpress
+standard shipping and persistence. The full backend suite remains green.
+
 ## Cross-cutting guarantees
 
 - **No fabricated values.** Every figure is measured or explicitly `None`; a refusal carries a
