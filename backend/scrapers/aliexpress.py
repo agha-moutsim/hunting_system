@@ -138,15 +138,16 @@ class AliExpressScraper(BaseScraper):
             return []
 
     def _search_via_rapidapi(self, query: str) -> list[ScrapedProduct]:
-        """RapidAPI search — runs only when the key really exposes it (P4).
+        """AliGate (RapidAPI) search — runs only when the key really answers.
 
-        The key available originally belonged to `aliexpress-datahub`, which
-        exposes /store_categories and /item_detail and no search endpoint,
-        while this call goes to `aliexpress-api.p.rapidapi.com/products` —
-        a host that key cannot authenticate against. The seam stays honest
-        both ways: with no key it fails closed before any HTTP call; with a
-        key RapidAPI refuses, the refusal is logged and no rows are invented
-        (search() then scrapes the live page instead).
+        The previous listing, `aliexpress-api.p.rapidapi.com`, was removed
+        from RapidAPI (its page 404s now); the seam calls AliGate's
+        /api/v2/search/text through scrapers.aliexpress_api instead. It
+        stays honest both ways: with no key it fails closed before any
+        HTTP call; with a key that RapidAPI or AliGate refuses (subscription
+        missing, keyword parameter renamed, monthly cap reached) the
+        refusal — including the gateway's own reason — is logged, no rows
+        are invented, and search() scrapes the live page instead.
         """
         client = RapidAPIAliExpress()
         if not client.api_key:
@@ -192,6 +193,15 @@ class AliExpressScraper(BaseScraper):
             return None
         if not (0.1 <= price <= 10000.0):
             return None
+        # The payload names its own currency when it knows it: USD rows (or
+        # rows that name none — this connector's long-standing assumption)
+        # convert at the fixed scraper rate; GBP rows pass through
+        # untouched; any other stated currency is skipped — ranking a
+        # price in a currency it does not actually carry would fabricate a
+        # landed cost.
+        currency = str(row.get("currency") or "").strip().upper()
+        if currency and currency not in ("USD", "GBP"):
+            return None
         url = str(row.get("url") or "").strip()
         if url.startswith("//"):
             url = "https:" + url
@@ -235,7 +245,7 @@ class AliExpressScraper(BaseScraper):
         return ScrapedProduct(
             source="aliexpress",
             title=title,
-            price=round(price * USD_TO_GBP, 2),
+            price=round(price, 2) if currency == "GBP" else round(price * USD_TO_GBP, 2),
             url=url,
             image_url=(
                 str(row["image_url"]).strip() if row.get("image_url") else None

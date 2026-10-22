@@ -1,7 +1,21 @@
 """
-AliExpress — via RapidAPI (free tier: 30 req/min).
+AliExpress — via AliGate on RapidAPI (Basic tier: 100 requests/month, hard cap).
 
-Get free key at: https://rapidapi.com/aliexpressapi/api/aliexpress-api/
+Free subscription:
+    https://rapidapi.com/aligate/api/aligate-aliexpress-data-api
+
+The previous listing (aliexpress-api.p.rapidapi.com) was removed from
+RapidAPI (its page 404s), so the seam now targets the publisher-accessible
+AliGate v2 surface:
+
+    GET /api/v2/search/text  — keyword search, scoped per call.
+
+Every call is scoped by country/currency/locale (AliGate resolves prices,
+stock and shipping exactly as a shopper in that market sees them): the
+defaults are GB/GBP/en_GB for the UK sourcing market, overridable with
+ALIGATE_COUNTRY / ALIGATE_CURRENCY / ALIGATE_LOCALE, and the host itself is
+overridable with RAPIDAPI_HOST (e.g. if subscribing to a different AliExpress
+listing on RapidAPI).
 """
 
 import os
@@ -13,15 +27,32 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-RAPIDAPI_HOST = "aliexpress-api.p.rapidapi.com"
+# The publisher's own documented host (aligate.io and its RapidAPI listing).
+# RAPIDAPI_HOST wins so a different AliExpress listing can serve the seam
+# without a code change.
+DEFAULT_RAPIDAPI_HOST = "aligate-aliexpress-data-api.p.rapidapi.com"
+
+SEARCH_PATH = "/api/v2/search/text"
+
+# Query-string key /api/v2/search/text accepts the keyword under. It is not
+# published anywhere reachable without an active key, so the first live
+# answer has to confirm it — a wrong key comes back as a logged 400 whose
+# body names the expected parameter, not as silent data loss, and the page
+# scrape takes over either way.
+SEARCH_KEYWORD_PARAM = "keywords"
 
 
 class RapidAPIAliExpress:
-    """AliExpress via RapidAPI — free tier available."""
+    """AliExpress via AliGate on RapidAPI — free Basic tier, 100 req/month."""
 
     def __init__(self):
         self.api_key = os.getenv("RAPIDAPI_KEY", "")
-        self.host = RAPIDAPI_HOST
+        self.host = os.getenv(
+            "RAPIDAPI_HOST", DEFAULT_RAPIDAPI_HOST
+        ).strip()
+        self.country = os.getenv("ALIGATE_COUNTRY", "GB")
+        self.currency = os.getenv("ALIGATE_CURRENCY", "GBP")
+        self.locale = os.getenv("ALIGATE_LOCALE", "en_GB")
 
     def _headers(self) -> dict:
         return {
@@ -30,49 +61,149 @@ class RapidAPIAliExpress:
         }
 
     def search_products(self, keyword: str, limit: int = 10) -> list[dict]:
-        """Search AliExpress products via RapidAPI."""
+        """Search AliExpress via AliGate — rows normalized for the converter."""
         if not self.api_key:
-            raise ValueError("RAPIDAPI_KEY required — get free key at https://rapidapi.com/aliexpressapi/api/aliexpress-api/")
+            raise ValueError(
+                "RAPIDAPI_KEY required — subscribe (free tier) at "
+                "https://rapidapi.com/aligate/api/aligate-aliexpress-data-api"
+            )
 
         resp = requests.get(
-            f"https://{self.host}/products",
+            f"https://{self.host}{SEARCH_PATH}",
             headers=self._headers(),
             params={
-                "keywords": keyword,
-                "limit": min(limit, 30),
+                SEARCH_KEYWORD_PARAM: keyword,
+                "country": self.country,
+                "currency": self.currency,
+                "locale": self.locale,
             },
             timeout=15,
         )
-        resp.raise_for_status()
+        try:
+            resp.raise_for_status()
+        except requests.RequestException:
+            # The gateway's own words say exactly what went wrong (refused
+            # key, wrong keyword parameter, cap reached) — carry them into
+            # the log verbatim and truncated, never invent an explanation.
+            print(
+                f"[WARN] AliGate RapidAPI refused: {resp.status_code} "
+                f"{str(resp.text[:300])}"
+            )
+            raise
+
         data = resp.json()
 
         products = []
-        items = data.get("data", data.get("products", []))
-        if isinstance(items, dict):
-            items = items.get("products", [])
-
-        for item in (items or [])[:limit]:
-            match = re.search(r"\d+(?:[.,]\d+)?", str(item.get("price", item.get("product_price", ""))))
-            price = float(match.group().replace(",", "")) if match else 0.0
-
-            products.append({
-                "source": "AliExpress",
-                "title": item.get("product_title", item.get("title", "")),
-                "price": price,
-                "original_price": price,
-                "url": item.get("product_url", item.get("url", "")),
-                "image_url": item.get("product_image", item.get("image", "")),
-                # Only a real orders count from the payload. A sale price is
-                # money, not a popularity count — never label it as orders.
-                "orders": item.get("orders"),
-                "rating": item.get("product_rating", item.get("rating")),
-            })
+        for item in self._rows(data)[:limit]:
+            row = self._normalize_row(item)
+            if row:
+                products.append(row)
 
         return products
 
+    @staticmethod
+    def _rows(data) -> list:
+        """Search answer rows, wherever the publisher's envelope puts them.
+
+        The exact shape of /search/text's answer body is not published; the
+        parser accepts the envelope families tabular storefront APIs use — a
+        bare list, or a list under products/items/results/data — and passes
+        through only rows that actually are dicts.
+        """
+        if isinstance(data, dict):
+            data = (
+                data.get("products")
+                or data.get("items")
+                or data.get("results")
+                or data.get("data")
+                or []
+            )
+        if isinstance(data, list):
+            return [row for row in data if isinstance(row, dict)]
+        return []
+
+    @staticmethod
+    def _price_value(value) -> Optional[float]:
+        """First real number in what the payload calls price — else None.
+
+        Same contract the previous connector kept: a payload string like
+        "US $8.99" yields 8.99; anything without a number yields nothing.
+        """
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, (int, float)):
+            return float(value)
+        match = re.search(r"\d+(?:[.,]\d+)?", str(value or ""))
+        return float(match.group().replace(",", "")) if match else None
+
+    def _normalize_row(self, item) -> Optional[dict]:
+        """One AliGate search row — carry ONLY what the payload states.
+
+        A dict price is the AliGate shape (min_value/max_value/currency):
+        the floor price is the real, lowest stated ask. A count under
+        `sales`/`orders` is carried as the popularity figure; a money
+        value is never relabelled as orders. Stock, shipping and
+        Standard Shipping stay untouched here — what search rows do not
+        state them (C1/C13), the converter keeps unknown.
+        """
+        title = str(item.get("title") or item.get("product_title") or "").strip()
+
+        raw_price = item.get("price")
+        currency = None
+        price = None
+        if isinstance(raw_price, dict):
+            currency = raw_price.get("currency")
+            price = self._price_value(raw_price.get("min_value"))
+        if price is None:
+            price = self._price_value(
+                raw_price if not isinstance(raw_price, (dict, list))
+                else item.get("product_price")
+            )
+
+        orders = None
+        for key in ("sales", "orders"):
+            value = item.get(key)
+            if isinstance(value, bool):
+                continue
+            try:
+                candidate = int(value)
+            except (TypeError, ValueError):
+                continue
+            if candidate > 0:
+                orders = candidate
+                break
+
+        url = str(item.get("url") or item.get("product_url") or "").strip()
+        if not url:
+            # No URL stated: rebuild the canonical item URL from the source's
+            # own product_id (AliGate documents that id as the number in the
+            # AliExpress item link) — deterministic, nothing invented.
+            product_id = item.get("product_id") or item.get("id")
+            if product_id:
+                url = (
+                    "https://www.aliexpress.com/item/"
+                    f"{str(product_id).strip()}.html"
+                )
+
+        image = item.get("image_url") or item.get("image") or item.get("product_image")
+
+        return {
+            "source": "AliExpress",
+            "title": title,
+            "price": price,
+            "currency": currency,
+            "url": url,
+            "image_url": str(image).strip() if image else "",
+            "orders": orders,
+            # AliGate states ratings as a bare number ("ratings": 4.7); the
+            # converter's text/dict handling covers both shapes.
+            "rating": item.get("ratings") if item.get("ratings") is not None
+            else item.get("rating"),
+        }
+
 
 def get_rapidapi_aliexpress():
-    """Return RapidAPI AliExpress instance if configured, else None."""
+    """Return a RapidAPI AliExpress instance if configured, else None."""
     if os.getenv("RAPIDAPI_KEY"):
         return RapidAPIAliExpress()
     return None
