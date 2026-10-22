@@ -520,6 +520,10 @@ def apply_assessment(product: Any, assessment: SourcingAssessment) -> None:
             setattr(product, key, value)
 
 
+# Public name for callers that need to know whether a shipping cost was read.
+shipping_is_known = _shipping_known
+
+
 def apply_ranking(products: Iterable[Any], destination_market: str = "GB") -> list[Any]:
     """Rank suppliers in place and return them in ranked order."""
     ranked = rank_suppliers(products, destination_market)
