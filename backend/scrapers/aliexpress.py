@@ -1,12 +1,14 @@
 """
-AliExpress supplier scraper — Playwright scraping.
-RapidAPI search is disabled (P4): the available key has no search
-endpoint, so nothing here hits that host anymore.
+AliExpress supplier scraper — Playwright scraping, with an optional
+RapidAPI search seam. The configured key may or may not expose
+aliexpress-api.p.rapidapi.com/products: when it does, rows come back
+tagged fetch_method="api"; when it does not (403/404 or no key), the
+API call fails closed and the scraper falls back to the live page.
 Prices converted USD -> GBP at 0.79.
 
-C13 — every row this scraper returns is tagged fetch_method="browser",
-because there is no API path left to produce one. It is still `verified`
-(a successfully parsed page), but a reader can tell how it was obtained.
+C13 — every row carries how it was obtained: "browser" when read off a
+parsed page, "api" when RapidAPI handed one over. Either way the row is
+`verified` (a real read), and the reader can tell which one it was.
 """
 
 import re
@@ -14,6 +16,9 @@ from datetime import datetime
 from typing import Optional
 from urllib.parse import quote_plus
 
+import requests
+
+from scrapers.aliexpress_api import RapidAPIAliExpress
 from scrapers.availability import parse_shipping_text
 from scrapers.base import BaseScraper, DELIVERY_SELECTORS, STOCK_SELECTORS, ScrapedProduct
 from config import SCRAPE_CONFIG
@@ -22,7 +27,7 @@ USD_TO_GBP = 0.79
 
 
 class AliExpressScraper(BaseScraper):
-    """Scraper for AliExpress — Playwright scraping, API disabled (P4)."""
+    """Scraper for AliExpress — live scraping, with an optional RapidAPI seam."""
 
     BASE_URL = "https://www.aliexpress.com"
     SEARCH_URL = "https://www.aliexpress.com/wholesale?SearchText={query}"
@@ -115,9 +120,10 @@ class AliExpressScraper(BaseScraper):
         return available, cost, days_min, days_max, (raw or text.strip())
 
     async def search(self, query: str) -> list[ScrapedProduct]:
-        """Search AliExpress — RapidAPI disabled, falls back to scraping."""
-        # Disabled API attempt first — returns no rows (P4), keeps the seam
-        # for a key that does expose a search endpoint.
+        """Search AliExpress — RapidAPI when a search-capable key answers,
+        otherwise the live page."""
+        # Try the API seam first. A missing/unsearchable key or a RapidAPI
+        # refusal yields no rows from here, and the page scrape takes over.
         api_products = self._search_via_rapidapi(query)
         if api_products:
             return api_products
@@ -132,18 +138,130 @@ class AliExpressScraper(BaseScraper):
             return []
 
     def _search_via_rapidapi(self, query: str) -> list[ScrapedProduct]:
-        """RapidAPI search is disabled — fail closed (P4).
+        """RapidAPI search — runs only when the key really exposes it (P4).
 
-        The key available here belongs to `aliexpress-datahub`, which
-        exposes /store_categories and /item_detail and no search
-        endpoint, while the call this method used to make went to
-        `aliexpress-api.p.rapidapi.com/products` — a host it cannot
-        authenticate against. Only ever a 403/404, so we return no rows
-        and let scrapers/serpapi_discovery.py carry AliExpress instead.
+        The key available originally belonged to `aliexpress-datahub`, which
+        exposes /store_categories and /item_detail and no search endpoint,
+        while this call goes to `aliexpress-api.p.rapidapi.com/products` —
+        a host that key cannot authenticate against. The seam stays honest
+        both ways: with no key it fails closed before any HTTP call; with a
+        key RapidAPI refuses, the refusal is logged and no rows are invented
+        (search() then scrapes the live page instead).
         """
-        print("[WARN] AliExpress RapidAPI search disabled (available key has "
-              "no search endpoint) — returning no rows")
+        client = RapidAPIAliExpress()
+        if not client.api_key:
+            print("[WARN] AliExpress RapidAPI search disabled "
+                  "(RAPIDAPI_KEY not set) — falling back to scraping")
+            return []
+        try:
+            raw_rows = client.search_products(query)
+        except requests.RequestException as exc:
+            print(f"[WARN] AliExpress RapidAPI search unavailable ({exc}) "
+                  "— falling back to scraping")
+            return []
+        products = []
+        for raw_row in raw_rows:
+            product = self._api_row_to_product(raw_row)
+            if product:
+                products.append(product)
+        if products:
+            return products
+        print(
+            f"[WARN] AliExpress RapidAPI returned no usable rows for "
+            f"'{query}' — falling back to scraping"
+        )
         return []
+
+    def _api_row_to_product(self, row) -> Optional[ScrapedProduct]:
+        """Convert one RapidAPI search row — skipping, never guessing.
+
+        A row is usable only with a real title, a positive price and a real
+        product URL. Stock, shipping and AliExpress Standard Shipping are
+        never assumed from a payload that did not state them (C1/C13), and
+        an orders figure is the source's own popularity count — carried as
+        display text, never as stock availability.
+        """
+        if not isinstance(row, dict):
+            return None
+        title = str(row.get("title") or "").strip()
+        if len(title) < 5:
+            return None
+        try:
+            price = float(row.get("price"))
+        except (TypeError, ValueError):
+            return None
+        if not (0.1 <= price <= 10000.0):
+            return None
+        url = str(row.get("url") or "").strip()
+        if url.startswith("//"):
+            url = "https:" + url
+        elif url.startswith("/"):
+            url = self.BASE_URL + url
+        if not url.startswith("http"):
+            return None
+
+        rating = row.get("rating")
+        review_rating = None
+        review_count = None
+        review_verified = False
+        if isinstance(rating, dict):
+            try:
+                candidate = float(
+                    rating.get("rating")
+                    if rating.get("rating") is not None
+                    else rating.get("score")
+                )
+            except (TypeError, ValueError):
+                candidate = None
+            if candidate is not None and 0.0 <= candidate <= 5.0:
+                review_rating = candidate
+                review_verified = True
+            try:
+                count = int(str(rating.get("count", "")).replace(",", ""))
+            except (TypeError, ValueError):
+                count = None
+            if count and count > 0:
+                review_count = count
+        elif rating is not None and str(rating).strip():
+            review_rating, review_count, review_verified = self._parse_review_text(
+                str(rating)
+            )
+
+        orders = row.get("orders")
+        seller_orders = (
+            str(orders).strip() if orders not in (None, 0, "") else None
+        )
+
+        return ScrapedProduct(
+            source="aliexpress",
+            title=title,
+            price=round(price * USD_TO_GBP, 2),
+            url=url,
+            image_url=(
+                str(row["image_url"]).strip() if row.get("image_url") else None
+            ),
+            delivery_days_min=self.DELIVERY_DAYS_MIN,
+            delivery_days_max=self.DELIVERY_DAYS_MAX,
+            seller_orders=seller_orders,
+            # C10 — the API said nothing about condition; '' (unknown),
+            # never an assumed "New".
+            condition="",
+            verified=True,
+            # C13 — a real API response, tagged as such; the page-sourced
+            # rows above carry "browser" instead.
+            fetch_method="api",
+            # C1/C13 — the payload carried no stock, shipping or
+            # Standard Shipping statement, so all of those stay unknown.
+            in_stock="",
+            stock_raw="",
+            availability_url="",
+            shipping_cost=0.0,
+            shipping_raw="",
+            review_rating=review_rating,
+            review_count=review_count,
+            review_verified=review_verified,
+            review_source="rapidapi" if review_verified else "",
+        )
 
     def _parse_search_results(self, html: str) -> list[ScrapedProduct]:
         """Parse AliExpress search results page."""

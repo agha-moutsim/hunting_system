@@ -6,6 +6,7 @@ Get free key at: https://rapidapi.com/aliexpressapi/api/aliexpress-api/
 
 import os
 import logging
+import re
 from typing import Optional
 
 import requests
@@ -51,11 +52,8 @@ class RapidAPIAliExpress:
             items = items.get("products", [])
 
         for item in (items or [])[:limit]:
-            price_str = item.get("price", item.get("product_price", "0"))
-            try:
-                price = float(str(price_str).replace("£", "").replace(",", ""))
-            except (ValueError, TypeError):
-                price = 0.0
+            match = re.search(r"\d+(?:[.,]\d+)?", str(item.get("price", item.get("product_price", ""))))
+            price = float(match.group().replace(",", "")) if match else 0.0
 
             products.append({
                 "source": "AliExpress",
@@ -64,8 +62,10 @@ class RapidAPIAliExpress:
                 "original_price": price,
                 "url": item.get("product_url", item.get("url", "")),
                 "image_url": item.get("product_image", item.get("image", "")),
-                "orders": item.get("product_sale_price", item.get("orders", 0)),
-                "rating": item.get("product_rating"),
+                # Only a real orders count from the payload. A sale price is
+                # money, not a popularity count — never label it as orders.
+                "orders": item.get("orders"),
+                "rating": item.get("product_rating", item.get("rating")),
             })
 
         return products
