@@ -1,6 +1,6 @@
 # Handoff - current state
 
-Last updated: 2026-10-21, at the close of Phase J.
+Last updated: 2026-10-23, AliExpress supplier discovery rewired post-Phase-J.
 Read this first, then `implementation.md` (phase specs and rules) and `design.md` (surfaces).
 
 ## Where the work stands
@@ -31,6 +31,43 @@ credentials. There is no Phase K.
 
 The one live-browser gap from Phase A remains: the extension is loaded and reaches the backend,
 but it has not completed a successful capture. It is a verification gap, not a missing phase.
+
+## Live state — AliExpress supplier discovery, measured 2026-10-23
+
+### The old listing is gone; AliGate is wired and verified
+
+- The previous RapidAPI listing `aliexpress-api.p.rapidapi.com` was **removed** (its page
+  404s into RapidAPI's generic hub, which also explains the earlier "not subscribed" 403).
+- The seam now targets **AliGate** (`aligate-aliexpress-data-api.p.rapidapi.com`,
+  `GET /api/v2/search/text`): free Basic tier — **100 requests/month hard cap**, 1 req/sec.
+  The key belongs to the same RapidAPI app; the user subscribed to AliGate under it and
+  rotated the key after it appeared in chat/screenshot twice. Host and market scope are
+  `.env`-overridable: `RAPIDAPI_HOST`, `ALIGATE_COUNTRY`/`ALIGATE_CURRENCY`/`ALIGATE_LOCALE`
+  (defaults `GB`/`GBP`/`en_GB`, accepted by the gateway live).
+- Every unknown was settled from the gateway's own answers, never guessed:
+  `keywords` → renamed to `query` after `meta.error "query is required"`; the row list sits
+  under `item.products` (found via the truncated body snapshot the connector now logs on an
+  unparsed HTTP 200); `meta.code: 409 "please try again"` earned one bounded retry.
+- End-to-end live run (`Analyzer` query "stainless steel water bottle 500ml"): **7 supplier
+  rows** — 3 B&Q browser rows plus **4 AliExpress rows with `fetch_method="api"`**
+  (£6.00–£11.59, GBP-tagged in the payload, passed through unconverted), scored, ranked and
+  persisted through the sourcing standard. USD- or untagged-currency rows still convert at
+  the fixed 0.79 rate; any other stated currency is skipped rather than ranked as GBP.
+- Known provider quirk: some long branded listing titles (e.g. the "Vodafone … 24/12h"
+  bottle) return a persistent 409 even after the retry — one provider-side failure the
+  honesty layer absorbs ("no suppliers" with the fallback WARN), not an app defect. Quota
+  note: supplier search spends 1–2 of the 100 monthly requests per keyword; bulk/deep-search
+  runs will consume it faster. AliGate Pro ($6.99/mo, 350/day) is the upgrade path if needed.
+
+### Suite hermeticity (same session)
+
+- `config.py` `load_dotenv()`s at import, so the pytest process carried the user's real
+  `RAPIDAPI_KEY`. An autouse `_no_live_rapidapi_key` fixture in `tests/conftest.py` now
+  deletes it (same leak class as the Joybuy guard and the hermetic price band); tests that
+  want a key monkeypatch their own, which wins. One suite run had already burned a live
+  metered request before the guard landed.
+- Backend suite: **1775 passed, 9 deselected**. Commits this thread: `cbd23b0`, `0b34c6f`,
+  `ab7f505`, `4c8d5ff`, `a481158` — all pushed.
 
 ## Live state
 
