@@ -235,6 +235,60 @@ class TestTheConnectorMapping:
         assert captured["headers"]["x-rapidapi-key"]
         assert "/api/v2/search/text" in captured["url"]
 
+    def test_an_aligate_transient_is_retried_once(
+        self, monkeypatch, _search_key, capsys
+    ):
+        """meta.code 409 '…please try again' is the gateway's own advice:
+        one bounded retry, then the second answer flows through."""
+        responses = iter([
+            _FakeResponse({
+                "meta": {"code": 409, "error": "The data could not be "
+                                               "retrieved cleanly, please try again"},
+                "item": None,
+            }),
+            _FakeResponse({
+                "item": {"products": [{
+                    "id": "1005007313157433",
+                    "title": "Water Bottle Insulated 500ml",
+                    "price": {"min_value": 5.20, "currency": "GBP"},
+                }]},
+            }),
+        ])
+        monkeypatch.setattr(
+            aliexpress_api.requests, "get",
+            lambda *a, **k: next(responses),
+        )
+        sleeps = []
+        monkeypatch.setattr(
+            aliexpress_api.time, "sleep", lambda s: sleeps.append(s)
+        )
+
+        rows = RapidAPIAliExpress().search_products("water bottle")
+
+        assert sleeps == [2]
+        assert len(rows) == 1
+        assert rows[0]["price"] == 5.2
+        assert rows[0]["currency"] == "GBP"
+
+    def test_a_transient_that_persists_is_reported_not_invented(
+        self, monkeypatch, _search_key, capsys
+    ):
+        responses = iter([
+            _FakeResponse({"meta": {"code": 409, "error": "try again"},
+                           "item": None}),
+            _FakeResponse({"meta": {"code": 409, "error": "try again"},
+                           "item": None}),
+        ])
+        monkeypatch.setattr(
+            aliexpress_api.requests, "get",
+            lambda *a, **k: next(responses),
+        )
+        monkeypatch.setattr(aliexpress_api.time, "sleep", lambda s: None)
+
+        assert RapidAPIAliExpress().search_products("water bottle") == []
+        out = capsys.readouterr().out
+        assert "'code': 409" in out
+
     def test_without_a_key_the_connector_raises(self, monkeypatch):
         monkeypatch.delenv("RAPIDAPI_KEY", raising=False)
         with pytest.raises(ValueError):

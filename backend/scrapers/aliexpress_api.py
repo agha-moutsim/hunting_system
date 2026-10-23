@@ -21,6 +21,7 @@ listing on RapidAPI).
 import os
 import logging
 import re
+import time
 from typing import Optional
 
 import requests
@@ -58,15 +59,9 @@ class RapidAPIAliExpress:
             "x-rapidapi-host": self.host,
         }
 
-    def search_products(self, keyword: str, limit: int = 10) -> list[dict]:
-        """Search AliExpress via AliGate — rows normalized for the converter."""
-        if not self.api_key:
-            raise ValueError(
-                "RAPIDAPI_KEY required — subscribe (free tier) at "
-                "https://rapidapi.com/aligate/api/aligate-aliexpress-data-api"
-            )
-
-        resp = requests.get(
+    def _request(self, keyword: str) -> requests.Response:
+        """One GET /api/v2/search/text call, scoped to the sourcing market."""
+        return requests.get(
             f"https://{self.host}{SEARCH_PATH}",
             headers=self._headers(),
             params={
@@ -77,6 +72,16 @@ class RapidAPIAliExpress:
             },
             timeout=15,
         )
+
+    def search_products(self, keyword: str, limit: int = 10) -> list[dict]:
+        """Search AliExpress via AliGate — rows normalized for the converter."""
+        if not self.api_key:
+            raise ValueError(
+                "RAPIDAPI_KEY required — subscribe (free tier) at "
+                "https://rapidapi.com/aligate/api/aligate-aliexpress-data-api"
+            )
+
+        resp = self._request(keyword)
         try:
             resp.raise_for_status()
         except requests.RequestException:
@@ -90,6 +95,23 @@ class RapidAPIAliExpress:
             raise
 
         data = resp.json()
+        meta = data.get("meta") if isinstance(data, dict) else None
+        if isinstance(meta, dict) and meta.get("code") == 409:
+            # AliGate's own message ("The data could not be retrieved
+            # cleanly, please try again") is a live-parser transient, not a
+            # contract error. One bounded retry — whatever the second
+            # answer says then flows through the same reporting below.
+            time.sleep(2)
+            resp = self._request(keyword)
+            try:
+                resp.raise_for_status()
+            except requests.RequestException:
+                print(
+                    f"[WARN] AliGate RapidAPI refused (retry): "
+                    f"{resp.status_code} {str(resp.text[:300])}"
+                )
+                raise
+            data = resp.json()
 
         products = []
         for item in self._rows(data)[:limit]:
