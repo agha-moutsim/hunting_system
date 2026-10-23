@@ -194,6 +194,18 @@ class TestTheConnectorMapping:
         assert "[WARN] AliGate RapidAPI refused: 403" in out
         assert "You are not subscribed" in out
 
+    def test_an_unparsed_http_200_logs_a_body_snapshot(
+        self, monkeypatch, _search_key, capsys
+    ):
+        payload = {"meta": {"code": 200}, "unrecognised_envelope": []}
+        _stub_get(monkeypatch, _FakeResponse(payload))
+        rows = RapidAPIAliExpress().search_products("water bottle")
+
+        assert rows == []
+        out = capsys.readouterr().out
+        assert "[WARN] AliGate answered with no parsed rows" in out
+        assert "unrecognised_envelope" in out
+
     def test_without_a_key_the_connector_raises(self, monkeypatch):
         monkeypatch.delenv("RAPIDAPI_KEY", raising=False)
         with pytest.raises(ValueError):

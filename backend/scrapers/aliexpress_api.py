@@ -99,6 +99,17 @@ class RapidAPIAliExpress:
             if row:
                 products.append(row)
 
+        if not products:
+            # An HTTP 200 can still carry an app-level refusal or an
+            # envelope that mouths a key different from any the parser
+            # reads. Log a truncated snapshot of the REAL body so the
+            # answer is diagnosed from the publisher's own words — never
+            # guessed, and never any credential material.
+            print(
+                "[WARN] AliGate answered with no parsed rows — snapshot: "
+                f"{str(data)[:400]}"
+            )
+
         return products
 
     @staticmethod
