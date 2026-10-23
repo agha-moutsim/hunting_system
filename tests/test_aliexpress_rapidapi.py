@@ -160,6 +160,7 @@ class TestTheConnectorMapping:
         {"data": [{"title": "Water Bottle Insulated 500ml"}]},
         {"items": [{"title": "Water Bottle Insulated 500ml"}]},
         {"results": [{"title": "Water Bottle Insulated 500ml"}]},
+        {"item": {"products": [{"title": "Water Bottle Insulated 500ml"}]}},
     ])
     def test_rows_are_found_wherever_the_envelope_puts_them(
         self, monkeypatch, _search_key, envelope

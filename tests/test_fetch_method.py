@@ -66,14 +66,15 @@ class TestTheFieldItself:
 
 
 class TestAliExpress:
-    """No API path exists at all, so every row it returns is a browser read."""
+    """Search-card rows are browser reads; the RapidAPI seam's fail-closed
+    and refusal behaviours are covered in test_aliexpress_rapidapi.py."""
 
     def test_search_card_is_tagged_browser(self):
         from scrapers.aliexpress import AliExpressScraper
 
         html = (
             f'<div><a href="/item/1005001234567890.html" title="{TITLE}">'
-            f'<h3>{TITLE}</h3><span data-price="89.99"></span></a></div>'
+            f"<h3>{TITLE}</h3><span data-price=\"89.99\"></span></a></div>"
         )
         soup = AliExpressScraper().parse(html)
         card = soup.select_one("a[href*='/item/']")
@@ -84,12 +85,15 @@ class TestAliExpress:
         assert product is not None
         assert product.fetch_method == "browser"
 
-    def test_it_does_not_report_an_api_it_does_not_have(self):
+    def test_the_seam_fails_closed_without_a_key(self, monkeypatch):
         from scrapers.aliexpress import AliExpressScraper
 
-        scraper = AliExpressScraper()
-        # The disabled API seam must stay silent rather than emit rows.
-        assert scraper._search_via_rapidapi("drill") == []
+        # No key in the test environment — the seam must stay silent
+        # rather than reach the network at all. Hermetic on purpose: a live
+        # key reaching this test once burned a real metered AliGate request
+        # when the app became search-subscribed.
+        monkeypatch.delenv("RAPIDAPI_KEY", raising=False)
+        assert AliExpressScraper()._search_via_rapidapi("drill") == []
 
 
 class TestAmazonUK:

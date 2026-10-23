@@ -114,10 +114,10 @@ class RapidAPIAliExpress:
     def _rows(data) -> list:
         """Search answer rows, wherever the publisher's envelope puts them.
 
-        The exact shape of /search/text's answer body is not published; the
-        parser accepts the envelope families tabular storefront APIs use — a
-        bare list, or a list under products/items/results/data — and passes
-        through only rows that actually are dicts.
+        AliGate's live search answer (v1.4.0) nests the row list under
+        `item.products`; the parser also reads the flat row-list families
+        — a bare list, or a list under products/items/results/data — and
+        passes through only rows that actually are dicts.
         """
         if isinstance(data, dict):
             data = (
@@ -125,6 +125,7 @@ class RapidAPIAliExpress:
                 or data.get("items")
                 or data.get("results")
                 or data.get("data")
+                or (data.get("item") or {}).get("products")
                 or []
             )
         if isinstance(data, list):

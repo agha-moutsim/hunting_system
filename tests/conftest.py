@@ -76,3 +76,20 @@ def _hermetic_price_filters(monkeypatch):
     yield
     filters_mod._cache = {"mtime": None, "data": None}
     tmp.cleanup()
+
+
+@pytest.fixture(autouse=True)
+def _no_live_rapidapi_key(monkeypatch):
+    """Delete the RapidAPI key that config.py loads from .env at import.
+
+    config.py runs load_dotenv() when imported, so every test suite
+    process carries the user's real RAPIDAPI_KEY in os.environ. That stayed
+    harmless while the key's app had no search subscription, but the moment
+    it became search-capable a test that never stubbed the AliExpress seam
+    burned a real metered request during the suite (test_fetch_method's
+    AliExpress call reached AliGate live). Same leak class as the Joybuy
+    and price-band guards above: the suite must not depend on ambient
+    credentials. Any test that genuinely wants a key monkeypatches its own
+    value afterwards, which wins over this deletion.
+    """
+    monkeypatch.delenv("RAPIDAPI_KEY", raising=False)
