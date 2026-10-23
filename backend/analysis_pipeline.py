@@ -14,7 +14,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from config import MAX_SUPPLIERS
+from config import EBAY_CLIENT_ID, EBAY_CLIENT_SECRET, MAX_SUPPLIERS
 from db.database import SessionLocal
 from db.queries import (
     clear_analysis_data,
@@ -460,10 +460,22 @@ async def run_analysis_pipeline(
         else:
             search_results = ebay.search(query, limit=5)
             if not search_results:
-                results["errors"].append(
-                    "eBay requires API keys to search. "
-                    "Get free keys at https://developer.ebay.com and add them to .env"
-                )
+                # An empty search carries two different truths: without
+                # credentials no request was made at all, while credentials
+                # present means eBay itself answered empty for these words.
+                # The error carries only the sentence that is actually true.
+                if not (EBAY_CLIENT_ID and EBAY_CLIENT_SECRET):
+                    results["errors"].append(
+                        "eBay requires API keys to search. "
+                        "Get free keys at https://developer.ebay.com and add them to .env"
+                    )
+                else:
+                    results["errors"].append(
+                        f'eBay returned no listings for "{query}" with the active '
+                        f"filters ({band_label()}, New-only). Try different or fewer "
+                        f"words, check the spelling, or retry shortly."
+                    )
+                _report("✗ No eBay listings reached us for this search")
                 return results
             # C10 — drop non-New BEFORE price selection so we pick the first
             # listing that is both in-band and New, instead of analysing a

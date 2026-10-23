@@ -69,6 +69,18 @@ but it has not completed a successful capture. It is a verification gap, not a m
 - Backend suite: **1775 passed, 9 deselected**. Commits this thread: `cbd23b0`, `0b34c6f`,
   `ab7f505`, `4c8d5ff`, `a481158` — all pushed.
 
+### Honest empty-search error (same day)
+
+- The user's Analyze on a misspelt query ("black gloss tire coting") showed "eBay requires
+  API keys" although `.env` has them. The Step-1 zero-result branch claimed a cause it
+  could not know: `ebay.search()` returns `[]` for missing keys AND for a genuine empty
+  answer AND for a swallowed network error. Live probe settled it — eBay returned
+  `total: 0` for the misspelt phrase with and without filters, while the corrected words
+  ("black gloss tire coating", "tyre coating") return ~240/234 listings. The branch now
+  says "requires API keys" only when the credentials are truly absent, and otherwise
+  names the honest truth: eBay returned no listings for that query with the active
+  filters (band + New-only) — try different or fewer words, spelling, or retry.
+
 ## Live state
 
 ### Phase J, measured 2026-10-21
