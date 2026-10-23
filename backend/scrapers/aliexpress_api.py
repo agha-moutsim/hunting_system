@@ -34,12 +34,10 @@ DEFAULT_RAPIDAPI_HOST = "aligate-aliexpress-data-api.p.rapidapi.com"
 
 SEARCH_PATH = "/api/v2/search/text"
 
-# Query-string key /api/v2/search/text accepts the keyword under. It is not
-# published anywhere reachable without an active key, so the first live
-# answer has to confirm it — a wrong key comes back as a logged 400 whose
-# body names the expected parameter, not as silent data loss, and the page
-# scrape takes over either way.
-SEARCH_KEYWORD_PARAM = "keywords"
+# Query-string key /api/v2/search/text accepts the keyword under — confirmed
+# live: requesting it as `keywords` came back HTTP 200 with
+# meta.error "query is required" (the gateway names its own contract).
+SEARCH_KEYWORD_PARAM = "query"
 
 
 class RapidAPIAliExpress:

@@ -206,6 +206,34 @@ class TestTheConnectorMapping:
         assert "[WARN] AliGate answered with no parsed rows" in out
         assert "unrecognised_envelope" in out
 
+    def test_the_request_shape_matches_the_live_gateway_contract(
+        self, monkeypatch, _search_key
+    ):
+        """Pinned from the gateway's own live answer: param `query` (not
+        `keywords`) — 'query is required' — with the GB/GBP/en_GB scope
+        accepted and the mandatory RapidAPI headers along with it."""
+        captured = {}
+
+        def fake_get(url, headers=None, params=None, timeout=None):
+            captured["url"] = url
+            captured["headers"] = headers
+            captured["params"] = params
+            return _FakeResponse({"products": []})
+
+        monkeypatch.setattr(aliexpress_api.requests, "get", fake_get)
+        RapidAPIAliExpress().search_products("water bottle")
+
+        assert captured["params"]["query"] == "water bottle"
+        assert captured["params"]["country"] == "GB"
+        assert captured["params"]["currency"] == "GBP"
+        assert captured["params"]["locale"] == "en_GB"
+        assert (
+            captured["headers"]["x-rapidapi-host"]
+            == aliexpress_api.DEFAULT_RAPIDAPI_HOST
+        )
+        assert captured["headers"]["x-rapidapi-key"]
+        assert "/api/v2/search/text" in captured["url"]
+
     def test_without_a_key_the_connector_raises(self, monkeypatch):
         monkeypatch.delenv("RAPIDAPI_KEY", raising=False)
         with pytest.raises(ValueError):
