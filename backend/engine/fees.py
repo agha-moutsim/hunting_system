@@ -205,6 +205,9 @@ _UK_RATE_CARD = {
     "version": "eBay UK rate card - business page updated 2026-09-30, private page updated 2024-10-01",
     "currency": "GBP",
     "vat_rate": 20.0,
+    "domestic_region": "uk",
+    "domestic_region_label": "UK",
+    "domestic_region_article": "A",
     "sources": [_SOURCES["business"], _SOURCES["private"]],
     "business": {
         "fees_include_vat": False,
@@ -540,6 +543,8 @@ _AU_RATE_CARD = {
     "tax_name": "GST",
     "gst_rate": 10.0,
     "domestic_region": "au",
+    "domestic_region_label": "Australian",
+    "domestic_region_article": "An",
     # The free-selling (Individual) branch is the default for an AU seller;
     # a business seller selects a Pro plan at runtime.
     "default_seller_type": "private",
@@ -1183,6 +1188,7 @@ def list_categories(table: Optional[dict] = None) -> list[dict]:
 
 BUYER_REGIONS = {
     "uk": "UK",
+    "au": "Australia",
     "eu_northern_europe": "Eurozone & Northern Europe",
     "us_canada": "US & Canada",
     "rest_of_world": "all other countries",
@@ -1229,7 +1235,7 @@ def calculate_fees(
     uk_resident: bool = True,
     vat_registered: bool = False,
     listing_fee: float = 0.0,
-    buyer_region: str = "uk",
+    buyer_region: Optional[str] = None,
     fee_table: Optional[str] = None,
 ) -> dict:
     """The eBay fees on one sale. Every fee figure in the product comes from
@@ -1238,6 +1244,9 @@ def calculate_fees(
     `seller_type=None` uses the table's own default: business for the UK
     card, private (free selling) for the AU card. `seller_plan` selects one
     of a business card's Pro plans; the AU card defaults to Pro Starter.
+    `buyer_region=None` uses the table's domestic region (UK for the UK card,
+    Australia for the AU card), so a domestic sale never pays an
+    international fee by omission.
 
     Raises ValueError, never prints a guess:
 
@@ -1268,12 +1277,13 @@ def calculate_fees(
         raise ValueError(
             f"promoted_rate must be below 100 (a percentage of the sale), got {promoted:g}"
         )
+    tbl = get_fee_table(fee_table)
+    if buyer_region is None:
+        buyer_region = tbl.get("domestic_region", "uk")
     if buyer_region not in BUYER_REGIONS:
         raise ValueError(
             f"unknown buyer_region {buyer_region!r}; expected one of {sorted(BUYER_REGIONS)}"
         )
-
-    tbl = get_fee_table(fee_table)
     if seller_type is None:
         seller_type = tbl.get("default_seller_type", "business")
     side = seller_side(tbl, seller_type, uk_resident=uk_resident, plan=seller_plan)
@@ -1348,18 +1358,22 @@ def calculate_fees(
     listing_percent = side.get("listing_fee_percent")
     listing_percent_fee = total * listing_percent / 100.0 if listing_percent else None
 
-    # --- International fee: only for a non-UK delivery address ---
+    # --- International fee: only for a delivery address outside the card's
+    # domestic region. A UK card defaults to UK; an AU card defaults to AU. ---
+    domestic_region = tbl.get("domestic_region", "uk")
     intl = side.get("international_fee_percent")
-    if isinstance(intl, dict):
-        intl_rate: Optional[float] = intl.get(buyer_region)
+    if buyer_region == domestic_region:
+        intl_rate: Optional[float] = 0.0
+    elif isinstance(intl, dict):
+        intl_rate = intl.get(buyer_region)
     elif intl is not None:
-        intl_rate = 0.0 if buyer_region == "uk" else float(intl)
+        intl_rate = float(intl)
     else:
         intl_rate = None
     international = (
         total * intl_rate / 100.0 if intl_rate is not None and intl_rate > 0 else None
     )
-    if buyer_region != "uk" and intl_rate is None:
+    if buyer_region != domestic_region and intl_rate is None:
         notes.append(
             "The international fee for this seller type is not on the rate "
             "card section used here; check your local fee page."
@@ -1442,14 +1456,21 @@ def calculate_fees(
             "postage-inclusive fee bases; the published rate card charges on "
             "the total amount of the sale."
         )
-    if buyer_region == "uk":
+    if buyer_region == domestic_region:
+        domestic_label = tbl.get(
+            "domestic_region_label", BUYER_REGIONS[domestic_region]
+        )
+        article = tbl.get("domestic_region_article") or (
+            "An" if domestic_label[:1].upper() in "AEIOU" else "A"
+        )
         assumptions.append(
-            "A UK delivery address is assumed; eBay's international fee is not included."
+            f"{article} {domestic_label} delivery address is assumed; eBay's "
+            "international fee is not included."
         )
     else:
         assumptions.append(
             f"Buyer region: {BUYER_REGIONS[buyer_region]}; the international fee "
-            "above applies to deliveries outside the UK."
+            f"above applies to deliveries outside {BUYER_REGIONS[domestic_region]}."
         )
     if listing <= 0 and listing_percent_fee is None:
         guidance = side.get("listing_fee_guidance") or (
@@ -1669,7 +1690,7 @@ def sale_outcome(
     uk_resident=True,
     vat_registered=False,
     listing_fee=0.0,
-    buyer_region="uk",
+    buyer_region=None,
     fee_table=None,
 ) -> dict:
     """The whole money view of one sale: fees, net after them, profit, margin.
@@ -1778,7 +1799,7 @@ def solve_for_margin(
     uk_resident=True,
     vat_registered=False,
     listing_fee=0.0,
-    buyer_region="uk",
+    buyer_region=None,
     fee_table=None,
 ) -> dict:
     """Reverse mode: the sale price that nets a target margin.

@@ -635,3 +635,76 @@ class TestTheMoneyLayerCarriesThePlan:
         assert solved["achievable"] is True
         assert solved["price"] > 0
         assert solved["check"]["fees_cost_total"] > 0
+
+
+class TestTheDeliveryRegionIsPerCard:
+    def test_an_au_sale_defaults_to_domestic_and_pays_no_international_fee(self):
+        result = fees.calculate_fees(
+            20.0, seller_type="business", category="tier-2", fee_table=AU
+        )
+        assert result["buyer_region"] == "au"
+        assert result["international_fee"] is None
+        assert result["fees_quoted_total"] == pytest.approx(2.98, abs=0.005)
+        assert any(
+            "An Australian delivery address" in a for a in result["assumptions"]
+        )
+
+    def test_an_au_business_sale_to_the_uk_pays_one_point_one_percent(self):
+        result = fees.calculate_fees(
+            20.0,
+            seller_type="business",
+            category="tier-2",
+            buyer_region="uk",
+            fee_table=AU,
+        )
+        assert result["international_fee"] == pytest.approx(0.22, abs=0.005)
+        assert result["fees_quoted_total"] == pytest.approx(3.20, abs=0.005)
+        assert any("Buyer region: UK" in a for a in result["assumptions"])
+
+    def test_an_au_private_sale_to_the_uk_pays_three_percent(self):
+        result = fees.calculate_fees(
+            100.0, seller_type="private", buyer_region="uk", fee_table=AU
+        )
+        assert result["international_fee"] == pytest.approx(3.00, abs=0.005)
+        assert result["fees_quoted_total"] == pytest.approx(3.00, abs=0.005)
+        assert result["fvf"] == 0.0
+
+    def test_an_explicit_domestic_region_is_still_domestic(self):
+        result = fees.calculate_fees(
+            20.0,
+            seller_type="business",
+            category="tier-2",
+            buyer_region="au",
+            fee_table=AU,
+        )
+        assert result["international_fee"] is None
+        assert result["fees_quoted_total"] == pytest.approx(2.98, abs=0.005)
+
+    def test_the_uk_card_still_defaults_to_uk(self):
+        result = fees.calculate_fees(100.0, seller_type="business")
+        assert result["buyer_region"] == "uk"
+        assert result["international_fee"] is None
+        assert any("A UK delivery address" in a for a in result["assumptions"])
+
+    def test_a_region_the_card_does_not_price_is_absent_with_a_note(self):
+        result = fees.calculate_fees(
+            100.0, seller_type="business", buyer_region="au"
+        )
+        assert result["international_fee"] is None
+        assert any("not on the rate card" in n for n in result["notes"])
+
+    def test_an_unknown_region_is_still_refused(self):
+        with pytest.raises(ValueError) as err:
+            fees.calculate_fees(100.0, buyer_region="mars")
+        assert "unknown buyer_region" in str(err.value)
+
+    def test_sale_outcome_also_defaults_to_the_cards_domestic_region(self):
+        outcome = fees.sale_outcome(
+            20.0,
+            supplier_cost=5.0,
+            seller_type="business",
+            category="tier-2",
+            fee_table=AU,
+        )
+        assert outcome["fees"]["buyer_region"] == "au"
+        assert outcome["fees"]["international_fee"] is None
