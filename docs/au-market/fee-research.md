@@ -437,3 +437,71 @@ part of free selling.
 outside Australia, when the seller has a Pro plan, when selling vehicles, or
 when selling on eBay Live. Only the first two branches are modelled; the last
 two are in the not-modelled list.
+
+### 8.2 Listing fees in free selling
+
+Capture #3, "Fee per listing (incl. GST)". The free-selling branch has one fee
+column, not a plan matrix:
+
+| Item                                                     | Fee (incl. GST)                                                |
+| -------------------------------------------------------- | -------------------------------------------------------------- |
+| Listing in any format — first 250,000 listings per month | FREE                                                           |
+| Excess listing (after the monthly allowance)             | $1.00                                                          |
+| List in a second category                                | $1.00                                                          |
+| Subtitle                                                 | $2.20                                                          |
+| Buy It Now added to an auction                           | FREE in most categories; $0.11 in a small number of categories |
+| Scheduled listing                                        | FREE in most categories; $0.44 in a small number of categories |
+
+The same small-category list applies: Business > Websites & Businesses for Sale
+(11759), Gift Cards & Vouchers > Gift Cards (172009), Home & Garden > Real
+Estate (10542), Services (316), Tickets, Travel > Flights (3253), Tickets
+(1305), Travel (3252). Relists/renewals follow the same pattern as the Pro
+page: automatic auction relists (up to eight) pay once; fixed-price listings
+renew monthly and pay the listing/upgrade fee again; a manual relist pays again.
+
+### 8.3 International sales fee in free selling
+
+Capture #3:
+
+> If your registered address is in Australia, we charge an international sales
+> fee of 3% (incl. GST) if the delivery address for the item (entered by the
+> buyer during checkout) is outside Australia.
+
+This is **3%** on the free-selling page, against **1.1%** on the Pro page. The
+two pages are pricing different branches; the card keeps both numbers on their
+own branch and never averages them.
+
+### 8.4 Performance, dispute and currency charges
+
+Capture #3 carries the same four charges as the Pro page, with the same
+values:
+
+- Below Standard: **5.5% (incl. GST)** on the total sale amount for all
+  categories in the following calendar month; **6.6%** after four or more
+  consecutive months.
+- Very High 'Item not as described' returns: **5.5% (incl. GST)** on the
+  affected categories; **6.6%** after four or more consecutive months.
+- Dispute fee: **$24.20 (incl. GST)** per dispute.
+- Seller currency conversion charge: **3%**, increasing to **3.25%** from
+  **1 November 2026** for sellers registered in Australia.
+
+The GST section is also identical: Australian GST of 10% is payable on eBay
+fees, displayed inclusive unless the seller has an ABN and tax-exempt status
+registered with eBay.
+
+### 8.5 The foreign-seller table (documented, not modelled)
+
+Capture #3 also carries a section for sellers whose registration address is
+**outside Australia**. It is transcribed here so the card can state why it is
+not used for an AU-registered seller:
+
+| Item                          | Fee (incl. GST)                                          |
+| ----------------------------- | -------------------------------------------------------- |
+| Fixed fee, all categories     | $0.30 per order                                          |
+| Variable FVF, most categories | 13.4% of the sale amount up to $4,000 + 2.5% over $4,000 |
+| NFTs                          | 5.5% of the total sale amount                            |
+| Services                      | $44.00                                                   |
+
+The page's example ($6,000 sale) totals **$586.30**: $0.30 + 13.4% × $4,000 +
+2.5% × $2,000. The card's AU branch uses the AU-registered rates; this table is
+kept as a documented alternative, not as a second default.
