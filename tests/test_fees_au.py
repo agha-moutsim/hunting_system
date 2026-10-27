@@ -424,3 +424,42 @@ class TestTheLabelMandatePredicate:
     def test_stated_item_facts_leave_no_assumptions(self):
         result = self._decide(100.0)
         assert result["assumptions"] == []
+
+
+class TestGstIsIncludedNotAdded:
+    """AU fees are displayed GST-inclusive; a GST-on-fees line would double
+    count. The UK card's VAT behaviour must remain exactly as it was."""
+
+    def test_au_private_fees_carry_gst_inside_the_quoted_total(self):
+        result = fees.calculate_fees(100.0, seller_type="private", fee_table=AU)
+        assert result["tax"] == {"name": "GST", "rate": 10.0, "included": True}
+        assert result["vat_on_fees"] is None
+        assert result["vat_recoverable"] is False
+        assert result["fees_quoted_total"] == 0.0
+        assert result["fees_gross_total"] == 0.0
+        assert result["fees_cost_total"] == 0.0
+        assert "inclusive of GST" in result["vat_note"]
+        assert "no GST is added" in result["vat_note"]
+
+    def test_postage_does_not_create_a_gst_line(self):
+        result = fees.calculate_fees(
+            100.0,
+            postage_charged=10.0,
+            seller_type="private",
+            fee_table=AU,
+        )
+        assert result["total_amount_of_sale"] == 110.0
+        assert result["fees_quoted_total"] == 0.0
+        assert result["vat_on_fees"] is None
+
+    def test_the_uk_business_card_still_adds_vat(self):
+        result = fees.calculate_fees(100.0, seller_type="business")
+        assert result["tax"] == {"name": "VAT", "rate": 20.0, "included": False}
+        assert result["vat_on_fees"] > 0
+        assert "20% VAT is added" in result["vat_note"]
+
+    def test_the_uk_private_card_is_still_vat_inclusive(self):
+        result = fees.calculate_fees(100.0, seller_type="private")
+        assert result["tax"] == {"name": "VAT", "rate": 20.0, "included": True}
+        assert result["vat_on_fees"] is None
+        assert "inclusive of VAT" in result["vat_note"]

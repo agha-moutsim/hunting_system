@@ -1304,37 +1304,54 @@ def calculate_fees(
     ]
     quoted_raw = sum(fee_lines_raw)
 
-    # --- VAT: the two rate cards quote VAT differently, and that difference
-    # is itself published - do not normalise it away ---
+    # --- Tax: the two rate cards quote tax differently, and that difference
+    # is itself published - do not normalise it away. The UK card calls it
+    # VAT and quotes business fees exclusive / private fees inclusive; the
+    # AU card calls it GST and quotes every displayed fee inclusive.
+    tax_rate = tbl.get("gst_rate", tbl.get("vat_rate"))
+    if tax_rate is None:
+        raise KeyError(
+            f"fee table {tbl['key']!r} carries neither a VAT nor a GST rate"
+        )
+    tax_name = tbl.get("tax_name", "VAT")
+    includes_tax = bool(
+        side.get("fees_include_gst", side.get("fees_include_vat", False))
+    )
     vat_raw: Optional[float]
-    if side.get("fees_include_vat"):
+    if includes_tax:
         vat_raw = None
         vat_recoverable: Optional[bool] = False
-        vat_note = (
-            "Private seller fees are quoted inclusive of VAT at "
-            f"{tbl['vat_rate']:g}% on the private rate card; no VAT is added."
-        )
+        if tax_name == "VAT":
+            vat_note = (
+                "Private seller fees are quoted inclusive of VAT at "
+                f"{tax_rate:g}% on the private rate card; no VAT is added."
+            )
+        else:
+            vat_note = (
+                f"Fees are quoted inclusive of {tax_name} at {tax_rate:g}% "
+                f"on this rate card; no {tax_name} is added."
+            )
         cost_raw = quoted_raw
     else:
-        vat_raw = quoted_raw * tbl["vat_rate"] / 100.0
+        vat_raw = quoted_raw * tax_rate / 100.0
         vat_recoverable = bool(vat_registered) if seller_type == "business" else False
         cost_raw = quoted_raw if vat_recoverable else quoted_raw + vat_raw
         if seller_type == "business":
             if vat_recoverable:
                 vat_note = (
-                    f"{tbl['vat_rate']:g}% VAT is added to eBay's fees and shown "
-                    "as recoverable (seller is VAT registered), so it is excluded "
-                    "from the cost total. VAT charged on your own sale price is "
-                    "out of scope of this calculator."
+                    f"{tax_rate:g}% {tax_name} is added to eBay's fees and shown "
+                    f"as recoverable (seller is {tax_name} registered), so it is "
+                    "excluded from the cost total. Tax charged on your own sale "
+                    "price is out of scope of this calculator."
                 )
             else:
                 vat_note = (
-                    f"{tbl['vat_rate']:g}% VAT is added to eBay's fees and is part "
-                    "of the cost total (seller is not VAT registered)."
+                    f"{tax_rate:g}% {tax_name} is added to eBay's fees and is part "
+                    f"of the cost total (seller is not {tax_name} registered)."
                 )
         else:
             vat_note = (
-                f"{tbl['vat_rate']:g}% VAT is added to eBay's fees on this schedule."
+                f"{tax_rate:g}% {tax_name} is added to eBay's fees on this schedule."
             )
 
     # --- Assumptions: stated so a default can never hide inside a total ---
@@ -1371,6 +1388,11 @@ def calculate_fees(
             "key": tbl["key"],
             "version": tbl["version"],
             "currency": currency,
+        },
+        "tax": {
+            "name": tax_name,
+            "rate": tax_rate,
+            "included": includes_tax,
         },
         "seller": {
             "type": seller_type,
