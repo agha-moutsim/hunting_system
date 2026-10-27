@@ -223,3 +223,92 @@ Two further rules from the same page:
   references contact information to trade outside eBay, the FVF is based on the
   higher of the fixed price, auction start price, Buy It Now price, reserve price
   or the price identified between buyer and seller.
+
+## 6. Worked examples and category tier membership
+
+### 6.1 The page's four worked examples
+
+Capture #1, "Transaction fee examples". The arithmetic in the last column is
+the page's own; it was re-computed here only as a transcription check.
+
+| Plan         | Category                             | Sale amount | Page's calculation                       | Page's total (incl. GST) |
+| ------------ | ------------------------------------ | ----------- | ---------------------------------------- | ------------------------ |
+| Pro Starter  | Kitchen, Dining, Bar (Tier 2)        | $20         | $0.30 + 13.4% × $20                      | $2.98                    |
+| Pro Basic    | Home Appliances (Tier 1)             | $300        | $0.33 + 8.03% × $300                     | $24.42                   |
+| Pro Featured | Vehicle Parts & Accessories (Tier 3) | $150        | $0.33 + 11.22% × $150                    | $17.16                   |
+| Pro Anchor   | Sporting Goods (Tier 4)              | $5,200      | $0.33 + 11.11% × $4,000 + 2.75% × $1,200 | $477.73                  |
+
+All four totals reproduce exactly, including the merged Starter rate in the
+first example. These four rows are the transcription pins for Phase B: a card
+that cannot reproduce them is not the published card.
+
+### 6.2 Tier 1 categories (as published)
+
+- Home Appliances (20710)
+- Camera (625): Binoculars & Telescopes (28179), Camcorders (11724), Digital
+  Cameras (31388), Digital Photo Frames (150044), Film Photography (69323),
+  Vintage Movie & Photography (3326)
+- Electronics (293): Home Audio Stereos, Components (14969), GPS (156955),
+  iPods & MP3 Players (73839), Smart Glasses (178894), Torches (13863),
+  Personal Cassette Players (15053), Personal CD Players (15054), Portable
+  AM/FM Radios (96954)
+- Home Entertainment (172176): Digital Set Top Boxes (96964), DVD & Blu-ray
+  Players (175711), DVRs, Hard Drive Recorders (11725), Home Theatre Systems
+  (72406), Internet & Media Streamers (168058), Projectors (22610), Satellite
+  TV Receivers (96969), TVs (11071), VCRs (15088)
+- Phones (15032): Corded Telephones (41373), Cordless Telephones (33929),
+  Mobile Phones (9355), PDAs (38331), Smart Watches (178893), Vintage Home
+  Phones (182098), Vintage Mobile Phones (182073)
+- Video Games & Consoles (1249): Video Game Consoles (139971)
+
+### 6.3 Tier 4 categories (as published)
+
+- Business & Industrial: Business (170638), Industrial (170769)
+- Collectables: Antiques (20081), Art (550), Coins (11116), Collectables (1),
+  Crafts (14339), Dolls, Bears (237), Pottery, Glass (870), Stamps (260)
+- Fashion: Clothing, Shoes, Accessories (11450), Health & Beauty (26395),
+  Jewellery & Watches (281)
+- Media: Books, Magazines (267), Movies (11232), Music (11233), Video Games &
+  Consoles (1249)
+- Sporting Goods (888)
+- Technology Accessories:
+  - Camera (625): Camera, Drone & Photo Accessories (15200), Camera Drones
+    (179697), Camera Manuals & Guides (4684), Flashes & Flash Accessories
+    (64353), Lenses & Filters (78997), Lighting & Studio (30078), Replacement
+    Parts & Tools (182074), Tripods & Supports (30090), Camera Mixed Lots
+    (45089), Other Cameras, Accessories (27432)
+  - Computers (58058): Computer Cables & Connectors (182094), Computer
+    Components & Parts (175673), Drives, Storage & Blank Media (165), Home
+    Networking & Connectivity (11176), Keyboards, Mice & Pointers (3676),
+    Laptop & Desktop Accessories (31530), Manuals & Resources (3516), Monitor
+    Mounts & Stands (51052), Monitor Power Supplies (158845), Monitor
+    Replacement Parts (168068), Power Protection, Distribution (86722),
+    Printer & Scanner Parts & Accs (182086), Printer Ink, Toner & Paper
+    (11195), Projector Replacement Parts (99231), Software (18793), Tablet &
+    eBook Reader Accs (176970), Tablet & eBook Reader Parts (180235), Vintage
+    Computing (11189), Mixed Lots (259696), Other Computer Monitors & Accs
+    (175688), Other Computers & Networking (162)
+  - Electronics (293): TV, Video & Audio Accessories (14961), Multipurpose
+    Batteries & Power (48446), GPS Accessories (139836), Portable Audio
+    Accessories (56169), Radio Communication (1500), Vintage Electronics
+    (183077), Mixed Lots (259701)
+  - Home Entertainment (172176): Projector Screens (48655), Television
+    Accessories (71582)
+  - Phones & Accessories (15032): PDA Accessories (175744), Answering Machines
+    (139968), Batteries (20034), Caller ID Units (15048), Dummy Mobile Phones
+    (136699), Headsets (84079), Mobile Accessories (9394), Mobile Phone Parts
+    (43304), Pagers (3314), SIM Cards (29778), Smart Watch Accessories
+    (182064), Mobile & Home Phone Mixed Lots (45065)
+
+### 6.4 A transcription finding: parent IDs repeat across tiers
+
+The parent categories **Camera (625)**, **Electronics (293)**, **Home
+Entertainment (172176)**, **Phones (15032)** and **Video Games & Consoles
+(1249)** appear as group headings in **both** the Tier 1 and Tier 4 lists. The
+page resolves this by naming different **leaf** categories under each heading;
+it does not state a precedence rule for the parent ID itself.
+
+Consequence for the card: tier resolution must be by leaf category ID, and a
+parent ID that is present in both lists must resolve to `known=False` rather
+than being assigned to one tier by table order. This is recorded as an open
+question in section 10.
