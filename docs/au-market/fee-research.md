@@ -392,3 +392,48 @@ state that delta rather than silently showing a second set of numbers.
 - The page prices listings on eBay.com.au; listing directly on another eBay
   site uses that site's fees.
 - All fees are in Australian dollars unless otherwise stated.
+
+## 8. The free-selling (Individual) branch
+
+Capture #3 (page date: "Last updated: 9 October 2026"). This is the branch the
+card will use by default for an Australian individual seller.
+
+### 8.1 Eligibility and the no-FVF rule
+
+The page opens:
+
+> It's free for Australia-based sellers with up to $25,000 in sales over the
+> past 12 months to sell on eBay.com.au. This means eligible sellers won't pay
+> transaction fees (final value fees) when items sell.
+
+Eligibility, quoted as a list:
+
+> To qualify for free selling on eBay.com.au, you need to:
+>
+> - Have a registration address in Australia, and
+> - Sell without an eBay Pro plan, and
+> - Sell AU $25,000 or less on eBay in the past 12 months
+
+The measurement is the same 12-full-calendar-month, all-eBay-sites, total-sale
+calculation as the Pro page. A seller over AU $25,000 without a Pro plan is
+notified on the 20th and moved to **Pro Starter** from the 1st of the following
+month; a seller at or under the threshold may stay in free selling or subscribe
+voluntarily.
+
+Some fees can still apply inside free selling — the page names optional listing
+upgrades and delivery to an overseas address. The label requirement is part of
+the same experience:
+
+> Note that as part of our free selling experience, you'll generally have to
+> use the prepaid shipping label provided by eBay or buy labels on eBay to send
+> your eligible items. From 3 November 2026, you'll also be required to have an
+> eBay balance account to receive your sales proceeds.
+
+The page's "Recent and upcoming changes" list adds: from **11 November 2026**,
+eBay will begin making prepaid shipping labels available for eligible items as
+part of free selling.
+
+**Different fees apply** (the page's own list) when the registration address is
+outside Australia, when the seller has a Pro plan, when selling vehicles, or
+when selling on eBay Live. Only the first two branches are modelled; the last
+two are in the not-modelled list.
