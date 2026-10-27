@@ -505,3 +505,55 @@ not used for an AU-registered seller:
 The page's example ($6,000 sale) totals **$586.30**: $0.30 + 13.4% × $4,000 +
 2.5% × $2,000. The card's AU branch uses the AU-registered rates; this table is
 kept as a documented alternative, not as a second default.
+
+## 9. The label mandate (Individual branch only)
+
+Capture #4 (no page date line; the live article was read on 27 October 2026 and
+repeats the same rules). The page opens:
+
+> Australia-based sellers who are enrolled in free selling are generally
+> required to buy a label on eBay when sending items within Australia.
+
+The four exceptions, quoted exactly:
+
+> This doesn't apply to:
+>
+> - Items sold for less than $20, or over $5,000
+> - Items that may be sent in an envelope. These include: trading cards,
+>   comics, magazines, coins and banknotes, jewellery, CDs/DVDs/video games,
+>   patches, postcards, greeting cards, seeds, stamps, stickers and decals
+> - Items where a label isn't available, such as heavy or bulky items
+> - Orders where the buyer selected local pickup
+
+Boundary reading, recorded explicitly because a card will encode it:
+
+- **less than $20** means a sale price below $20.00; exactly $20.00 is **not**
+  excepted, so the label requirement applies.
+- **over $5,000** means a sale price above $5,000.00; exactly $5,000.00 is
+  **not** excepted, so the label requirement applies.
+- The envelope list is closed on the page — the named item types only.
+- "A label isn't available" covers heavy or bulky items; the page gives that as
+  an example, not a complete definition.
+
+Operational consequences stated on the same page:
+
+- When listing, the seller can see whether the item is required to use a label
+  bought on eBay. After the buyer pays, the seller is prompted to buy the label
+  and cannot view the buyer's delivery address or upload tracking manually.
+- To offer alternative postage options, the seller needs a **Pro plan** (four
+  plans, including a Pro Starter plan with no monthly cost).
+- The label's postage cost is deducted from the seller's proceeds or charged to
+  the payment method on file. It is **postage**, not an eBay fee.
+- From **11 November 2026**, eBay is introducing an improved shipping
+  experience for free-selling sellers: for eligible items it determines the
+  applicable shipping cost and the seller must use the prepaid Australia Post
+  label provided. The article says eBay will notify sellers when this is
+  enabled for their account; the current requirement to buy a label on eBay
+  remains in the meantime.
+
+**Card implication.** The Individual branch needs a `label_required` predicate
+over (sale price, envelope-eligible item type, label availability, local
+pickup). When it is true, the cost model must carry postage as a real cost
+line. The label price is not a fixed number on the page — it depends on the
+parcel — so the engine must record it as an input/absent value with a reason
+sentence, never as a guessed average and never as zero.
