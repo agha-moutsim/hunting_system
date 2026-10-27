@@ -1,8 +1,9 @@
 # AU fee research — eBay Australia's published selling fees
 
-> Date: **27 October 2026** · Status: **Research only — no repo code/config changed**
-> Scope: Phase A of the Australian market build — the sourced fee card that
-> `engine/fees.py` will carry as `au-rate-card-*`.
+> Date: **27 October 2026** · Status: **Phase A research complete; Phase B card implemented**
+> Scope: Phase A of the Australian market build — the sourced fee card now
+> carried by `engine/fees.py` as `au-rate-card-2026-10-09` (implementation
+> notes: `docs/au-market/fee-card.md`).
 > Every number below is transcribed from an eBay.com.au page. No third-party
 > calculator, blog or forum post is a source. Where a page states a date, the
 > page's own "Last updated" line is quoted with the capture.
@@ -614,40 +615,43 @@ their figures entered the dossier.
 | Currency conversion charge in a domestic verdict | It applies only when eBay converts funds for another eBay site; a normal AUD sale to an AU buyer does not incur it.                              |
 | GST on the seller's own sale price / income tax  | Outside the engine's question (what eBay takes), same stance as the UK card.                                                                     |
 
-## 12. Open questions for Phase B
+## 12. Phase B decisions (resolved)
 
-These are decisions the card build must settle; the dossier records the source
-material, not a preference.
+The card build settled these. The implementation is described in
+`docs/au-market/fee-card.md`; the source material stays above.
 
-1. **Card key date.** The page's own date is 9 October 2026; the capture is
-   17 October 2026. The UK card is keyed by the page date
-   (`uk-rate-card-2026-09-30`), so the AU card should be
-   `au-rate-card-2026-10-09` unless a later page revision is captured before
-   the build.
-2. **Business plan default.** The card should carry all four Pro plans. The
-   default for an AU business seller is **Pro Starter** (the auto-upgrade
-   default); Basic/Featured/Anchor are selectable, never assumed.
+1. **Card key date.** `au-rate-card-2026-10-09`, keyed by the page's own
+   "Last updated" date, matching the UK convention.
+2. **Business plan default.** All four Pro plans are carried; **Pro Starter**
+   is the default for an AU business seller. Basic/Featured/Anchor are
+   selectable, never assumed.
 3. **Parent-category overlap.** Camera (625), Electronics (293), Home
    Entertainment (172176), Phones (15032) and Video Games & Consoles (1249)
-   appear in both Tier 1 and Tier 4 lists. The card resolves leaf IDs; an
-   ambiguous parent ID must return `known=False`, not first-match.
-4. **Performance-fee shape.** Follow the AU sentence (an additional 5.5% /
-   6.6% on the total sale amount), not the UK card's percentage-point
-   modifiers.
-5. **Tax-exempt handling.** Decide whether the ABN/tax-exempt delta is a
-   boolean that divides fee lines by 1.1, or a note only. If modelled, tests
-   must pin the rounding.
-6. **Postage input.** The label mandate makes postage a required real cost for
-   eligible individual sales. Confirm how the pipeline receives postage
-   (buyer-paid postage vs seller's label cost) and make an absent value
-   `None` with a reason sentence.
-7. **Rounding.** eBay does not state a rounding rule on these pages; use
-   standard two-decimal AUD rounding and state it in the card's provenance.
+   resolve to the stated Tier 2 default with `known=False` and
+   `ambiguous_parent=True`; their leaf IDs are priced in the tier that names
+   them. No first-match assignment.
+4. **Performance-fee shape.** Carried as data: an additional **5.5% / 6.6% on
+   the total sale amount**, not the UK card's percentage-point modifiers. It
+   is not applied to a default verdict.
+5. **Tax-exempt handling.** Documented as a delta, not a second card: the
+   card stores the displayed GST-inclusive numbers and `tax.included=True`;
+   the ABN/tax-exempt seller's GST removal is stated in the notes. No silent
+   division by 1.1.
+6. **Postage input.** The label predicate decides whether a label is
+   required; it does not price the label. The label's price is postage, not
+   an eBay fee. A caller that needs the postage cost must supply the actual
+   label/postage figure, and an absent figure stays `None` with a reason.
+7. **Rounding.** Standard two-decimal AUD rounding; the card's notes state
+   that eBay does not publish a rounding rule on these pages.
 8. **Currency-conversion effective date.** The card carries 3.0% through
-   31 October 2026 and 3.25% from 1 November 2026; the verdict for a domestic
-   sale does not use it, but the calculator should be able to show it when a
-   cross-site sale is selected.
+   31 October 2026 and 3.25% from 1 November 2026. A domestic AUD sale does
+   not use it; the calculator can show it for a cross-site sale.
 
 **Phase A acceptance:** every number above is traceable to an eBay.com.au
 capture in section 1; the four worked examples reproduce; no third-party number
 is present.
+
+**Phase B acceptance:** `tests/test_fees_au.py` and
+`tests/test_fees_au_acceptance.py` pin the card, the four examples, the label
+predicate and the refusals; the UK card's pins remain green. The card is
+registered but not active until Phase C.

@@ -32,6 +32,37 @@ credentials. There is no Phase K.
 The one live-browser gap from Phase A remains: the extension is loaded and reaches the backend,
 but it has not completed a successful capture. It is a verification gap, not a missing phase.
 
+## AU market build (new thread, 2026-10-27)
+
+The Australian build is a separate six-phase thread on top of the ten shipped phases. It is
+**not** the same "Phase A/B" labels used in the table above.
+
+- **Phase A (fee research) - complete.** `docs/au-market/fee-research.md` transcribes eBay
+  Australia's own Pro and free-selling pages, with four Wayback capture IDs and the pages' own
+  "Last updated" lines. Ten commits, `bfe5016` to `1f195b3`. No third-party calculator number
+  is a source. The four published worked examples reproduce.
+- **Phase B (AU fee card) - complete.** `backend/engine/fees.py` now carries
+  `au-rate-card-2026-10-09`, registered in `FEE_TABLES` and selectable by key. It has both
+  seller branches: eBay Pro (four plans, Tier 1-4 rates, per-order fee, over-$4,000 step, 1.1%
+  international fee) and free selling (0% FVF, no assumed per-order fee, 3% international fee,
+  label mandate). Individual is the AU default; Pro Starter is the business default. GST is
+  displayed inclusive and never added as a line. Ambiguous parent categories 625/293/172176/
+  15032/1249 resolve to the stated Tier 2 default with `known=False`. The label rule is a
+  predicate (`fees.label_required`), not a fee. Implementation notes:
+  `docs/au-market/fee-card.md`; pins: `tests/test_fees_au.py` and
+  `tests/test_fees_au_acceptance.py`. Ten commits, ending with this handoff update.
+- **Phase C - next.** Give `EBAY_AU` its `fee_table` in `backend/marketplaces.py` and generalise
+  the per-market config. The card is deliberately **not active** yet: Analyze, Deep Search,
+  Bulk, Category Hunter and the fee calculator remain UK-only until Phase C/E.
+- **Then:** Phase D (AU supplier bench: AliExpress + CJ only; B&Q / Toolstation / Joybuy UK
+  dropped), Phase E (unlock E1 Analyze, E2 Deep Search, E3 Bulk, E4 Category Hunter, E5 fee
+  calculator), Phase F (UI + docs). Ten commits per phase, a short report at each phase end.
+
+Still open from the older thread: the live-browser capture gap, the history migration spec,
+the four redundant `listing_observations` rows on `266923866336`, Deep Search/batch observation
+wiring, the seed button, and rotating the two exposed credentials (GitHub token, ScrapingBee
+key). None is a Phase C blocker.
+
 ## Live state — AliExpress supplier discovery, measured 2026-10-23
 
 ### The old listing is gone; AliGate is wired and verified
