@@ -157,3 +157,69 @@ Notes on the table:
 - The October capture no longer carries the Classified Ad row (the page states
   that format is now vehicle-only); the May capture's $21.99 / $54.99 figures
   are therefore historical and are not transcribed into the card.
+
+## 5. The Pro transaction-fee table
+
+Capture #1, "Transaction fee type / All fees incl. GST". The table has two
+parts: a fixed order fee, then a variable final value fee (FVF) that depends on
+the listing category and the Pro plan.
+
+**Fixed order fee** — applies to all transactions, in addition to the variable
+fee:
+
+| Plan         | Fixed order fee (incl. GST) |
+| ------------ | --------------------------- |
+| Pro Starter  | $0.30 per order             |
+| Pro Basic    | $0.33 per order             |
+| Pro Featured | $0.33 per order             |
+| Pro Anchor   | $0.33 per order             |
+
+**Variable final value fee** — calculated per item on the total amount of the
+sale up to $4,000; the portion above $4,000 is charged at a lower rate:
+
+| Tier   | Definition on the page                                                                                             | Starter | Basic  | Featured | Anchor |
+| ------ | ------------------------------------------------------------------------------------------------------------------ | ------- | ------ | -------- | ------ |
+| Tier 1 | Items in the Home Appliances and Technology Devices categories                                                     | 13.4%   | 8.03%  | 7.26%    | 6.82%  |
+| Tier 2 | All items excluding Tier 1, Tier 3, Tier 4, NFTs and Services                                                      | 13.4%   | 10.34% | 9.68%    | 9.68%  |
+| Tier 3 | Items in Vehicle Parts & Accessories categories (131090)                                                           | 13.4%   | 12.43% | 11.22%   | 10.56% |
+| Tier 4 | Items in Business & Industrial, Collectables, Fashion, Media, Sporting Goods and Technology Accessories categories | 13.4%   | 13.09% | 11.77%   | 11.11% |
+
+The portion of the sale over $4,000: **2.5%** for Pro Starter, **2.75%** for
+Pro Basic, Featured and Anchor.
+
+Two flat rows sit outside the tiers, both stated for all plans:
+
+| Category                   | Fee                           |
+| -------------------------- | ----------------------------- |
+| Non-fungible tokens (NFTs) | 5.5% of the total sale amount |
+| Services                   | $44.00 flat                   |
+
+**Why Starter is 13.4% in every tier.** In the captured HTML the 13.4% cell
+carries `rowspan="4"`; it is one cell covering all four tier rows, not a Tier 1
+value with three missing plan columns. The page's own example confirms the
+reading: Pro Starter, Kitchen, Dining, Bar (Tier 2), $20 sale →
+`$0.30 + 13.4% x $20 = $2.98`. A plain-text scrape of the Tier 2–4 rows shows
+only three numbers because the Starter cell is merged above them; the card must
+encode the merged value explicitly.
+
+**What the fee is charged on** (page's "When calculating the total amount of the
+sale per item"):
+
+- item price = winning bid, Buy It Now price, or agreed offer price; it excludes
+  the value of any eBay voucher, coupon or discount applied by the buyer at
+  checkout;
+- postage includes postage charges, handling fees and additional services paid
+  by the buyer (e.g. Signature on Delivery);
+- an order is any number of items bought by the same buyer at checkout with the
+  same delivery method;
+- if the buyer redeems a coded coupon provided by the seller, the fee is
+  calculated on the discounted total sale amount.
+
+Two further rules from the same page:
+
+- a listing in two categories is charged the **higher** of the two final value
+  fees;
+- if the item does not sell, no FVF is normally due; if the seller offers or
+  references contact information to trade outside eBay, the FVF is based on the
+  higher of the fixed price, auction start price, Buy It Now price, reserve price
+  or the price identified between buyer and seller.
