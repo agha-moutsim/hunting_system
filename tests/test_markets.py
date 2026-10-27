@@ -26,6 +26,7 @@ from db.models import DealItem as DealItemRow
 from hunter import deals
 from marketplaces import (
     UnknownMarketplace,
+    fee_calculator_ready,
     fee_warning,
     format_money,
     get_marketplace,
@@ -54,21 +55,35 @@ def _session(tmp_path, monkeypatch):
 
 
 class TestRegistry:
-    def test_uk_is_the_default_and_keeps_the_only_fee_table(self):
+    def test_uk_is_the_default_and_the_one_ready_calculator(self):
         uk = get_marketplace()
         assert uk["id"] == "EBAY_GB"
         assert uk["currency"] == "GBP"
         assert uk["fee_table"] == "uk-rate-card-2026-09-30"
+        assert fee_calculator_ready(uk) is True
         assert fee_warning(uk) is None
 
-    def test_every_other_market_has_no_fee_table_and_says_so(self):
-        for market_id in ("EBAY_US", "EBAY_DE", "EBAY_AU", "EBAY_CA"):
+    def test_au_has_a_registered_card_but_no_enabled_calculator_yet(self):
+        au = get_marketplace("EBAY_AU")
+        assert au["fee_table"] == "au-rate-card-2026-10-09"
+        assert fee_calculator_ready(au) is False
+        warning = fee_warning(au)
+        assert warning
+        assert "au-rate-card-2026-10-09" in warning
+        assert "not enabled" in warning
+        assert "AUD" in warning
+        assert "No AUD fee table" not in warning
+
+    def test_markets_without_a_card_say_no_fee_table(self):
+        for market_id in ("EBAY_US", "EBAY_DE", "EBAY_CA"):
             market = get_marketplace(market_id)
             assert market["fee_table"] is None
+            assert fee_calculator_ready(market) is False
             warning = fee_warning(market)
             assert warning
             assert market["currency"] in warning
-            assert "UK-only" in warning
+            assert f"No {market['currency']} fee table" in warning
+            assert "UK-only" not in warning
 
     def test_an_unknown_market_is_refused_not_silently_made_uk(self):
         with pytest.raises(UnknownMarketplace) as exc:
@@ -255,7 +270,16 @@ class TestApiRefusesWhatItCannotPrice:
         us = next(m for m in body["marketplaces"] if m["id"] == "EBAY_US")
         assert us["currency"] == "USD"
         assert us["fee_table"] is None
-        assert "UK-only" in us["fee_warning"]
+        assert us["fee_table_registered"] is None
+        assert us["fee_calculator_ready"] is False
+        assert "No USD fee table" in us["fee_warning"]
+
+        au = next(m for m in body["marketplaces"] if m["id"] == "EBAY_AU")
+        assert au["currency"] == "AUD"
+        assert au["fee_table"] is None
+        assert au["fee_table_registered"] == "au-rate-card-2026-10-09"
+        assert au["fee_calculator_ready"] is False
+        assert "not enabled" in au["fee_warning"]
 
     def test_a_non_uk_fee_table_request_is_a_sentence_not_a_gbp_number(self):
         with _client() as client:
@@ -266,7 +290,7 @@ class TestApiRefusesWhatItCannotPrice:
 
         assert resp.status_code == 422
         detail = resp.json()["detail"]
-        assert "UK-only" in detail
+        assert "No USD fee table" in detail
         assert "USD" in detail
 
     def test_the_query_parameter_works_without_the_header(self):
@@ -276,7 +300,32 @@ class TestApiRefusesWhatItCannotPrice:
             )
 
         assert resp.status_code == 422
-        assert "UK-only" in resp.json()["detail"]
+        assert "No USD fee table" in resp.json()["detail"]
+
+    def test_a_registered_but_locked_card_is_not_priced(self):
+        with _client() as client:
+            resp = client.get(
+                "/api/fees/table",
+                headers={"X-EBay-Marketplace": "EBAY_AU"},
+            )
+
+        assert resp.status_code == 422
+        detail = resp.json()["detail"]
+        assert "au-rate-card-2026-10-09" in detail
+        assert "not enabled" in detail
+        assert "AUD" in detail
+
+    def test_the_calculator_is_locked_for_au_too(self):
+        with _client() as client:
+            resp = client.post(
+                "/api/fees/calculate",
+                json={"sale_price": 24.99, "supplier_cost": 9.40},
+                headers={"X-EBay-Marketplace": "EBAY_AU"},
+            )
+
+        assert resp.status_code == 422
+        assert "not enabled" in resp.json()["detail"]
+        assert "AUD" in resp.json()["detail"]
 
     def test_an_unknown_market_gets_a_422_with_the_known_ids(self):
         with _client() as client:

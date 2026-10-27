@@ -10,10 +10,16 @@ The rules this module exists to make hard to break:
   * an unknown marketplace is refused, never silently treated as EBAY_GB;
   * only markets whose deals URL was observed reachable are offered;
   * a market without a fee table has no fee table. We do not fall back to the
-    UK card, because a GBP rate applied to a USD sale is a fabricated number.
+    UK card, because a GBP rate applied to a USD sale is a fabricated number;
+  * a registered card is not the same as an enabled calculator. EBAY_AU
+    carries its sourced card key, but `fee_calculator_ready` stays False until
+    the AU seller defaults and unlock land. The public `fee_table` remains
+    None until then, so a surface cannot mistake "card on file" for "ready to
+    price".
 
-Absent is stated. `fee_table` is None for every non-UK market, and
-`fee_warning` carries the sentence a surface must show instead of a price.
+Absent is stated. `fee_warning` carries the sentence a surface must show
+instead of a price, and `fee_table_registered` names a card that exists but is
+not yet usable without pretending it is ready.
 """
 
 from __future__ import annotations
@@ -70,30 +76,61 @@ def offered_marketplaces() -> list[dict]:
     ]
 
 
+def fee_calculator_ready(market: dict) -> bool:
+    """Whether this market may be priced today.
+
+    A fee table alone is not enough. The AU card is registered and sourced,
+    but its calculator switch stays off until Phase E5 wires the AU seller
+    defaults into every pricing surface. Keeping the switch separate means
+    adding a card can never silently expose a calculator that still assumes
+    the UK branch.
+    """
+    return bool(market.get("fee_table")) and bool(
+        market.get("fee_calculator_ready")
+    )
+
+
 def fee_warning(market: dict) -> Optional[str]:
-    """Why this market cannot be priced, or None for the UK.
+    """Why this market cannot be priced, or None when it can.
 
     The wording is shared by the API, the fee calculator and the header so a
-    user never sees a UK fee figure under a USD heading without being told.
+    user never sees a UK fee figure under a USD/AUD heading without being told.
+    A registered-but-locked card is named rather than hidden: the card exists,
+    the calculator is simply not enabled yet.
     """
-    if market.get("fee_table"):
+    if fee_calculator_ready(market):
         return None
+    table = market.get("fee_table")
+    if table:
+        return (
+            f"The {market['label']} fee card ({table}) is registered, but the "
+            f"fee calculator is not enabled for this marketplace yet, so no "
+            f"{market['currency']} fee or profit figure is calculated."
+        )
     return (
-        f"Fee tables are UK-only. No {market['currency']} fee table is "
-        f"registered for {market['label']}, so fee and profit figures are "
-        "not calculated for this marketplace."
+        f"No {market['currency']} fee table is registered for "
+        f"{market['label']}, so fee and profit figures are not calculated for "
+        "this marketplace."
     )
 
 
 def public_marketplace(market: dict) -> dict:
-    """One market as the API/UI should see it. No credentials live here."""
+    """One market as the API/UI should see it. No credentials live here.
+
+    `fee_table` is the table a surface may price with, so it is None until the
+    calculator is ready. `fee_table_registered` reports the card on file; the
+    two fields are deliberately distinct.
+    """
+    ready = fee_calculator_ready(market)
     return {
         "id": market["id"],
         "label": market["label"],
         "country_code": market["country_code"],
         "currency": market["currency"],
         "currency_symbol": market["currency_symbol"],
-        "fee_table": market.get("fee_table"),
+        "fee_table": market.get("fee_table") if ready else None,
+        "fee_table_registered": market.get("fee_table"),
+        "fee_calculator_ready": ready,
         "fee_warning": fee_warning(market),
         "deals_url": market.get("deals_url"),
         "deals_http_status": market.get("deals_http_status"),

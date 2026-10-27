@@ -66,15 +66,17 @@ def require_uk_market(market: dict, surface: str) -> None:
 
 
 def require_fee_market(market: dict) -> None:
-    """Refuse to price a sale in a market with no registered fee table.
+    """Refuse to price a sale in a market whose calculator is not enabled.
 
     This is the API half of the Phase J rule. The engine's `ACTIVE_TABLE` is
     the UK card; letting a USD request fall through to it would produce a
-    precise-looking number under the wrong currency. The refusal carries the
-    shared sentence rather than a bare 422.
+    precise-looking number under the wrong currency. A registered card is not
+    enough: EBAY_AU carries its sourced card but stays locked until Phase E5,
+    so the same gate covers both "no card" and "card not enabled yet". The
+    refusal carries the shared sentence rather than a bare 422.
     """
-    if market.get("fee_table"):
-        return
-    from marketplaces import fee_warning
+    from marketplaces import fee_calculator_ready, fee_warning
 
+    if fee_calculator_ready(market):
+        return
     raise HTTPException(status_code=422, detail=fee_warning(market))
