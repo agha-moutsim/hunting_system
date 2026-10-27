@@ -463,3 +463,175 @@ class TestGstIsIncludedNotAdded:
         assert result["tax"] == {"name": "VAT", "rate": 20.0, "included": True}
         assert result["vat_on_fees"] is None
         assert "inclusive of VAT" in result["vat_note"]
+
+
+class TestTheProPlanIsSelectedNotAssumed:
+    def test_the_default_plan_materialises_starter(self):
+        table = fees.get_fee_table(AU)
+        side = fees.seller_side(table, "business")
+        assert side["plan"] == "starter"
+        assert side["plan_label"] == "Pro Starter"
+        assert side["per_order_fee"] == 0.30
+        tier_1 = next(row for row in side["categories"] if row["key"] == "tier-1")
+        assert tier_1["tiers"] == [(4000.0, 13.4), (None, 2.5)]
+
+    def test_a_plan_can_be_named_with_its_pro_prefix(self):
+        table = fees.get_fee_table(AU)
+        side = fees.seller_side(table, "business", plan="Pro Basic")
+        assert side["plan"] == "basic"
+        assert side["per_order_fee"] == 0.33
+        tier_1 = next(row for row in side["categories"] if row["key"] == "tier-1")
+        assert tier_1["tiers"] == [(4000.0, 8.03), (None, 2.75)]
+
+    def test_materialisation_does_not_mutate_the_raw_card(self):
+        table = fees.get_fee_table(AU)
+        raw = table["business"]["categories"][0]
+        fees.seller_side(table, "business", plan="anchor")
+        assert "tiers" not in raw
+        assert "tiers_by_plan" in raw
+
+    def test_an_unknown_plan_is_refused_with_the_known_ones(self):
+        with pytest.raises(ValueError) as err:
+            fees.seller_side(fees.get_fee_table(AU), "business", plan="platinum")
+        assert "expected one of" in str(err.value)
+        assert "starter" in str(err.value)
+
+    def test_a_table_without_plans_refuses_a_plan(self):
+        with pytest.raises(ValueError) as err:
+            fees.seller_side(fees.get_fee_table(), "business", plan="starter")
+        assert "no seller plans" in str(err.value)
+
+    def test_the_private_branch_refuses_a_plan(self):
+        with pytest.raises(ValueError) as err:
+            fees.seller_side(fees.get_fee_table(AU), "private", plan="starter")
+        assert "business sellers only" in str(err.value)
+
+    def test_the_au_card_refuses_a_non_resident_private_seller(self):
+        with pytest.raises(ValueError) as err:
+            fees.seller_side(
+                fees.get_fee_table(AU), "private", uk_resident=False
+            )
+        assert "non-resident" in str(err.value)
+
+
+class TestTheFourWorkedExamples:
+    """The page's own four examples, recomputed by the engine. These are the
+    transcription pins: a card that cannot reproduce them is not the card."""
+
+    @pytest.mark.parametrize(
+        "sale_price,category,plan,expected_fvf,expected_pof,expected_total",
+        [
+            (20.0, "tier-2", "starter", 2.68, 0.30, 2.98),
+            (300.0, 20710, "basic", 24.09, 0.33, 24.42),
+            (150.0, 131090, "featured", 16.83, 0.33, 17.16),
+            (5200.0, 888, "anchor", 477.40, 0.33, 477.73),
+        ],
+    )
+    def test_each_example_reproduces_its_published_total(
+        self,
+        sale_price,
+        category,
+        plan,
+        expected_fvf,
+        expected_pof,
+        expected_total,
+    ):
+        result = fees.calculate_fees(
+            sale_price,
+            seller_type="business",
+            seller_plan=plan,
+            category=category,
+            fee_table=AU,
+        )
+        assert result["fvf"] == pytest.approx(expected_fvf, abs=0.005)
+        assert result["per_order_fee"] == expected_pof
+        assert result["fees_quoted_total"] == pytest.approx(
+            expected_total, abs=0.005
+        )
+        assert result["fees_cost_total"] == pytest.approx(
+            expected_total, abs=0.005
+        )
+        assert result["vat_on_fees"] is None
+        assert result["tax"]["included"] is True
+        assert result["seller"]["plan"] == plan
+        assert result["category"]["known"] is True
+
+    def test_the_anchor_example_shows_the_over_4000_step(self):
+        result = fees.calculate_fees(
+            5200.0,
+            seller_type="business",
+            seller_plan="anchor",
+            category=888,
+            fee_table=AU,
+        )
+        assert "11.11%" in result["fvf_rate"]
+        assert "AUD 4,000" in result["fvf_rate"]
+        assert "2.75%" in result["fvf_rate"]
+
+
+class TestTheAuDefaultSellerIsIndividual:
+    def test_omitting_seller_type_uses_free_selling(self):
+        result = fees.calculate_fees(100.0, fee_table=AU)
+        assert result["seller"]["type"] == "private"
+        assert result["seller"]["plan"] is None
+        assert result["fvf"] == 0.0
+        assert result["per_order_fee"] is None
+        assert result["tax"] == {"name": "GST", "rate": 10.0, "included": True}
+
+    def test_a_business_seller_defaults_to_starter(self):
+        result = fees.calculate_fees(
+            20.0, seller_type="business", category="tier-2", fee_table=AU
+        )
+        assert result["seller"]["plan"] == "starter"
+        assert result["seller"]["plan_label"] == "Pro Starter"
+        assert result["fees_quoted_total"] == pytest.approx(2.98, abs=0.005)
+
+
+class TestFlatFeeRows:
+    def test_services_is_a_forty_four_dollar_flat_fee(self):
+        result = fees.calculate_fees(
+            100.0, seller_type="business", category=316, fee_table=AU
+        )
+        assert result["fvf"] == 44.0
+        assert result["fvf_rate"] == "AUD 44.00 flat fee"
+        assert result["fees_quoted_total"] == pytest.approx(44.30, abs=0.005)
+
+    def test_nfts_is_five_and_a_half_percent_flat(self):
+        result = fees.calculate_fees(
+            100.0, seller_type="business", category="nfts", fee_table=AU
+        )
+        assert result["fvf"] == 5.5
+        assert result["fvf_rate"] == "5.5%"
+        assert result["fees_quoted_total"] == pytest.approx(5.80, abs=0.005)
+
+
+class TestTheMoneyLayerCarriesThePlan:
+    def test_sale_outcome_prices_the_selected_plan(self):
+        outcome = fees.sale_outcome(
+            20.0,
+            supplier_cost=5.0,
+            seller_type="business",
+            seller_plan="starter",
+            category="tier-2",
+            fee_table=AU,
+        )
+        assert outcome["fees"]["seller"]["plan"] == "starter"
+        assert outcome["fees"]["fees_cost_total"] == pytest.approx(2.98, abs=0.005)
+        assert outcome["profit"] is not None
+        labels = [line["label"] for line in outcome["fee_lines"]]
+        assert "Final value fee" in labels
+        assert "Per-order fee" in labels
+        assert "VAT on fees" not in labels
+
+    def test_the_reverse_solver_accepts_the_plan(self):
+        solved = fees.solve_for_margin(
+            20.0,
+            supplier_cost=5.0,
+            seller_type="business",
+            seller_plan="starter",
+            category="tier-2",
+            fee_table=AU,
+        )
+        assert solved["achievable"] is True
+        assert solved["price"] > 0
+        assert solved["check"]["fees_cost_total"] > 0

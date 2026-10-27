@@ -866,17 +866,71 @@ def get_fee_table(key: Optional[str] = None) -> dict:
     return FEE_TABLES[name]
 
 
-def seller_side(table: dict, seller_type: str, uk_resident: bool = True) -> dict:
+def _normalise_plan(plan) -> str:
+    """Accept 'starter', 'Starter' or 'Pro Starter' as the same plan key."""
+    key = str(plan).strip().lower()
+    if key.startswith("pro "):
+        key = key[4:]
+    return key
+
+
+def seller_side(
+    table: dict,
+    seller_type: str,
+    uk_resident: bool = True,
+    plan: Optional[str] = None,
+) -> dict:
     """The table's section for a seller type.
 
     Business is business. Private splits into UK-resident (no final value
     fee, no regulatory fee) and non-UK-resident (its own documented
     schedule) - the two are different fee structures and must not share one.
+
+    A table with Pro plans (the AU card) materialises the selected plan into
+    the business side: each category row gains the plan's `tiers` and the
+    side gains the plan's per-order fee. The raw table keeps all four plans
+    in `tiers_by_plan`; no caller has to pick a rate by position.
     """
     if seller_type == "business":
-        return table["business"]
+        side = table["business"]
+        plans = side.get("plans")
+        if plans:
+            chosen = _normalise_plan(plan or side.get("default_plan"))
+            if chosen not in plans:
+                raise ValueError(
+                    f"unknown seller_plan {chosen!r}; expected one of "
+                    f"{sorted(plans)}"
+                )
+            materialised = dict(side)
+            materialised["plan"] = chosen
+            materialised["plan_label"] = plans[chosen]["label"]
+            materialised["per_order_fee"] = plans[chosen]["per_order_fee"]
+            categories: list[dict] = []
+            for row in side.get("categories") or []:
+                copy = dict(row)
+                if "tiers_by_plan" in row:
+                    copy["tiers"] = row["tiers_by_plan"][chosen]
+                categories.append(copy)
+            materialised["categories"] = categories
+            return materialised
+        if plan is not None:
+            raise ValueError(
+                f"{table['key']} has no seller plans; seller_plan is not "
+                "applicable"
+            )
+        return side
     if seller_type == "private":
+        if plan is not None:
+            raise ValueError(
+                "seller_plan applies to business sellers only; the private "
+                "branch has no Pro plans"
+            )
         if not uk_resident:
+            if "non_uk_resident" not in table["private"]:
+                raise ValueError(
+                    f"{table['key']} carries no non-resident private "
+                    "schedule; it prices Australia-registered sellers only"
+                )
             side = dict(table["private"])
             side.update(side.pop("non_uk_resident"))
             side["fvf_percent"] = None  # the non-UK schedule is tiered
@@ -1031,7 +1085,9 @@ def label_required(
 
 
 def resolve_category(
-    category, table: Optional[dict] = None
+    category,
+    table: Optional[dict] = None,
+    categories: Optional[list[dict]] = None,
 ) -> tuple[Optional[dict], bool]:
     """Resolve a category key or category id to a rate-card row.
 
@@ -1039,9 +1095,14 @@ def resolve_category(
     not carry resolves to the stated default row (Everything Else) with
     known=False - the caller must say the category was not identified rather
     than price it as if it were read.
+
+    `categories` lets a caller resolve against a plan-materialised business
+    side (the AU card's rows gain `tiers` from `tiers_by_plan`) without
+    changing the raw table.
     """
     tbl = table or get_fee_table()
-    categories = (tbl.get("business") or {}).get("categories")
+    if categories is None:
+        categories = (tbl.get("business") or {}).get("categories")
     if not categories:
         # v1-static has no category model - every sale is the flat rate.
         return None, False
@@ -1088,6 +1149,8 @@ def tiers_label(tiers: list, currency: str = "GBP") -> str:
 
 def rate_label(row: dict, currency: str = "GBP") -> str:
     """A category row's rate(s), including its rate switch when it has one."""
+    if row.get("flat_fee") is not None:
+        return f"{currency} {row['flat_fee']:,.2f} flat fee"
     label = tiers_label(row["tiers"], currency)
     switch = row.get("rate_switch")
     if switch:
@@ -1161,7 +1224,8 @@ def calculate_fees(
     postage_charged: float = 0.0,
     category=None,
     promoted_rate: float = 0.0,
-    seller_type: str = "business",
+    seller_type: Optional[str] = None,
+    seller_plan: Optional[str] = None,
     uk_resident: bool = True,
     vat_registered: bool = False,
     listing_fee: float = 0.0,
@@ -1171,11 +1235,16 @@ def calculate_fees(
     """The eBay fees on one sale. Every fee figure in the product comes from
     here (one implementation per calculation - constraints.md section 5).
 
+    `seller_type=None` uses the table's own default: business for the UK
+    card, private (free selling) for the AU card. `seller_plan` selects one
+    of a business card's Pro plans; the AU card defaults to Pro Starter.
+
     Raises ValueError, never prints a guess:
 
       - sale_price None/<= 0        there is no such sale to price
       - promoted_rate < 0 or >= 100 not a rate, an input error
       - unknown seller_type         business or private only
+      - unknown seller_plan         one of the card's plans
       - unknown buyer_region        one of BUYER_REGIONS
 
     A fee the table does not carry is absent (None), not zero. A fee the
@@ -1205,7 +1274,9 @@ def calculate_fees(
         )
 
     tbl = get_fee_table(fee_table)
-    side = seller_side(tbl, seller_type, uk_resident=uk_resident)
+    if seller_type is None:
+        seller_type = tbl.get("default_seller_type", "business")
+    side = seller_side(tbl, seller_type, uk_resident=uk_resident, plan=seller_plan)
     currency = tbl["currency"]
     basis = side.get("fee_basis", "total_amount_of_sale")
     total = price + postage if basis == "total_amount_of_sale" else price
@@ -1216,10 +1287,15 @@ def calculate_fees(
     # --- Final value fee ---
     category_info: Optional[dict] = None
     if side.get("categories"):
-        row, known = resolve_category(category, tbl)
+        row, known = resolve_category(
+            category, tbl, categories=side.get("categories")
+        )
         label = rate_label(row, currency)
         switch = row.get("rate_switch")
-        if switch and price >= switch["item_price_at_least"]:
+        if row.get("flat_fee") is not None:
+            fvf = float(row["flat_fee"])
+            applied = label
+        elif switch and price >= switch["item_price_at_least"]:
             fvf = total * switch["percent"] / 100.0
             applied = (
                 f"{switch['percent']:g}% (item price {currency} "
@@ -1376,7 +1452,9 @@ def calculate_fees(
             "above applies to deliveries outside the UK."
         )
     if listing <= 0 and listing_percent_fee is None:
-        guidance = (tbl.get("business") or {}).get("listing_fee_guidance")
+        guidance = side.get("listing_fee_guidance") or (
+            tbl.get("business") or {}
+        ).get("listing_fee_guidance")
         guidance_text = f" {guidance['note']}" if guidance else ""
         assumptions.append(
             "Per-listing fees are not included (0.00 assumed)." + guidance_text
@@ -1396,6 +1474,8 @@ def calculate_fees(
         },
         "seller": {
             "type": seller_type,
+            "plan": side.get("plan"),
+            "plan_label": side.get("plan_label"),
             "uk_resident": bool(uk_resident) if seller_type == "private" else None,
             "vat_registered": bool(vat_registered) if seller_type == "business" else None,
         },
@@ -1584,7 +1664,8 @@ def sale_outcome(
     postage_charged=0.0,
     category=None,
     promoted_rate=0.0,
-    seller_type="business",
+    seller_type=None,
+    seller_plan=None,
     uk_resident=True,
     vat_registered=False,
     listing_fee=0.0,
@@ -1623,6 +1704,7 @@ def sale_outcome(
         "category": category,
         "promoted_rate": promoted_rate,
         "seller_type": seller_type,
+        "seller_plan": seller_plan,
         "uk_resident": uk_resident,
         "vat_registered": vat_registered,
         "listing_fee": listing_fee,
@@ -1691,7 +1773,8 @@ def solve_for_margin(
     postage_charged=0.0,
     category=None,
     promoted_rate=0.0,
-    seller_type="business",
+    seller_type=None,
+    seller_plan=None,
     uk_resident=True,
     vat_registered=False,
     listing_fee=0.0,
@@ -1735,6 +1818,7 @@ def solve_for_margin(
         "category": category,
         "promoted_rate": promoted_rate,
         "seller_type": seller_type,
+        "seller_plan": seller_plan,
         "uk_resident": uk_resident,
         "vat_registered": vat_registered,
         "listing_fee": listing_fee,
@@ -1761,11 +1845,16 @@ def solve_for_margin(
 
     # --- Breakpoints: where the fee structure changes slope or steps ---
     tbl = get_fee_table(fee_table)
-    side = seller_side(tbl, seller_type, uk_resident=uk_resident)
+    resolved_seller_type = seller_type or tbl.get("default_seller_type", "business")
+    side = seller_side(
+        tbl, resolved_seller_type, uk_resident=uk_resident, plan=seller_plan
+    )
     shift = float(postage_charged or 0.0)
     breakpoints: set[float] = set()
     if side.get("categories"):
-        row, _known = resolve_category(category, tbl)
+        row, _known = resolve_category(
+            category, tbl, categories=side.get("categories")
+        )
         for upper, _pct in row["tiers"]:
             if upper is not None:
                 breakpoints.add(upper - shift)
