@@ -351,3 +351,76 @@ class TestTheFreeSellingBranch:
         assert "GST at 10%" in notes
         assert "3 November 2026" in notes
         assert "11 November 2026" in notes
+
+
+class TestTheLabelMandatePredicate:
+    """The rule, not a fee: when it applies, the label's price is postage."""
+
+    def _decide(self, price, **kw):
+        kw.setdefault("envelope_eligible", False)
+        kw.setdefault("label_available", True)
+        kw.setdefault("local_pickup", False)
+        return fees.label_required(price, fee_table=AU, **kw)
+
+    @pytest.mark.parametrize(
+        "price,expected",
+        [(19.99, False), (20.00, True), (5000.00, True), (5000.01, False)],
+    )
+    def test_the_price_boundaries_are_inclusive_at_20_and_5000(self, price, expected):
+        result = self._decide(price)
+        assert result["required"] is expected
+        assert result["price"] == price
+        assert result["currency"] == "AUD"
+
+    def test_an_envelope_eligible_item_is_excepted(self):
+        result = self._decide(100.0, envelope_eligible=True)
+        assert result["required"] is False
+        assert "envelope" in result["reason"]
+
+    def test_a_heavy_or_bulky_item_with_no_label_is_excepted(self):
+        result = self._decide(100.0, label_available=False)
+        assert result["required"] is False
+        assert "heavy or bulky" in result["reason"]
+
+    def test_local_pickup_is_excepted(self):
+        result = self._decide(100.0, local_pickup=True)
+        assert result["required"] is False
+        assert "local pickup" in result["reason"]
+
+    def test_a_normal_item_in_range_is_required(self):
+        result = self._decide(100.0)
+        assert result["required"] is True
+        assert "none of the four exceptions" in result["reason"]
+
+    def test_the_uk_table_has_no_label_mandate(self):
+        result = fees.label_required(100.0)
+        assert result["required"] is None
+        assert "no label mandate" in result["reason"]
+        assert result["currency"] == "GBP"
+
+    def test_an_unread_price_is_not_decided(self):
+        result = fees.label_required(None, fee_table=AU)
+        assert result["required"] is None
+        assert "unread" in result["reason"]
+        assert result["price"] is None
+
+    def test_nan_and_negative_prices_are_refused_not_decided(self):
+        nan = fees.label_required(float("nan"), fee_table=AU)
+        assert nan["required"] is None
+        assert "NaN" in nan["reason"]
+        negative = fees.label_required(-1.0, fee_table=AU)
+        assert negative["required"] is None
+        assert "greater than zero" in negative["reason"]
+
+    def test_omitted_item_facts_are_stated_as_assumptions(self):
+        result = fees.label_required(100.0, fee_table=AU)
+        assert result["required"] is True
+        assert len(result["assumptions"]) == 3
+        joined = " ".join(result["assumptions"])
+        assert "assumed not envelope-eligible" in joined
+        assert "assumed available" in joined
+        assert "assumed not selected" in joined
+
+    def test_stated_item_facts_leave_no_assumptions(self):
+        result = self._decide(100.0)
+        assert result["assumptions"] == []

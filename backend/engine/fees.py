@@ -885,6 +885,151 @@ def seller_side(table: dict, seller_type: str, uk_resident: bool = True) -> dict
     raise ValueError(f"unknown seller_type {seller_type!r}; expected 'business' or 'private'")
 
 
+def label_required(
+    sale_price,
+    *,
+    envelope_eligible: Optional[bool] = None,
+    label_available: Optional[bool] = None,
+    local_pickup: Optional[bool] = None,
+    fee_table: Optional[str] = None,
+) -> dict:
+    """Whether the AU free-selling label mandate applies to one sale.
+
+    The mandate is a rule, not a fee: when it applies, the seller must buy a
+    label on eBay, and the label's price is postage. The four exceptions are
+    the page's own (docs/au-market/fee-research.md section 9):
+
+      - sale price below $20.00, or above $5,000.00 (exactly $20.00 and
+        exactly $5,000.00 remain in scope);
+      - an item that may be sent in an envelope (the page's closed list);
+      - an item where a label isn't available, such as heavy or bulky items;
+      - an order where the buyer selected local pickup.
+
+    Returns `required` as True/False, or None when the table carries no
+    mandate or the price is unread. An unread price is not a zero price, so
+    it is never decided as if it were. Defaults for the three item facts are
+    stated in `assumptions`, so a caller can see what was assumed.
+    """
+    tbl = get_fee_table(fee_table)
+    rules = (tbl.get("private") or {}).get("label_required")
+    if not rules:
+        return {
+            "required": None,
+            "reason": (
+                f"The {tbl['key']} rate card carries no label mandate; the "
+                "rule is stated only on the AU free-selling branch."
+            ),
+            "price": None,
+            "currency": tbl.get("currency"),
+            "assumptions": [],
+        }
+
+    if sale_price is None:
+        return {
+            "required": None,
+            "reason": (
+                "sale price is not known - the label rule cannot be decided "
+                "from an unread price"
+            ),
+            "price": None,
+            "currency": tbl.get("currency"),
+            "assumptions": [],
+        }
+    try:
+        price = float(sale_price)
+    except (TypeError, ValueError):
+        return {
+            "required": None,
+            "reason": f"sale price {sale_price!r} is not a number",
+            "price": None,
+            "currency": tbl.get("currency"),
+            "assumptions": [],
+        }
+    if price != price:  # NaN
+        return {
+            "required": None,
+            "reason": "sale price is NaN, which is not a price",
+            "price": None,
+            "currency": tbl.get("currency"),
+            "assumptions": [],
+        }
+    if price <= 0:
+        return {
+            "required": None,
+            "reason": (
+                "sale price must be greater than zero; a zero-priced sale is "
+                "not a sale to decide the label rule on"
+            ),
+            "price": None,
+            "currency": tbl.get("currency"),
+            "assumptions": [],
+        }
+
+    assumptions: list[str] = []
+    if envelope_eligible is None:
+        envelope = False
+        assumptions.append(
+            "Envelope eligibility was not stated; assumed not envelope-eligible."
+        )
+    else:
+        envelope = bool(envelope_eligible)
+    if label_available is None:
+        available = True
+        assumptions.append(
+            "Label availability was not stated; assumed available."
+        )
+    else:
+        available = bool(label_available)
+    if local_pickup is None:
+        pickup = False
+        assumptions.append(
+            "Local pickup was not stated; assumed not selected."
+        )
+    else:
+        pickup = bool(local_pickup)
+
+    if pickup:
+        required, reason = False, "the buyer selected local pickup"
+    elif not available:
+        required, reason = (
+            False,
+            "a label isn't available for this item, such as a heavy or bulky item",
+        )
+    elif envelope:
+        required, reason = (
+            False,
+            "the item may be sent in an envelope (one of the named "
+            "envelope-eligible types)",
+        )
+    elif price < rules["price_exception_below"]:
+        required, reason = (
+            False,
+            f"the sale price is below {tbl['currency']} "
+            f"{rules['price_exception_below']:,.2f}",
+        )
+    elif price > rules["price_exception_above"]:
+        required, reason = (
+            False,
+            f"the sale price is above {tbl['currency']} "
+            f"{rules['price_exception_above']:,.2f}",
+        )
+    else:
+        required, reason = (
+            True,
+            "the item is within the label mandate's price range and none of "
+            "the four exceptions applies",
+        )
+
+    return {
+        "required": required,
+        "reason": reason,
+        "price": round(price, 2),
+        "currency": tbl.get("currency"),
+        "assumptions": assumptions,
+    }
+
+
+
 def resolve_category(
     category, table: Optional[dict] = None
 ) -> tuple[Optional[dict], bool]:
