@@ -110,3 +110,50 @@ second rate card.
 The page also names what it does **not** price: vehicles (eBay Motors), eBay
 Live, and Classified Ad listings (the latter now vehicle-only). Those are
 recorded in the not-modelled list in section 10.
+
+## 4. Pro subscriptions and listing fees
+
+Capture #1. The page's own table heading is "Monthly subscription cost (incl.
+GST)":
+
+| Plan         | Monthly subscription (incl. GST) |
+| ------------ | -------------------------------- |
+| Pro Starter  | No monthly fee                   |
+| Pro Basic    | $27.45                           |
+| Pro Featured | $82.45                           |
+| Pro Anchor   | $604.95                          |
+
+Listing and optional upgrade fees, transcribed from the same page's "Fee per
+listing (incl. GST)" table. All sellers (Pro and free selling alike) get
+**250,000 free listings per month** on eBay.com.au; limits and category
+exclusions still apply.
+
+| Item                                                                             | Pro Starter                                                    | Pro Basic | Pro Featured | Pro Anchor |
+| -------------------------------------------------------------------------------- | -------------------------------------------------------------- | --------- | ------------ | ---------- |
+| Auction or fixed price listing (first 250,000/month, most categories)            | FREE                                                           | FREE      | FREE         | FREE       |
+| Excess listing (after the monthly allowance, and in the listed small categories) | $1.00                                                          | $0.06     | $0.06        | $0.06      |
+| List in a second category                                                        | $1.00                                                          | $0.06     | $0.06        | $0.06      |
+| Subtitle                                                                         | $2.20 (see note)                                               | —         | —            | —          |
+| Buy It Now added to an auction                                                   | FREE in most categories; $0.11 in a small number of categories | $0.55     | $0.55        | $0.55      |
+| Scheduled listing                                                                | FREE in most categories; $0.44 in a small number of categories | same      | same         | same       |
+
+Notes on the table:
+
+- **Subtitle ambiguity, recorded not resolved.** The captured row carries a
+  single `$2.20` cell with `colspan="2"` and no further cells; the page does not
+  state a per-plan subtitle price. The dossier records "$2.20" and flags the
+  plan attribution as unstated in the capture. Listing upgrades are guidance,
+  not a per-sale fee, so this cannot affect a verdict.
+- The small-category list for the $0.11 / $0.44 upgrades is published on the
+  page: Business > Websites & Businesses for Sale (11759), Gift Cards &
+  Vouchers > Gift Cards (172009), Home & Garden > Real Estate (10542), Services
+  (316), Tickets, Travel > Flights (3253), Tickets (1305), Travel (3252).
+- **Relists and renewals:** auction-style listings may auto-relist up to eight
+  times with no extra listing fee; fixed-price listings are "Good 'Til
+  Cancelled" and renew monthly with the listing/upgrade fee charged again;
+  a manual relist pays the fees again.
+- **eBay Advertising** is campaign-dependent (a chosen percentage after the
+  sale, or an upfront flat fee). It is not a fixed rate and is not modelled.
+- The October capture no longer carries the Classified Ad row (the page states
+  that format is now vehicle-only); the May capture's $21.99 / $54.99 figures
+  are therefore historical and are not transcribed into the card.
