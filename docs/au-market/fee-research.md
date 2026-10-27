@@ -312,3 +312,83 @@ Consequence for the card: tier resolution must be by leaf category ID, and a
 parent ID that is present in both lists must resolve to `known=False` rather
 than being assigned to one tier by table order. This is recorded as an open
 question in section 10.
+
+## 7. Pro additional fees, currency conversion and GST
+
+### 7.1 Seller-performance fees
+
+Capture #1, "Fees for not meeting seller performance requirements":
+
+- **Below Standard:** if the seller evaluation on the 20th of a month shows the
+  seller is not meeting minimum performance standards, a fee of **5.5% (incl.
+  GST)** is charged on the total sale amount for items sold in **all
+  categories** during the following calendar month.
+- If the account has been Below Standard for **four or more consecutive
+  months**, the fee increases to **6.6% (incl. GST)** until the seller level
+  improves.
+- **Very High 'Item not as described' returns:** a fee of **5.5% (incl. GST)**
+  on the total sale amount for items sold in the affected categories during the
+  following calendar month; **6.6%** after four or more consecutive months.
+- If both apply, only the Below Standard fee is charged.
+
+Transcription note for Phase B: the current Pro page states these as a **fee of
+5.5% / 6.6% on the total sale amount**, not as a percentage-point increase to
+the category FVF. The UK card models its equivalents as extra percentage
+points; the AU card must not copy that shape without checking it against this
+sentence. The page's older Stores section (applicable until 11 May 2026) did
+speak of an increase of percentage points, but that section is historical.
+
+### 7.2 International sales fee
+
+Capture #1:
+
+> If your registered address is in Australia, we charge an international sales
+> fee of 1.1% (incl. GST) if the delivery address for the item (entered by the
+> buyer during checkout) is outside Australia.
+
+It is calculated on the total amount of the sale (item price + postage and
+handling + any tax or other applicable fees). The free-selling page states a
+different rate for its branch — **3% (incl. GST)** — and that difference is
+transcribed in section 8.2, not merged here.
+
+### 7.3 Dispute fee
+
+Capture #1: **$24.20 (incl. GST)** for each dispute where the seller is found
+responsible for a chargeback or other disputed amount.
+
+### 7.4 Seller currency conversion charge
+
+Capture #1 states the charge is **3%** for a seller registered in Australia,
+and adds:
+
+> From 1 November 2026, the fee for sellers registered in Australia will
+> increase to 3.25%.
+
+The charge applies when eBay converts funds because the seller listed or sold
+on another eBay site; the conversion uses eBay's transaction exchange rate,
+composed of a base exchange rate plus the conversion charge. It is not a fee on
+a normal AUD sale to an Australian buyer, so it does not enter the standard
+domestic verdict. The card records both values with their effective dates:
+**3.0% through 31 October 2026, 3.25% from 1 November 2026**.
+
+### 7.5 GST
+
+Capture #1's GST section, quoted:
+
+> If your registered address is in Australia, Australian GST of 10% is payable
+> on your eBay fees. Unless you provided eBay with your ABN and registered for
+> tax exempt status with eBay, we'll charge your eBay fees inclusive of GST, as
+> displayed on this page.
+
+So the published card is a **GST-inclusive** card. A tax-exempt seller (ABN
+registered with eBay) pays the same fee lines with GST removed; the card will
+state that delta rather than silently showing a second set of numbers.
+
+### 7.6 Other terms
+
+- Listing/upgrade fee amounts follow the terms in effect when the listing goes
+  live and renews; transaction and international fees follow the terms in
+  effect at the time of the sale.
+- The page prices listings on eBay.com.au; listing directly on another eBay
+  site uses that site's fees.
+- All fees are in Australian dollars unless otherwise stated.
