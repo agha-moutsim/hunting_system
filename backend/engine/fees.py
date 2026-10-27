@@ -6,7 +6,7 @@ every fee in this product comes from here. `engine/profit.py` (the C3 money
 rule) and the /fees calculator both call into this file; nothing else does
 the arithmetic.
 
-Two tables are shipped:
+Three tables are shipped:
 
   uk-rate-card-2026-09-30   the published eBay UK structure - the active
                             table. Business seller: variable final value
@@ -15,6 +15,13 @@ Two tables are shipped:
                             exclusive of VAT. UK-resident private seller:
                             no final value fee and no regulatory fee,
                             fees quoted VAT-inclusive.
+  au-rate-card-2026-10-09   the published eBay Australia structure. Two
+                            branches: eBay Pro (four plans, category tiers,
+                            per-order fee, 1.1% international fee) and
+                            free-selling (no final value fee, 3%
+                            international fee, label mandate). Fees are
+                            quoted GST-inclusive. Registered here in Phase
+                            B; the per-market config selects it in Phase C.
   v1-static                 the flat 13.5% + 0.03% listing + 20% VAT model
                             of CONSTRAINTS.md C3, kept selectable so old
                             verdicts can be reproduced and compared. It
@@ -71,6 +78,7 @@ from config import PROFIT_CONFIG
 # ---------------------------------------------------------------------------
 
 RATE_CARD_TABLE = "uk-rate-card-2026-09-30"
+AU_RATE_CARD_TABLE = "au-rate-card-2026-10-09"
 V1_STATIC_TABLE = "v1-static"
 
 # The table the pipeline verdict and the calculator use unless a caller asks
@@ -258,6 +266,91 @@ _UK_RATE_CARD = {
 }
 
 # ---------------------------------------------------------------------------
+# The published AU rate card, as data
+# ---------------------------------------------------------------------------
+#
+# Source: docs/au-market/fee-research.md (Phase A). Every number below is
+# transcribed from an eBay.com.au page; no third-party calculator is a
+# source. The card is registered here but is not the active table - Phase C
+# selects it per marketplace. Keeping the data in one module means the
+# pipeline and the calculator can never price an AU sale from different
+# numbers.
+
+_AU_SOURCES = {
+    "business": {
+        "label": "eBay Australia - eBay Pro selling fees (id=4809)",
+        "url": "https://www.ebay.com.au/help/selling/fees-credits-invoices/ebay-pro-selling-fees?id=4809",
+        "page_updated": "2026-10-09",
+        "retrieved": "Wayback capture 20261017110035",
+    },
+    "private": {
+        "label": "eBay Australia - Selling fees without a Pro plan (id=4822)",
+        "url": "https://www.ebay.com.au/help/selling/fees-credits-invoices/selling-fees-without-pro-plan?id=4822",
+        "page_updated": "2026-10-09",
+        "retrieved": "Wayback capture 20261012003957",
+    },
+    "label": {
+        "label": "eBay Australia - Buying shipping labels on eBay (id=4157)",
+        "url": "https://www.ebay.com.au/help/selling/shipping-items/labels-packaging-tips/buying-shipping-labels?id=4157",
+        "page_updated": None,
+        "date_note": (
+            "No date line on the article; the capture is used for the label "
+            "mandate and its four exceptions."
+        ),
+        "retrieved": "Wayback capture 20260908071955",
+    },
+}
+
+_AU_RATE_CARD = {
+    "key": AU_RATE_CARD_TABLE,
+    "version": (
+        "eBay AU rate card - Pro and free-selling pages updated 2026-10-09"
+    ),
+    "currency": "AUD",
+    "tax_name": "GST",
+    "gst_rate": 10.0,
+    "domestic_region": "au",
+    # The free-selling (Individual) branch is the default for an AU seller;
+    # a business seller selects a Pro plan at runtime.
+    "default_seller_type": "private",
+    # Tier 2 is the published "all other items" row, so an unresolved
+    # category defaults to a real row with known=False - never an invented
+    # average.
+    "default_category_key": "tier-2",
+    # These parent IDs appear as headings in both the Tier 1 and Tier 4
+    # lists. The page does not state a precedence rule, so a listing in one
+    # of these parents resolves to the stated Tier 2 default with
+    # known=False rather than being assigned to one tier by table order.
+    "ambiguous_category_ids": [625, 293, 172176, 15032, 1249],
+    "sources": [
+        _AU_SOURCES["business"],
+        _AU_SOURCES["private"],
+        _AU_SOURCES["label"],
+    ],
+    "notes": [
+        "All fees are in Australian dollars unless otherwise stated.",
+        "GST at 10% is included in the displayed fees unless the seller has "
+        "registered tax-exempt status with an ABN; this card stores the "
+        "displayed inclusive numbers and does not add a GST-on-fees line.",
+        "The Pro Starter rate is 13.4% in all four tiers: the captured cell "
+        "carries rowspan=4.",
+        "Parent category IDs repeated across Tier 1 and Tier 4 are ambiguous "
+        "and resolve to the stated Tier 2 default with known=False.",
+        "Currency conversion is 3.0% through 31 October 2026 and 3.25% from "
+        "1 November 2026; it does not apply to a domestic AUD sale.",
+        "Rounding is standard two-decimal AUD rounding; eBay does not state a "
+        "rounding rule on these pages.",
+        "The label price is postage, not an eBay fee, and is not priced by "
+        "this card.",
+    ],
+    # Filled in by the next commits: the two seller branches are kept
+    # separate because they price different populations and must never share
+    # a rate by accident.
+    "business": {},
+    "private": {},
+}
+
+# ---------------------------------------------------------------------------
 # v1-static - the C3 model, kept for reproduction and comparison
 # ---------------------------------------------------------------------------
 
@@ -302,6 +395,7 @@ _V1_STATIC = {
 
 FEE_TABLES: dict[str, dict] = {
     RATE_CARD_TABLE: _UK_RATE_CARD,
+    AU_RATE_CARD_TABLE: _AU_RATE_CARD,
     V1_STATIC_TABLE: _V1_STATIC,
 }
 
