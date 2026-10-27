@@ -301,6 +301,236 @@ _AU_SOURCES = {
     },
 }
 
+_AU_PLAN_KEYS = ("starter", "basic", "featured", "anchor")
+_AU_OVER_4000_PERCENT = {
+    "starter": 2.5,
+    "basic": 2.75,
+    "featured": 2.75,
+    "anchor": 2.75,
+}
+
+
+def _au_tiers(rate_by_plan: dict) -> dict:
+    """Build the four plan tier lists for one category row.
+
+    Every plan has the same shape: the category rate applies to the total
+    amount of the sale up to AUD 4,000, then the published over-$4,000 rate
+    applies above it. Keeping the shape in one helper makes the rowspan
+    reading explicit: Starter carries 13.4% in every tier.
+    """
+    return {
+        plan: [
+            (4000.0, rate_by_plan[plan]),
+            (None, _AU_OVER_4000_PERCENT[plan]),
+        ]
+        for plan in _AU_PLAN_KEYS
+    }
+
+
+_AU_BUSINESS_CATEGORIES = [
+    {
+        "key": "tier-1",
+        "name": "Tier 1 - Home Appliances and Technology Devices",
+        "category_ids": [
+            # Home Appliances
+            20710,
+            # Camera (625) leaves
+            28179,
+            11724,
+            31388,
+            150044,
+            69323,
+            3326,
+            # Electronics (293) leaves
+            14969,
+            156955,
+            73839,
+            178894,
+            13863,
+            15053,
+            15054,
+            96954,
+            # Home Entertainment (172176) leaves
+            96964,
+            175711,
+            11725,
+            72406,
+            168058,
+            22610,
+            96969,
+            11071,
+            15088,
+            # Phones (15032) leaves
+            41373,
+            33929,
+            9355,
+            38331,
+            178893,
+            182098,
+            182073,
+            # Video Games & Consoles (1249) leaf
+            139971,
+        ],
+        "tiers_by_plan": _au_tiers(
+            {"starter": 13.4, "basic": 8.03, "featured": 7.26, "anchor": 6.82}
+        ),
+        "notes": [
+            "Tier 1 is the rate card's Home Appliances and Technology Devices "
+            "list. The parent headings Camera (625), Electronics (293), Home "
+            "Entertainment (172176), Phones (15032) and Video Games & Consoles "
+            "(1249) are not priced here because they also head the Tier 4 "
+            "list; their leaf IDs are.",
+        ],
+    },
+    {
+        "key": "tier-2",
+        "name": "Tier 2 - Most categories",
+        "category_ids": [],
+        "tiers_by_plan": _au_tiers(
+            {"starter": 13.4, "basic": 10.34, "featured": 9.68, "anchor": 9.68}
+        ),
+        "notes": [
+            "The rate card defines Tier 2 as all items outside Tier 1, Tier 3, "
+            "Tier 4, NFTs and Services. This is the stated default row for an "
+            "unresolved category.",
+        ],
+    },
+    {
+        "key": "tier-3",
+        "name": "Tier 3 - Vehicle Parts & Accessories",
+        "category_ids": [131090],
+        "tiers_by_plan": _au_tiers(
+            {"starter": 13.4, "basic": 12.43, "featured": 11.22, "anchor": 10.56}
+        ),
+        "notes": ["Vehicle Parts & Accessories (131090)."],
+    },
+    {
+        "key": "tier-4",
+        "name": (
+            "Tier 4 - Business & Industrial, Collectables, Fashion, Media, "
+            "Sporting Goods and Technology Accessories"
+        ),
+        "category_ids": [
+            # Business & Industrial
+            170638,
+            170769,
+            # Collectables
+            20081,
+            550,
+            11116,
+            1,
+            14339,
+            237,
+            870,
+            260,
+            # Fashion
+            11450,
+            26395,
+            281,
+            # Media
+            267,
+            11232,
+            11233,
+            # Sporting Goods
+            888,
+            # Technology Accessories - Camera (625) leaves
+            15200,
+            179697,
+            4684,
+            64353,
+            78997,
+            30078,
+            182074,
+            30090,
+            45089,
+            27432,
+            # Technology Accessories - Computers (58058) and leaves
+            58058,
+            182094,
+            175673,
+            165,
+            11176,
+            3676,
+            31530,
+            3516,
+            51052,
+            158845,
+            168068,
+            86722,
+            182086,
+            11195,
+            99231,
+            18793,
+            176970,
+            180235,
+            11189,
+            259696,
+            175688,
+            162,
+            # Technology Accessories - Electronics (293) leaves
+            14961,
+            48446,
+            139836,
+            56169,
+            1500,
+            183077,
+            259701,
+            # Technology Accessories - Home Entertainment (172176) leaves
+            48655,
+            71582,
+            # Technology Accessories - Phones & Accessories (15032) leaves
+            175744,
+            139968,
+            20034,
+            15048,
+            136699,
+            84079,
+            9394,
+            43304,
+            3314,
+            29778,
+            182064,
+            45065,
+        ],
+        "tiers_by_plan": _au_tiers(
+            {"starter": 13.4, "basic": 13.09, "featured": 11.77, "anchor": 11.11}
+        ),
+        "notes": [
+            "Tier 4 is the rate card's Business & Industrial, Collectables, "
+            "Fashion, Media, Sporting Goods and Technology Accessories list. "
+            "The parents Camera (625), Electronics (293), Home Entertainment "
+            "(172176), Phones (15032) and Video Games & Consoles (1249) are "
+            "not priced here because they also head the Tier 1 list.",
+            "Computers (58058) is a group heading in the Tier 4 list and is "
+            "included because only Tier 4 names it; the repeated parents are "
+            "the ambiguous ones.",
+        ],
+    },
+    {
+        "key": "nfts",
+        "name": "Non-fungible tokens (NFTs)",
+        "category_ids": [],
+        "tiers_by_plan": {
+            plan: [(None, 5.5)] for plan in _AU_PLAN_KEYS
+        },
+        "notes": [
+            "5.5% of the total sale amount, flat for every plan; the AU page "
+            "does not publish category IDs for NFTs, so this row resolves by "
+            "key only.",
+        ],
+    },
+    {
+        "key": "services",
+        "name": "Services",
+        "category_ids": [316],
+        "flat_fee": 44.0,
+        "notes": [
+            "$44.00 flat per item in Services (316); the page states the flat "
+            "fee for all plans, so there is no plan-specific rate.",
+        ],
+    },
+]
+
 _AU_RATE_CARD = {
     "key": AU_RATE_CARD_TABLE,
     "version": (
@@ -346,7 +576,11 @@ _AU_RATE_CARD = {
     # Filled in by the next commits: the two seller branches are kept
     # separate because they price different populations and must never share
     # a rate by accident.
-    "business": {},
+    "business": {
+        "fees_include_gst": True,
+        "fee_basis": "total_amount_of_sale",
+        "categories": _AU_BUSINESS_CATEGORIES,
+    },
     "private": {},
 }
 
