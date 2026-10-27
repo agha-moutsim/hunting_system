@@ -176,3 +176,107 @@ class TestTheBusinessTiersAreThePublishedOnes:
             for plan in self.PLANS:
                 tiers = by_key[key]["tiers_by_plan"][plan]
                 assert tiers[-1][0] is None, (key, plan)
+
+
+class TestTheProPlansAndTheirCharges:
+    @pytest.fixture()
+    def business(self):
+        return fees.get_fee_table(AU)["business"]
+
+    def test_four_plans_with_the_published_monthly_fees(self, business):
+        plans = business["plans"]
+        assert set(plans) == {"starter", "basic", "featured", "anchor"}
+        assert plans["starter"]["label"] == "Pro Starter"
+        assert plans["starter"]["monthly_fee"] == 0.0
+        assert plans["basic"]["monthly_fee"] == 27.45
+        assert plans["featured"]["monthly_fee"] == 82.45
+        assert plans["anchor"]["monthly_fee"] == 604.95
+
+    def test_starter_is_the_default_plan(self, business):
+        assert business["default_plan"] == "starter"
+
+    def test_per_order_fee_is_thirty_cents_on_starter_and_thirty_three_above(
+        self, business
+    ):
+        plans = business["plans"]
+        assert plans["starter"]["per_order_fee"] == 0.30
+        for plan in ("basic", "featured", "anchor"):
+            assert plans[plan]["per_order_fee"] == 0.33, plan
+
+    def test_plan_over_4000_metadata_matches_every_tier(self, business):
+        for plan, meta in business["plans"].items():
+            for row in business["categories"]:
+                tiers = row.get("tiers_by_plan")
+                if not tiers or row["key"] == "nfts":
+                    # NFTs are a flat 5.5% row outside the tier table; the
+                    # over-$4,000 step does not apply to them.
+                    continue
+                assert tiers[plan][-1] == (None, meta["over_4000_percent"]), (
+                    row["key"],
+                    plan,
+                )
+
+    def test_the_listing_allowance_and_excess_fees_are_published(self, business):
+        guidance = business["listing_fee_guidance"]
+        assert guidance["free_listings_per_month"] == 250000
+        assert guidance["excess_listing_by_plan"] == {
+            "starter": 1.00,
+            "basic": 0.06,
+            "featured": 0.06,
+            "anchor": 0.06,
+        }
+        assert guidance["second_category_by_plan"] == {
+            "starter": 1.00,
+            "basic": 0.06,
+            "featured": 0.06,
+            "anchor": 0.06,
+        }
+
+    def test_the_subtitle_price_is_carried_but_its_plan_is_flagged(self, business):
+        guidance = business["listing_fee_guidance"]
+        assert guidance["subtitle"] == 2.20
+        assert "unstated" in guidance["subtitle_plan_attribution"]
+
+    def test_buy_it_now_and_scheduled_listing_steps_are_carried(self, business):
+        guidance = business["listing_fee_guidance"]
+        assert guidance["buy_it_now_auction"]["starter"] == {
+            "most_categories": 0.0,
+            "small_categories": 0.11,
+        }
+        assert guidance["buy_it_now_auction"]["basic"]["small_categories"] == 0.55
+        assert guidance["scheduled_listing"] == {
+            "most_categories": 0.0,
+            "small_categories": 0.44,
+        }
+        assert 316 in guidance["small_categories"]
+        assert 11759 in guidance["small_categories"]
+
+    def test_the_pro_international_fee_is_one_point_one_percent(self, business):
+        assert business["international_fee_percent"] == 1.1
+        assert "outside Australia" in business["international_fee_note"]
+
+    def test_performance_fees_are_a_percent_not_percentage_points(self):
+        perf = fees.get_fee_table(AU)["performance_fees"]
+        assert perf["below_standard_percent"] == 5.5
+        assert perf["below_standard_percent_after_4_months"] == 6.6
+        assert perf["very_high_inr_percent"] == 5.5
+        assert perf["very_high_inr_percent_after_4_months"] == 6.6
+        assert "not percentage points" in perf["shape"]
+        assert perf["both_apply"] == "only the Below Standard fee is charged"
+
+    def test_the_dispute_fee_and_currency_conversion_are_carried(self):
+        table = fees.get_fee_table(AU)
+        assert table["dispute_fee"] == 24.20
+        conversion = table["currency_conversion"]
+        assert conversion["percent_until_2026-10-31"] == 3.0
+        assert conversion["percent_from_2026-11-01"] == 3.25
+        assert conversion["effective_from"] == "2026-11-01"
+        assert "domestic AUD sale" in conversion["note"]
+
+    def test_the_pro_branch_names_what_it_does_not_price(self, business):
+        assert "Motors" in business["excludes"]
+        assert "eBay Live" in business["excludes"]
+        notes = " ".join(business["notes"])
+        assert "GST at 10%" in notes
+        assert "per order" in notes
+        assert "higher of the two" in notes

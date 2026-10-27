@@ -573,6 +573,32 @@ _AU_RATE_CARD = {
         "The label price is postage, not an eBay fee, and is not priced by "
         "this card.",
     ],
+    # These charges are stated on both fee pages with the same values, so
+    # they live at the card level rather than being copied into each branch.
+    "performance_fees": {
+        "below_standard_percent": 5.5,
+        "below_standard_percent_after_4_months": 6.6,
+        "very_high_inr_percent": 5.5,
+        "very_high_inr_percent_after_4_months": 6.6,
+        "shape": "additional percent of the total sale amount, not percentage points",
+        "both_apply": "only the Below Standard fee is charged",
+        "note": (
+            "The AU page states these as a fee of 5.5% / 6.6% on the total "
+            "sale amount; the card carries them as a modifier and does not "
+            "apply them to a default verdict."
+        ),
+    },
+    "dispute_fee": 24.20,
+    "currency_conversion": {
+        "percent_until_2026-10-31": 3.0,
+        "percent_from_2026-11-01": 3.25,
+        "effective_from": "2026-11-01",
+        "note": (
+            "Applies only when eBay converts funds because the seller listed "
+            "or sold on another eBay site; a domestic AUD sale does not incur "
+            "it."
+        ),
+    },
     # Filled in by the next commits: the two seller branches are kept
     # separate because they price different populations and must never share
     # a rate by accident.
@@ -580,6 +606,88 @@ _AU_RATE_CARD = {
         "fees_include_gst": True,
         "fee_basis": "total_amount_of_sale",
         "categories": _AU_BUSINESS_CATEGORIES,
+        "default_plan": "starter",
+        "plans": {
+            "starter": {
+                "label": "Pro Starter",
+                "monthly_fee": 0.0,
+                "per_order_fee": 0.30,
+                "over_4000_percent": 2.5,
+            },
+            "basic": {
+                "label": "Pro Basic",
+                "monthly_fee": 27.45,
+                "per_order_fee": 0.33,
+                "over_4000_percent": 2.75,
+            },
+            "featured": {
+                "label": "Pro Featured",
+                "monthly_fee": 82.45,
+                "per_order_fee": 0.33,
+                "over_4000_percent": 2.75,
+            },
+            "anchor": {
+                "label": "Pro Anchor",
+                "monthly_fee": 604.95,
+                "per_order_fee": 0.33,
+                "over_4000_percent": 2.75,
+            },
+        },
+        "international_fee_percent": 1.1,
+        "international_fee_note": (
+            "1.1% (incl. GST) when the delivery address is outside Australia, "
+            "calculated on the total amount of the sale."
+        ),
+        "listing_fee_guidance": {
+            "free_listings_per_month": 250000,
+            "excess_listing_by_plan": {
+                "starter": 1.00,
+                "basic": 0.06,
+                "featured": 0.06,
+                "anchor": 0.06,
+            },
+            "second_category_by_plan": {
+                "starter": 1.00,
+                "basic": 0.06,
+                "featured": 0.06,
+                "anchor": 0.06,
+            },
+            "subtitle": 2.20,
+            "subtitle_plan_attribution": (
+                "unstated in the captured table (one $2.20 cell with colspan=2)"
+            ),
+            "buy_it_now_auction": {
+                "starter": {"most_categories": 0.0, "small_categories": 0.11},
+                "basic": {"most_categories": 0.55, "small_categories": 0.55},
+                "featured": {"most_categories": 0.55, "small_categories": 0.55},
+                "anchor": {"most_categories": 0.55, "small_categories": 0.55},
+            },
+            "scheduled_listing": {
+                "most_categories": 0.0,
+                "small_categories": 0.44,
+            },
+            "small_categories": [11759, 172009, 10542, 316, 3253, 1305, 3252],
+            "note": (
+                "250,000 free listings per month; excess listings are $1.00 on "
+                "Pro Starter and $0.06 on Basic/Featured/Anchor. Optional "
+                "upgrades are guidance, not a per-sale fee."
+            ),
+        },
+        "excludes": (
+            "Cars, Motorcycles & Vehicles (Motors), eBay Live and Classified "
+            "Ads - separate schedules"
+        ),
+        "notes": [
+            "The Pro page prices sellers with an eBay Pro subscription on "
+            "eBay.com.au and Australia-based sellers with total annual sales "
+            "over AU $25,000.",
+            "Fees are quoted inclusive of GST at 10%.",
+            "The fixed order fee is charged per order; an order is any number "
+            "of items bought by the same buyer at checkout with the same "
+            "delivery method.",
+            "A listing in two categories is charged the higher of the two "
+            "final value fees.",
+        ],
     },
     "private": {},
 }
