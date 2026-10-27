@@ -708,3 +708,107 @@ class TestTheDeliveryRegionIsPerCard:
         )
         assert outcome["fees"]["buyer_region"] == "au"
         assert outcome["fees"]["international_fee"] is None
+
+
+class TestTheAuCategoryDefaultAndAmbiguity:
+    def test_an_unresolved_category_defaults_to_tier_2_with_known_false(self):
+        row, known = fees.resolve_category(None, fees.get_fee_table(AU))
+        assert row["key"] == "tier-2"
+        assert known is False
+
+    def test_the_default_key_can_be_named_explicitly(self):
+        row, known = fees.resolve_category("tier-2", fees.get_fee_table(AU))
+        assert row["key"] == "tier-2"
+        assert known is True
+
+    @pytest.mark.parametrize("parent", [625, 293, 172176, 15032, 1249])
+    def test_a_parent_heading_both_tiers_is_never_assigned_by_order(self, parent):
+        row, known = fees.resolve_category(parent, fees.get_fee_table(AU))
+        assert row["key"] == "tier-2"
+        assert known is False
+
+    def test_leaf_ids_still_resolve_to_their_tier(self):
+        table = fees.get_fee_table(AU)
+        tier_1, known_1 = fees.resolve_category(20710, table)
+        tier_4, known_4 = fees.resolve_category("888", table)
+        assert (tier_1["key"], known_1) == ("tier-1", True)
+        assert (tier_4["key"], known_4) == ("tier-4", True)
+
+    def test_an_unknown_id_uses_the_stated_default(self):
+        row, known = fees.resolve_category(999999, fees.get_fee_table(AU))
+        assert row["key"] == "tier-2"
+        assert known is False
+
+    def test_a_missing_category_is_priced_at_tier_2_with_a_sentence(self):
+        result = fees.calculate_fees(
+            20.0, seller_type="business", fee_table=AU
+        )
+        assert result["category"]["key"] == "tier-2"
+        assert result["category"]["known"] is False
+        assert result["category"]["ambiguous_parent"] is False
+        assert result["fees_quoted_total"] == pytest.approx(2.98, abs=0.005)
+        assert any(
+            "No category identified" in a for a in result["assumptions"]
+        )
+
+    def test_an_ambiguous_parent_is_priced_at_tier_2_with_its_own_sentence(self):
+        result = fees.calculate_fees(
+            20.0, seller_type="business", category=625, fee_table=AU
+        )
+        assert result["category"]["key"] == "tier-2"
+        assert result["category"]["known"] is False
+        assert result["category"]["ambiguous_parent"] is True
+        joined = " ".join(result["assumptions"])
+        assert "parent heading in both Tier 1 and Tier 4" in joined
+        assert "not a tier assignment" in joined
+
+    def test_an_ambiguous_parent_does_not_get_tier_1_or_tier_4_rates(self):
+        result = fees.calculate_fees(
+            300.0,
+            seller_type="business",
+            seller_plan="basic",
+            category=625,
+            fee_table=AU,
+        )
+        # Tier 2 Basic is 10.34%; Tier 1 is 8.03% and Tier 4 is 13.09%.
+        assert result["fvf"] == pytest.approx(31.02, abs=0.005)
+        assert result["fees_quoted_total"] == pytest.approx(31.35, abs=0.005)
+
+    def test_list_categories_states_every_plan_for_a_raw_au_row(self):
+        rows = {
+            row["key"]: row
+            for row in fees.list_categories(fees.get_fee_table(AU))
+        }
+        assert set(rows) == {
+            "tier-1",
+            "tier-2",
+            "tier-3",
+            "tier-4",
+            "nfts",
+            "services",
+        }
+        assert rows["tier-2"]["is_default"] is True
+        assert rows["tier-1"]["is_default"] is False
+        assert "13.4%" in rows["tier-1"]["rates_by_plan"]["starter"]
+        assert "8.03%" in rows["tier-1"]["rates_by_plan"]["basic"]
+        assert rows["nfts"]["rate_label"] == "5.5%"
+        assert rows["services"]["flat_fee"] == 44.0
+        assert rows["services"]["rate_label"] == "AUD 44.00 flat fee"
+        for row in rows.values():
+            assert row["rate_label"]
+
+    def test_a_raw_row_can_be_labelled_for_one_plan(self):
+        table = fees.get_fee_table(AU)
+        row = next(
+            row
+            for row in table["business"]["categories"]
+            if row["key"] == "tier-1"
+        )
+        starter = fees.rate_label(row, "AUD", plan="starter")
+        basic = fees.rate_label(row, "AUD", plan="Pro Basic")
+        assert "13.4%" in starter and "2.5%" in starter
+        assert "8.03%" in basic and "2.75%" in basic
+        assert "Plan-specific" in fees.rate_label(row, "AUD")
+        with pytest.raises(ValueError) as err:
+            fees.rate_label(row, "AUD", plan="platinum")
+        assert "expected one of" in str(err.value)

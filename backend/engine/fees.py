@@ -1113,7 +1113,7 @@ def resolve_category(
         return None, False
 
     if category is None or category == "":
-        return _default_row(categories), False
+        return _default_row(categories, tbl), False
 
     needle = str(category).strip().lower()
     for row in categories:
@@ -1123,18 +1123,22 @@ def resolve_category(
     try:
         number = int(needle)
     except (TypeError, ValueError):
-        return _default_row(categories), False
+        return _default_row(categories, tbl), False
+    # A parent ID that heads two tiers is not assigned to one by table order.
+    if number in (tbl.get("ambiguous_category_ids") or []):
+        return _default_row(categories, tbl), False
     for row in categories:
         if number in row["category_ids"]:
             return row, True
-    return _default_row(categories), False
+    return _default_row(categories, tbl), False
 
 
-def _default_row(categories: list[dict]) -> dict:
+def _default_row(categories: list[dict], table: Optional[dict] = None) -> dict:
+    key = (table or {}).get("default_category_key", DEFAULT_CATEGORY_KEY)
     for row in categories:
-        if row["key"] == DEFAULT_CATEGORY_KEY:
+        if row["key"] == key:
             return row
-    raise KeyError(f"rate card has no {DEFAULT_CATEGORY_KEY!r} row to default to")
+    raise KeyError(f"rate card has no {key!r} row to default to")
 
 
 def tiers_label(tiers: list, currency: str = "GBP") -> str:
@@ -1152,10 +1156,46 @@ def tiers_label(tiers: list, currency: str = "GBP") -> str:
     return ", then ".join(parts)
 
 
-def rate_label(row: dict, currency: str = "GBP") -> str:
-    """A category row's rate(s), including its rate switch when it has one."""
+def rate_label(
+    row: dict, currency: str = "GBP", plan: Optional[str] = None
+) -> str:
+    """A category row's rate(s), including its rate switch when it has one.
+
+    An AU business row carries four plan rates in `tiers_by_plan` and no
+    single `tiers` until a plan is materialised. With `plan` stated, this
+    returns that plan's label; without one, it states every plan rather than
+    rendering one plan's rate as if it were the card's only rate.
+    """
     if row.get("flat_fee") is not None:
         return f"{currency} {row['flat_fee']:,.2f} flat fee"
+    if row.get("tiers_by_plan") and "tiers" not in row:
+        rates = row["tiers_by_plan"]
+        if plan is not None:
+            key = _normalise_plan(plan)
+            if key not in rates:
+                raise ValueError(
+                    f"unknown seller_plan {key!r}; expected one of {sorted(rates)}"
+                )
+            label = tiers_label(rates[key], currency)
+        else:
+            distinct = []
+            for tiers in rates.values():
+                if tiers not in distinct:
+                    distinct.append(tiers)
+            if len(distinct) == 1:
+                label = tiers_label(distinct[0], currency)
+            else:
+                label = "Plan-specific: " + "; ".join(
+                    f"{key.title()} {tiers_label(tiers, currency)}"
+                    for key, tiers in rates.items()
+                )
+        switch = row.get("rate_switch")
+        if switch:
+            label += (
+                f" ({switch['percent']:g}% when the item price is "
+                f"{currency} {switch['item_price_at_least']:,.0f} or more, excluding postage)"
+            )
+        return label
     label = tiers_label(row["tiers"], currency)
     switch = row.get("rate_switch")
     if switch:
@@ -1170,16 +1210,27 @@ def list_categories(table: Optional[dict] = None) -> list[dict]:
     """UI-ready category rows for a table: key, name, ids, rate label."""
     tbl = table or get_fee_table()
     categories = (tbl.get("business") or {}).get("categories") or []
-    return [
-        {
+    currency = tbl.get("currency", "GBP")
+    default_key = tbl.get("default_category_key", DEFAULT_CATEGORY_KEY)
+    rows: list[dict] = []
+    for row in categories:
+        entry = {
             "key": row["key"],
             "name": row["name"],
             "category_ids": row["category_ids"],
-            "rate_label": rate_label(row, tbl.get("currency", "GBP")),
+            "rate_label": rate_label(row, currency),
             "notes": row.get("notes", []),
+            "is_default": row["key"] == default_key,
         }
-        for row in categories
-    ]
+        if "tiers_by_plan" in row:
+            entry["rates_by_plan"] = {
+                plan: rate_label(row, currency, plan=plan)
+                for plan in row["tiers_by_plan"]
+            }
+        if row.get("flat_fee") is not None:
+            entry["flat_fee"] = row["flat_fee"]
+        rows.append(entry)
+    return rows
 
 
 # ---------------------------------------------------------------------------
@@ -1297,6 +1348,14 @@ def calculate_fees(
     # --- Final value fee ---
     category_info: Optional[dict] = None
     if side.get("categories"):
+        ambiguous_parent = False
+        if category not in (None, ""):
+            try:
+                ambiguous_parent = int(str(category).strip()) in (
+                    tbl.get("ambiguous_category_ids") or []
+                )
+            except (TypeError, ValueError):
+                ambiguous_parent = False
         row, known = resolve_category(
             category, tbl, categories=side.get("categories")
         )
@@ -1319,15 +1378,24 @@ def calculate_fees(
             "name": row["name"],
             "category_ids": row["category_ids"],
             "known": known,
+            "ambiguous_parent": ambiguous_parent,
             "rate_label": label,
             "rate_applied": applied,
         }
         notes.extend(row.get("notes", []))
         if not known:
-            assumptions.append(
-                f"No category identified; using {row['name']} ({label}) - a "
-                "stated default, not a reading of your category."
-            )
+            if ambiguous_parent:
+                assumptions.append(
+                    f"Category {int(str(category).strip())} is a parent heading "
+                    "in both Tier 1 and Tier 4; using "
+                    f"{row['name']} ({label}) - the card's stated default, not "
+                    "a tier assignment."
+                )
+            else:
+                assumptions.append(
+                    f"No category identified; using {row['name']} ({label}) - a "
+                    "stated default, not a reading of your category."
+                )
     elif side.get("fvf_tiers"):
         fvf = _tier_fee(side["fvf_tiers"], total)
         applied = tiers_label(side["fvf_tiers"], currency)
