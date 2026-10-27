@@ -64,3 +64,49 @@ also stated on capture #3, so the dossier cites capture #3 for it.
    individual seller may send an item; the label price is the carrier's postage
    charge, deducted from proceeds. It belongs in the cost model as postage, and
    must never be priced as zero when the mandate applies.
+
+## 3. The Pro page — who it applies to, and the GST stance
+
+Capture #1 (page date: "Last updated: 9 October 2026"). The page's own opening
+states the population it prices:
+
+> The fees on this page apply to sellers with an eBay Pro subscription on
+> eBay.com.au and Australia-based sellers with total annual sales of over
+> AU $25,000.
+
+The threshold is measured, not guessed. The page states the calculation:
+
+> Each month, we calculate your total sales on eBay using data from the
+> preceding 12 full calendar months. […] We add up your sales across all eBay
+> sites, using the total amount of each sale (including the item price, postage
+> and any applicable tax).
+
+A seller over the threshold without a Pro plan is notified on the 20th of the
+month and moved to **Pro Starter** from the 1st of the following month; Pro
+Starter has no monthly fee. A seller at or under AU $25,000 may stay in free
+selling or subscribe to a Pro plan voluntarily.
+
+**GST stance, quoted:**
+
+> Fees on this page are displayed inclusive of Australian GST. If you have
+> registered for tax exempt status with eBay, we won't apply GST to your eBay
+> fees.
+
+The same page's GST section adds: Australian GST of 10% is payable on eBay fees;
+unless the seller has provided an ABN and registered for tax-exempt status, fees
+are charged inclusive of GST **as displayed**. A tax-exempt business seller
+therefore pays less than the displayed number; the card stores the displayed
+(inclusive) number and records the exemption as a documented delta, not as a
+second rate card.
+
+**Currency and scope, quoted:**
+
+> All fees are in Australian dollars, unless otherwise stated.
+
+> The fees on this page apply to listings on eBay.com.au. If you list an item
+> directly on another eBay site (e.g. eBay.com or eBay.co.uk), the fees for that
+> site will apply.
+
+The page also names what it does **not** price: vehicles (eBay Motors), eBay
+Live, and Classified Ad listings (the latter now vehicle-only). Those are
+recorded in the not-modelled list in section 10.
