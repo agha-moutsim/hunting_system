@@ -557,3 +557,97 @@ pickup). When it is true, the cost model must carry postage as a real cost
 line. The label price is not a fixed number on the page — it depends on the
 parcel — so the engine must record it as an input/absent value with a reason
 sentence, never as a guessed average and never as zero.
+
+## 10. Number-to-capture cross-check
+
+Every figure the card will carry, with the capture it came from. Capture IDs
+are defined in section 1.
+
+| Figure                                 | Value                                                   | Capture           | Where on the page                      |
+| -------------------------------------- | ------------------------------------------------------- | ----------------- | -------------------------------------- |
+| Pro Starter monthly                    | No monthly fee                                          | `20261017110035`  | Monthly subscription cost (incl. GST)  |
+| Pro Basic monthly                      | $27.45                                                  | `20261017110035`  | same table                             |
+| Pro Featured monthly                   | $82.45                                                  | `20261017110035`  | same table                             |
+| Pro Anchor monthly                     | $604.95                                                 | `20261017110035`  | same table                             |
+| Fixed order fee, Starter               | $0.30 per order                                         | `20261017110035`  | Transaction fee table                  |
+| Fixed order fee, Basic/Featured/Anchor | $0.33 per order                                         | `20261017110035`  | Transaction fee table                  |
+| Tier 1 FVF                             | 13.4 / 8.03 / 7.26 / 6.82%                              | `20261017110035`  | Transaction fee table                  |
+| Tier 2 FVF                             | 13.4 / 10.34 / 9.68 / 9.68%                             | `20261017110035`  | Transaction fee table                  |
+| Tier 3 FVF                             | 13.4 / 12.43 / 11.22 / 10.56%                           | `20261017110035`  | Transaction fee table                  |
+| Tier 4 FVF                             | 13.4 / 13.09 / 11.77 / 11.11%                           | `20261017110035`  | Transaction fee table                  |
+| Starter rowspan                        | 13.4% covers all four tiers                             | `20260513185147`  | HTML `rowspan="4"` on the Starter cell |
+| Portion over $4,000                    | 2.5% Starter; 2.75% others                              | `20261017110035`  | Transaction fee table                  |
+| NFTs                                   | 5.5% of total sale amount                               | `20261017110035`  | Transaction fee table                  |
+| Services                               | $44.00 flat                                             | `20261017110035`  | Transaction fee table                  |
+| Worked examples (4)                    | $2.98 / $24.42 / $17.16 / $477.73                       | `20261017110035`  | Transaction fee examples               |
+| International fee, Pro                 | 1.1% (incl. GST)                                        | `20261017110035`  | International sales fee                |
+| International fee, free selling        | 3% (incl. GST)                                          | `20261012003957`  | International sales fee                |
+| Dispute fee                            | $24.20 (incl. GST)                                      | both fee captures | Dispute fees                           |
+| Below Standard                         | 5.5%, then 6.6% after 4 months                          | both fee captures | Seller performance                     |
+| Very High INR                          | 5.5%, then 6.6% after 4 months                          | both fee captures | Seller performance                     |
+| Currency conversion                    | 3% now; 3.25% from 1 Nov 2026                           | both fee captures | Seller currency conversion charge      |
+| GST on eBay fees                       | 10%, displayed inclusive                                | both fee captures | Goods and Services Tax                 |
+| Free-selling threshold                 | AU $25,000 or less in past 12 months                    | `20261012003957`  | Eligibility for free selling           |
+| Free-selling FVF                       | No transaction fees                                     | `20261012003957`  | Opening paragraph                      |
+| Free listings                          | 250,000 per month                                       | both fee captures | Listing fees                           |
+| Excess listing, free selling           | $1.00                                                   | `20261012003957`  | Listing fee table                      |
+| Subtitle                               | $2.20                                                   | both fee captures | Listing fee table                      |
+| Label mandate                          | Required for free-selling sellers, with four exceptions | `20260908071955`  | Opening section                        |
+| Prepaid labels from 11 Nov 2026        | Announced                                               | `20261012003957`  | Recent and upcoming changes            |
+
+No third-party calculator, blog, forum or aggregator number appears in this
+table. Those sources were read only to establish that they disagree; none of
+their figures entered the dossier.
+
+## 11. What is not modelled (and why)
+
+| Excluded item                                    | Why it is out                                                                                                                                    |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| eBay Motors / vehicle fees                       | The page says a different schedule applies; vehicles are outside the ten planned features and the AU build.                                      |
+| eBay Live selling fees                           | The free-selling page points to a different fee set; live commerce is not in scope.                                                              |
+| Classified Ads                                   | The October page removed the fee information because the format is now vehicle-only.                                                             |
+| eBay Advertising / Promoted Listings             | Campaign-dependent (percentage after sale or flat fee); not a published fixed rate.                                                              |
+| Listing upgrades as a verdict cost               | The card stores guidance (subtitle, BIN, scheduled, excess, second category); a per-sale verdict must not silently add them.                     |
+| Seller-performance fees (5.5% / 6.6%)            | They apply only after eBay evaluates the seller; the card records them as a modifier, not as the default verdict.                                |
+| Tax-exempt (ABN) fee delta                       | The page states GST is removed for tax-exempt sellers; the card stores the displayed inclusive numbers and records the delta, not a second card. |
+| Foreign-registered seller branch                 | Transcribed in 8.5 for completeness; the AU card prices AU-registered sellers.                                                                   |
+| Currency conversion charge in a domestic verdict | It applies only when eBay converts funds for another eBay site; a normal AUD sale to an AU buyer does not incur it.                              |
+| GST on the seller's own sale price / income tax  | Outside the engine's question (what eBay takes), same stance as the UK card.                                                                     |
+
+## 12. Open questions for Phase B
+
+These are decisions the card build must settle; the dossier records the source
+material, not a preference.
+
+1. **Card key date.** The page's own date is 9 October 2026; the capture is
+   17 October 2026. The UK card is keyed by the page date
+   (`uk-rate-card-2026-09-30`), so the AU card should be
+   `au-rate-card-2026-10-09` unless a later page revision is captured before
+   the build.
+2. **Business plan default.** The card should carry all four Pro plans. The
+   default for an AU business seller is **Pro Starter** (the auto-upgrade
+   default); Basic/Featured/Anchor are selectable, never assumed.
+3. **Parent-category overlap.** Camera (625), Electronics (293), Home
+   Entertainment (172176), Phones (15032) and Video Games & Consoles (1249)
+   appear in both Tier 1 and Tier 4 lists. The card resolves leaf IDs; an
+   ambiguous parent ID must return `known=False`, not first-match.
+4. **Performance-fee shape.** Follow the AU sentence (an additional 5.5% /
+   6.6% on the total sale amount), not the UK card's percentage-point
+   modifiers.
+5. **Tax-exempt handling.** Decide whether the ABN/tax-exempt delta is a
+   boolean that divides fee lines by 1.1, or a note only. If modelled, tests
+   must pin the rounding.
+6. **Postage input.** The label mandate makes postage a required real cost for
+   eligible individual sales. Confirm how the pipeline receives postage
+   (buyer-paid postage vs seller's label cost) and make an absent value
+   `None` with a reason sentence.
+7. **Rounding.** eBay does not state a rounding rule on these pages; use
+   standard two-decimal AUD rounding and state it in the card's provenance.
+8. **Currency-conversion effective date.** The card carries 3.0% through
+   31 October 2026 and 3.25% from 1 November 2026; the verdict for a domestic
+   sale does not use it, but the calculator should be able to show it when a
+   cross-site sale is selected.
+
+**Phase A acceptance:** every number above is traceable to an eBay.com.au
+capture in section 1; the four worked examples reproduce; no third-party number
+is present.
