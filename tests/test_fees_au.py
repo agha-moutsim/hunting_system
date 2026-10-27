@@ -280,3 +280,74 @@ class TestTheProPlansAndTheirCharges:
         assert "GST at 10%" in notes
         assert "per order" in notes
         assert "higher of the two" in notes
+
+
+class TestTheFreeSellingBranch:
+    @pytest.fixture()
+    def private(self):
+        return fees.get_fee_table(AU)["private"]
+
+    def test_an_au_individual_pays_no_final_value_fee(self, private):
+        assert private["au_resident"] is True
+        assert private["fvf_percent"] == 0.0
+        assert private["fees_include_gst"] is True
+
+    def test_a_per_order_fee_is_absent_not_assumed_zero(self, private):
+        assert private["per_order_fee"] is None
+        notes = " ".join(private["notes"])
+        assert "does not state a per-order fee" in notes
+        assert "absent rather than assuming zero" in notes
+
+    def test_the_listing_allowance_and_upgrade_prices_are_carried(self, private):
+        assert private["free_listings_per_month"] == 250000
+        assert private["listing_fee_after_allowance"] == 1.00
+        assert private["second_category_fee"] == 1.00
+        assert private["subtitle"] == 2.20
+        guidance = private["listing_fee_guidance"]
+        assert guidance["excess_listing"] == 1.00
+        assert guidance["buy_it_now_auction"]["small_categories"] == 0.11
+        assert guidance["scheduled_listing"]["small_categories"] == 0.44
+
+    def test_the_free_selling_international_fee_is_three_percent(self, private):
+        assert private["international_fee_percent"] == 3.0
+        assert "outside Australia" in private["international_fee_note"]
+
+    def test_eligibility_is_the_published_twenty_five_thousand_threshold(self, private):
+        eligibility = private["free_selling_eligibility"]
+        assert eligibility["max_annual_sales_aud"] == 25000.0
+        assert "12 full calendar months" in eligibility["measurement"]
+        assert len(eligibility["requirements"]) == 3
+        assert "Pro Starter" in eligibility["over_threshold"]
+
+    def test_the_label_mandate_carries_its_four_exceptions(self, private):
+        rules = private["label_required"]
+        assert rules["price_exception_below"] == 20.0
+        assert rules["price_exception_above"] == 5000.0
+        assert rules["local_pickup_exception"] is True
+        assert rules["label_unavailable_examples"] == ["heavy or bulky items"]
+        assert rules["envelope_eligible_types"] == [
+            "trading cards",
+            "comics",
+            "magazines",
+            "coins and banknotes",
+            "jewellery",
+            "CDs/DVDs/video games",
+            "patches",
+            "postcards",
+            "greeting cards",
+            "seeds",
+            "stamps",
+            "stickers",
+            "decals",
+        ]
+        assert "exactly $20.00" in rules["boundary_reading"]
+        assert "exactly $5,000.00" in rules["boundary_reading"]
+        assert "postage, not an eBay fee" in rules["note"]
+
+    def test_the_free_selling_branch_names_what_it_does_not_price(self, private):
+        assert "Motors" in private["excludes"]
+        assert "eBay Live" in private["excludes"]
+        notes = " ".join(private["notes"])
+        assert "GST at 10%" in notes
+        assert "3 November 2026" in notes
+        assert "11 November 2026" in notes

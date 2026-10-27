@@ -689,7 +689,112 @@ _AU_RATE_CARD = {
             "final value fees.",
         ],
     },
-    "private": {},
+    "private": {
+        "au_resident": True,
+        "fees_include_gst": True,
+        "fee_basis": "total_amount_of_sale",
+        # The free-selling page states no transaction fees (final value
+        # fees). That is a stated zero and stays a number.
+        "fvf_percent": 0.0,
+        # The page does not state a per-order fee for this branch; absent is
+        # not zero, so the card records None rather than assuming one.
+        "per_order_fee": None,
+        "free_listings_per_month": 250000,
+        "listing_fee_after_allowance": 1.00,
+        "second_category_fee": 1.00,
+        "subtitle": 2.20,
+        "international_fee_percent": 3.0,
+        "international_fee_note": (
+            "3% (incl. GST) when the delivery address is outside Australia, "
+            "calculated on the total amount of the sale."
+        ),
+        "free_selling_eligibility": {
+            "max_annual_sales_aud": 25000.0,
+            "measurement": (
+                "preceding 12 full calendar months, across all eBay sites, "
+                "total sale amount including item price, postage and tax"
+            ),
+            "requirements": [
+                "a registration address in Australia",
+                "selling without an eBay Pro plan",
+                "AU $25,000 or less in sales on eBay in the past 12 months",
+            ],
+            "over_threshold": (
+                "notified on the 20th and moved to Pro Starter from the 1st "
+                "of the following month"
+            ),
+        },
+        "label_required": {
+            "applies_to": (
+                "Australia-based sellers enrolled in free selling, when "
+                "sending items within Australia"
+            ),
+            "price_exception_below": 20.0,
+            "price_exception_above": 5000.0,
+            "boundary_reading": (
+                "less than $20 excludes a sale price below $20.00; over "
+                "$5,000 excludes a sale price above $5,000.00; exactly $20.00 "
+                "and exactly $5,000.00 remain in scope"
+            ),
+            "envelope_eligible_types": [
+                "trading cards",
+                "comics",
+                "magazines",
+                "coins and banknotes",
+                "jewellery",
+                "CDs/DVDs/video games",
+                "patches",
+                "postcards",
+                "greeting cards",
+                "seeds",
+                "stamps",
+                "stickers",
+                "decals",
+            ],
+            "label_unavailable_examples": ["heavy or bulky items"],
+            "local_pickup_exception": True,
+            "note": (
+                "The label's postage cost is postage, not an eBay fee; it is "
+                "not priced by this card."
+            ),
+        },
+        "listing_fee_guidance": {
+            "free_listings_per_month": 250000,
+            "excess_listing": 1.00,
+            "second_category": 1.00,
+            "subtitle": 2.20,
+            "buy_it_now_auction": {
+                "most_categories": 0.0,
+                "small_categories": 0.11,
+            },
+            "scheduled_listing": {
+                "most_categories": 0.0,
+                "small_categories": 0.44,
+            },
+            "small_categories": [11759, 172009, 10542, 316, 3253, 1305, 3252],
+            "note": (
+                "250,000 free listings per month; excess and second-category "
+                "listings are $1.00. Optional upgrades are guidance, not a "
+                "per-sale fee."
+            ),
+        },
+        "excludes": (
+            "Cars, Motorcycles & Vehicles (Motors), eBay Live and Classified "
+            "Ads - separate schedules"
+        ),
+        "notes": [
+            "The free-selling page states it is free for Australia-based "
+            "sellers with up to $25,000 in sales over the past 12 months to "
+            "sell on eBay.com.au: no transaction fees (final value fees) "
+            "when items sell.",
+            "Fees are quoted inclusive of GST at 10%.",
+            "The free-selling page does not state a per-order fee for this "
+            "branch; the card leaves it absent rather than assuming zero.",
+            "From 3 November 2026, free-selling proceeds require an eBay "
+            "balance account; from 11 November 2026, prepaid Australia Post "
+            "labels roll out for eligible items.",
+        ],
+    },
 }
 
 # ---------------------------------------------------------------------------
