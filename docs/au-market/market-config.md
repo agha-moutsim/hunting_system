@@ -88,7 +88,7 @@ exposes it. The bench is policy, not the catalog, and an absent bench is empty
 The bench does not itself solve supplier currency. Phase E1 scopes AliGate to
 AU/AUD, passes AUD rows through, tags CJ's USD rows and excludes them from the
 AUD comparison, and disables the unstated-currency browser fallbacks. See
-`analyze.md`. Category Hunter remains locked until Phase E4.
+`analyze.md`. Category Hunter is unlocked in Phase E4.
 
 ## 6. Phase E5 flip
 

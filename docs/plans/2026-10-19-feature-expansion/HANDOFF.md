@@ -1,6 +1,6 @@
 # Handoff - current state
 
-Last updated: 2026-10-29, AU Bulk (Phase E3) landed; next is AU Phase E4 Category Hunter.
+Last updated: 2026-10-29, AU Category Hunter (Phase E4) landed; next is AU Phase E5 Fee Calculator.
 Read this first, then `implementation.md` (phase specs and rules) and `design.md` (surfaces).
 
 ## Where the work stands
@@ -103,9 +103,22 @@ The Australian build is a separate six-phase thread on top of the ten shipped ph
   lock notice, disables the form for unready markets, formats every amount in its own
   currency, and clears a stale result on a market switch. Checks: backend **1963 passed,
   9 deselected** plus `tests/test_au_bulk.py` (3 passed); frontend typecheck clean.
-  Details: `docs/au-market/bulk.md`; pins: `tests/test_au_bulk.py`. **Next:** Phase E4
-  Category Hunter, then E5 fee calculator; Phase F is UI + docs. Three commits per phase,
-  a short report at each phase end.
+  Details: `docs/au-market/bulk.md`; pins: `tests/test_au_bulk.py`.
+- **Phase E4 - complete (three commits).** Category Hunter is unlocked through
+  `analyze_ready`, so AU scans and looks up suppliers in AUD. `POST /api/hunter/scan` and
+  `POST /api/hunter/lookup` refuse a market without a card or bench with "not enabled",
+  return `marketplace`/`currency`/`currency_symbol`, and carry `marketplace=` through
+  scan, demand check, supplier lookup and profit calculation (UK keeps its historical
+  call shapes). Scan uses the market site, marketplace id, delivery country and price
+  currency; AU uses its band and demand floors; direct CJ/AliExpress scrapers receive
+  the market; profit uses the AU fee table and `DecisionEngine(..., marketplace=...)`.
+  The UI reads the marketplace, uses the AU band, shows a lock notice, disables scan and
+  lookup for unready markets, formats amounts in their own currency, and clears stale
+  results on a market switch. Checks: backend **1966 passed, 9 deselected** plus
+  `tests/test_au_hunter.py` (6 passed); frontend typecheck clean. Details:
+  `docs/au-market/hunter.md`; pins: `tests/test_au_hunter.py`. **Next:** Phase E5
+  Fee Calculator, then Phase F UI + docs. Three commits per phase, a short report at each
+  phase end.
 
 Still open from the older thread: the live-browser capture gap, the history migration spec,
 the four redundant `listing_observations` rows on `266923866336`, Deep Search/batch observation
