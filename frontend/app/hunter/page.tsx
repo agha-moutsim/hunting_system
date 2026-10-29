@@ -24,9 +24,13 @@ import {
   HunterReport,
   PriceRange,
 } from "@/lib/types";
-import { formatGBP, formatPercent } from "@/lib/format";
+import { formatMoney, formatPercent } from "@/lib/format";
+import { useMarketplace } from "@/lib/marketplace";
 
 export default function HunterPage() {
+  const { marketplace } = useMarketplace();
+  const marketIsUk = marketplace.id === "EBAY_GB";
+  const analysisReady = marketplace.analyze_ready ?? marketIsUk;
   const [category, setCategory] = useState("");
   const [maxResults, setMaxResults] = useState("30");
   const [scanLoading, setScanLoading] = useState(false);
@@ -34,6 +38,12 @@ export default function HunterPage() {
   const [error, setError] = useState<string | null>(null);
   const [scan, setScan] = useState<HunterScanResponse | null>(null);
   const [report, setReport] = useState<HunterReport | null>(null);
+
+  useEffect(() => {
+    setScan(null);
+    setReport(null);
+    setError(null);
+  }, [marketplace.id]);
   const [activeRange, setActiveRange] = useState<PriceRange | null>(null);
   // REGRESSION-001: the old placeholder said "e.g. Garden Tools, Kitchen",
   // and every one of those missed the backend's category table and silently
@@ -49,10 +59,18 @@ export default function HunterPage() {
   const [hotOnly, setHotOnly] = useState(false);
 
   useEffect(() => {
+    setActiveRange(null);
+    if (!marketIsUk) {
+      const band = marketplace.price_band;
+      if (band) {
+        setActiveRange({ min: band.min, max: band.max });
+      }
+      return;
+    }
     apiFetch<FiltersResponse>("/api/filters")
       .then((d) => setActiveRange(d.range))
       .catch(() => setActiveRange(null));
-  }, []);
+  }, [marketIsUk, marketplace.price_band?.min, marketplace.price_band?.max]);
 
   useEffect(() => {
     apiFetch<{ categories: HunterCategory[] }>("/api/hunter/categories")
@@ -164,7 +182,7 @@ export default function HunterPage() {
       key: "price",
       header: "eBay",
       align: "right",
-      render: (r) => formatGBP(r.price),
+      render: (r) => formatMoney(r.price, marketplace.currency),
       sortValue: (r) => r.price,
     },
     {
@@ -288,6 +306,17 @@ export default function HunterPage() {
         </p>
       </div>
 
+      {!analysisReady && (
+        <Card className="border-accent-amber/40">
+          <div className="text-sm text-accent-amber">
+            Category Hunter is not enabled for {marketplace.label}. A registered
+            fee card and supplier bench are required before an{" "}
+            {marketplace.currency} profit can be calculated. Switch to United
+            Kingdom or use Deals and Titles to browse this market.
+          </div>
+        </Card>
+      )}
+
       <Card>
         <form onSubmit={runScan} className="space-y-3">
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -343,14 +372,22 @@ export default function HunterPage() {
             </div>
           </div>
           <div className="flex flex-wrap gap-3 items-center">
-            <Button type="submit" disabled={scanLoading || !category.trim()}>
+            <Button
+              type="submit"
+              disabled={scanLoading || !category.trim() || !analysisReady}
+            >
               {scanLoading ? "Scanning…" : "1. Scan Category"}
             </Button>
             <Button
               type="button"
               variant="secondary"
               onClick={runLookup}
-              disabled={!scan?.products?.length || lookupLoading || scanLoading}
+              disabled={
+                !scan?.products?.length ||
+                lookupLoading ||
+                scanLoading ||
+                !analysisReady
+              }
             >
               {lookupLoading
                 ? "Looking up suppliers…"
