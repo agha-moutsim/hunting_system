@@ -2,8 +2,9 @@
 
 > Phase B of the Australian market build. The card is implemented in
 > `backend/engine/fees.py`, registered in `FEE_TABLES`, and is selectable by
-> key. It is **not** the active table yet: Phase C gives `EBAY_AU` its
-> `fee_table` in `backend/marketplaces.py`.
+> key. Phase C registers it for `EBAY_AU` in `config.MARKETPLACES` but keeps
+> `fee_calculator_ready: False` until Phase E5; see
+> `docs/au-market/market-config.md` for the two-state rule.
 >
 > Source dossier: `docs/au-market/fee-research.md`. Every number below comes
 > from the eBay.com.au captures recorded there; no third-party calculator is
@@ -185,11 +186,15 @@ Pro Starter for a business seller.
 
 ## 10. Phase C / E hand-off
 
-- Phase C: set `fee_table: "au-rate-card-2026-10-09"` for `EBAY_AU` in
-  `backend/marketplaces.py`; keep `fee_table: None` for markets without a card.
-- Phase E: the fee API must pass `seller_plan` and default `buyer_region` from
-  the marketplace, not from `SELLER_PROFILE` (which is UK-shaped). The engine
-  already accepts both.
+- Phase C is complete: `EBAY_AU` carries `fee_table:
+"au-rate-card-2026-10-09"` and `fee_calculator_ready: False`. The public
+  selector reports `fee_table: None`, `fee_table_registered` names the card,
+  and both fee routes stay 422 until the switch flips. The fee API now takes
+  `seller_plan` and defaults `buyer_region` from the marketplace, never from
+  the UK-shaped `SELLER_PROFILE`.
+- Phase E5: set `fee_calculator_ready: True` once the calculator UI can show
+  AUD, the AU plan selector and the AU domestic/international region. The
+  public `fee_table` then becomes the AU key and the warning clears.
 - Phase F: the calculator UI can render `rates_by_plan` and `is_default` from
   `list_categories(table)` and show `label_required(...)` as a rule row, not a
   fee line.

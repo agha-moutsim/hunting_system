@@ -22,16 +22,70 @@ from fastapi import APIRouter, HTTPException, Request
 from api.market_context import marketplace_for_optional_request, require_fee_market
 from api.schemas import FeeCalculateRequest
 from config import SELLER_PROFILE
+from marketplaces import seller_defaults
 
 router = APIRouter()
 
 
-def _seller_side(req: FeeCalculateRequest) -> dict:
-    """What the client sent, else the seller's own settings, field by field.
+def _market_table(market: dict, requested_key: Optional[str] = None) -> dict:
+    """The card this market may price with, or a 422 sentence.
 
-    The calculator must answer like the pipeline by default - same engine,
-    same profile - so an unset field is a real answer, not a gap.
+    The market's registered card is the default. An explicit key is allowed
+    only when its currency matches the market's: a GBP card under an AUD
+    heading would turn a real rate into a fabricated cross-currency number.
     """
+    from engine import fees as engine_fees
+    from marketplaces import fee_warning
+
+    key = requested_key or market.get("fee_table")
+    if not key:
+        raise HTTPException(status_code=422, detail=fee_warning(market))
+    try:
+        table = engine_fees.get_fee_table(key)
+    except KeyError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if table["currency"] != market["currency"]:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Fee table {table['key']} prices in {table['currency']}; "
+                f"{market['label']} prices in {market['currency']}. "
+                "A fee card is never applied across currencies."
+            ),
+        )
+    return table
+
+
+def _seller_side(req: FeeCalculateRequest, market: dict) -> dict:
+    """What the client sent, else the market's defaults, then the profile.
+
+    The market answer comes first because "business, UK resident, domestic UK
+    buyer" is a UK branch, not a universal one. The AU card starts private and
+    domestic-AU; its Pro Starter plan is only materialised when the caller
+    selects a business sale. The seller's own profile still fills fields the
+    market does not state, so an unset field remains a real answer.
+    """
+    defaults = seller_defaults(market)
+    seller_type = req.seller_type
+    if seller_type is None:
+        seller_type = defaults["seller_type"] or SELLER_PROFILE["seller_type"]
+
+    seller_plan = req.seller_plan
+    if seller_plan is None and seller_type == "business":
+        seller_plan = defaults["seller_plan"]
+
+    uk_resident = req.uk_resident
+    if uk_resident is None:
+        uk_resident = defaults["uk_resident"]
+    if uk_resident is None:
+        uk_resident = SELLER_PROFILE["uk_resident"]
+
+    vat_registered = req.vat_registered
+    if vat_registered is None:
+        vat_registered = defaults["vat_registered"]
+    if vat_registered is None:
+        vat_registered = SELLER_PROFILE["vat_registered"]
+
     return {
         "category": (
             req.category if req.category is not None else SELLER_PROFILE["category"]
@@ -41,24 +95,13 @@ def _seller_side(req: FeeCalculateRequest) -> dict:
             if req.promoted_rate is not None
             else SELLER_PROFILE["promoted_rate"]
         ),
-        "seller_type": (
-            req.seller_type
-            if req.seller_type is not None
-            else SELLER_PROFILE["seller_type"]
-        ),
-        "uk_resident": (
-            req.uk_resident
-            if req.uk_resident is not None
-            else SELLER_PROFILE["uk_resident"]
-        ),
-        "vat_registered": (
-            req.vat_registered
-            if req.vat_registered is not None
-            else SELLER_PROFILE["vat_registered"]
-        ),
+        "seller_type": seller_type,
+        "seller_plan": seller_plan,
+        "uk_resident": uk_resident,
+        "vat_registered": vat_registered,
         "listing_fee": req.listing_fee,
-        "buyer_region": req.buyer_region,
-        "fee_table": req.fee_table or SELLER_PROFILE["fee_table"],
+        "buyer_region": req.buyer_region or defaults["buyer_region"],
+        "fee_table": req.fee_table or market.get("fee_table"),
     }
 
 
@@ -66,25 +109,22 @@ def _seller_side(req: FeeCalculateRequest) -> dict:
 def fee_table(request: Request = None, key: Optional[str] = None):
     """The table the calculator prices with, plus who is selling.
 
-    `key` selects a specific table; omitted means the active one. An unknown
-    key is refused with the known tables listed rather than silently priced
-    under a different card. A non-UK marketplace is refused with a sentence:
-    the only table shipped is eBay UK's.
+    `key` selects a specific table; omitted means the market's own registered
+    card, never the engine's active table by accident. An unknown key is
+    refused with the known tables listed, and a table whose currency differs
+    from the market's is refused rather than applied across currencies.
     """
     from engine import fees as engine_fees
 
     market = marketplace_for_optional_request(request)
     require_fee_market(market)
-
-    try:
-        table = engine_fees.get_fee_table(key)
-    except KeyError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
+    table = _market_table(market, key)
 
     return {
         "fee_table": table,
         "categories": engine_fees.list_categories(table),
         "profile": SELLER_PROFILE,
+        "market_defaults": seller_defaults(market),
         "marketplace": market["id"],
         "currency": market["currency"],
     }
@@ -119,11 +159,12 @@ def calculate(req: FeeCalculateRequest, request: Request = None):
             detail="sale_price (forward) or target_margin (reverse) is required",
         )
 
-    seller_side = _seller_side(req)
+    table = _market_table(market, req.fee_table)
+    seller_side = _seller_side(req, market)
+    seller_side["fee_table"] = table["key"]
 
     if req.target_margin is not None:
         try:
-            table = engine_fees.get_fee_table(req.fee_table)
             solved = engine_fees.solve_for_margin(
                 req.target_margin,
                 supplier_cost=req.supplier_cost,

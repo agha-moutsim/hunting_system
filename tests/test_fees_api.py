@@ -50,6 +50,28 @@ class TestTheTableRoute:
 
         assert body["profile"]["seller_type"] == "business"
         assert body["profile"]["vat_registered"] is False
+        assert body["market_defaults"]["seller_type"] == "business"
+        assert body["market_defaults"]["buyer_region"] == "uk"
+
+    def test_the_market_card_is_the_default_not_whatever_is_active(self):
+        with _client() as client:
+            body = client.get("/api/fees/table").json()
+
+        assert body["fee_table"]["key"] == "uk-rate-card-2026-09-30"
+        assert body["fee_table"]["currency"] == "GBP"
+
+    def test_a_foreign_currency_card_is_refused_on_the_uk_market(self):
+        with _client() as client:
+            resp = client.get(
+                "/api/fees/table",
+                params={"key": "au-rate-card-2026-10-09"},
+            )
+
+        assert resp.status_code == 422
+        detail = resp.json()["detail"]
+        assert "AUD" in detail
+        assert "GBP" in detail
+        assert "never applied across currencies" in detail
 
     def test_an_unknown_table_is_refused_with_the_known_ones_listed(self):
         with _client() as client:
@@ -174,6 +196,19 @@ class TestForwardMode:
 
         assert calc["fees"]["vat_recoverable"] is True
         assert calc["fees"]["fees_cost_total"] == 4.21  # quoted 4.21, VAT aside
+
+    def test_a_foreign_currency_card_is_refused_before_pricing(self):
+        with _client() as client:
+            resp = client.post(
+                "/api/fees/calculate",
+                json={**ACCEPTANCE, "fee_table": "au-rate-card-2026-10-09"},
+            )
+
+        assert resp.status_code == 422
+        detail = resp.json()["detail"]
+        assert "AUD" in detail
+        assert "GBP" in detail
+        assert "never applied across currencies" in detail
 
     def test_the_retired_v1_table_can_be_priced_explicitly(self):
         with _client() as client:

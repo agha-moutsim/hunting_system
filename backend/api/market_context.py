@@ -46,21 +46,22 @@ def require_uk_market(market: dict, surface: str) -> None:
     """Refuse a supplier-comparison surface on a non-UK marketplace.
 
     Analyze has a search-only path because it can return an eBay listing and
-    demand picture without pricing a resale. Deep Search, Bulk, Category Hunter
-    and the fee calculator cannot: each mixes eBay prices with GBP supplier
-    costs and/or the UK fee card. Running them under a USD/EUR/AUD/CAD heading
-    would either add across currencies or attach a GBP fee to a foreign sale,
-    so they say plainly that they are UK-only.
+    demand picture without pricing a resale. Deep Search, Bulk and Category
+    Hunter cannot: each compares eBay prices with GBP supplier costs. Running
+    them under a USD/EUR/AUD/CAD heading would add across currencies, so they
+    say plainly that they are UK-only. The fee calculator has its own gate
+    (`require_fee_market`), because its card is market-specific rather than
+    tied to the supplier bench.
     """
     if market["id"] == "EBAY_GB":
         return
     raise HTTPException(
         status_code=422,
         detail=(
-            f"{surface} compares eBay prices with GBP supplier costs and uses "
-            "the eBay UK fee table, so it is UK-only. Switch the marketplace "
-            "to United Kingdom. Analyze, Deals and Titles can browse "
-            f"{market['label']} without calculating a resale profit."
+            f"{surface} compares eBay prices with GBP supplier costs, so it is "
+            "UK-only. Switch the marketplace to United Kingdom. Analyze, Deals "
+            f"and Titles can browse {market['label']} without calculating a "
+            "resale profit."
         ),
     )
 

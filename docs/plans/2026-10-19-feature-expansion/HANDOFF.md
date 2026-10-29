@@ -1,6 +1,6 @@
 # Handoff - current state
 
-Last updated: 2026-10-23, AliExpress supplier discovery rewired post-Phase-J.
+Last updated: 2026-10-29, AU market config landed (three commits).
 Read this first, then `implementation.md` (phase specs and rules) and `design.md` (surfaces).
 
 ## Where the work stands
@@ -20,8 +20,9 @@ The ten-feature expansion lives in this folder. Baseline phases 1 and 2 are comp
 | I     | Own-sales P&L and feedback    | shipped, code closed at `8f3f753`       |
 | J     | Marketplace expansion         | shipped, code closed at `b5e7a59`       |
 
-Phases ship as roughly ten commits: one well-scoped change each, committed and pushed as it
-lands, with evidence in the phase's "Shipped" block in `implementation.md`.
+Phases ship as a small number of well-scoped commits, committed and pushed as each lands,
+with evidence in the phase's "Shipped" block in `implementation.md`. The AU thread uses
+three commits per phase.
 
 ## Next move
 
@@ -51,17 +52,25 @@ The Australian build is a separate six-phase thread on top of the ten shipped ph
   predicate (`fees.label_required`), not a fee. Implementation notes:
   `docs/au-market/fee-card.md`; pins: `tests/test_fees_au.py` and
   `tests/test_fees_au_acceptance.py`. Ten commits, ending with this handoff update.
-- **Phase C - next.** Give `EBAY_AU` its `fee_table` in `backend/marketplaces.py` and generalise
-  the per-market config. The card is deliberately **not active** yet: Analyze, Deep Search,
-  Bulk, Category Hunter and the fee calculator remain UK-only until Phase C/E.
-- **Then:** Phase D (AU supplier bench: AliExpress + CJ only; B&Q / Toolstation / Joybuy UK
-  dropped), Phase E (unlock E1 Analyze, E2 Deep Search, E3 Bulk, E4 Category Hunter, E5 fee
-  calculator), Phase F (UI + docs). Ten commits per phase, a short report at each phase end.
+- **Phase C - complete (three commits).** `EBAY_AU` now carries
+  `fee_table: "au-rate-card-2026-10-09"` and `fee_calculator_ready: False`. The public
+  selector reports `fee_table: None` plus `fee_table_registered` and the registered-card
+  sentence, so "card on file" cannot be mistaken for "ready to price". Each market has
+  seller defaults (UK business/UK; AU Individual/AU, Pro Starter for a business sale), and
+  the fee API resolves the market's card, refuses a foreign-currency card, and takes
+  `seller_plan`/`buyer_region` from the market rather than the UK profile. Analyze, Deep
+  Search, Bulk, Category Hunter and the fee calculator remain locked for AU until Phase E.
+  Details: `docs/au-market/market-config.md`; pins: `tests/test_au_market_config.py`.
+- **Phase D - next.** AU supplier bench: AliExpress + CJ only; B&Q / Toolstation / Joybuy UK
+  dropped.
+- **Then:** Phase E (unlock E1 Analyze, E2 Deep Search, E3 Bulk, E4 Category Hunter, E5 fee
+  calculator), Phase F (UI + docs). Three commits per phase, a short report at each phase
+  end.
 
 Still open from the older thread: the live-browser capture gap, the history migration spec,
 the four redundant `listing_observations` rows on `266923866336`, Deep Search/batch observation
 wiring, the seed button, and rotating the two exposed credentials (GitHub token, ScrapingBee
-key). None is a Phase C blocker.
+key). None is a Phase D blocker.
 
 ## Live state — AliExpress supplier discovery, measured 2026-10-23
 

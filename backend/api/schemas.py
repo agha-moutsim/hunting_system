@@ -184,10 +184,10 @@ class FeeCalculateRequest(BaseModel):
     supplier) profit. Reverse mode: send `target_margin` instead and the
     engine solves for the price that reaches it.
 
-    The seller side falls back to config.SELLER_PROFILE field by field, so a
-    client that sends nothing extra gets exactly what the pipeline verdict
-    would compute. `postage_paid = 0.0` means UNKNOWN, not free (C1): the
-    result states when the profit is a ceiling.
+    The seller side falls back to the selected market's seller defaults, then
+    to config.SELLER_PROFILE field by field, so a client that sends nothing
+    extra gets the branch that market states. `postage_paid = 0.0` means
+    UNKNOWN, not free (C1): the result states when the profit is a ceiling.
     """
 
     sale_price: Optional[float] = None
@@ -198,10 +198,11 @@ class FeeCalculateRequest(BaseModel):
     category: Optional[str] = None
     promoted_rate: Optional[float] = None
     seller_type: Optional[str] = None
+    seller_plan: Optional[str] = None
     uk_resident: Optional[bool] = None
     vat_registered: Optional[bool] = None
     listing_fee: float = 0.0
-    buyer_region: str = "uk"
+    buyer_region: Optional[str] = None
     fee_table: Optional[str] = None
 
     supplier_cost: Optional[float] = None
