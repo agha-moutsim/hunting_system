@@ -31,25 +31,29 @@ marketplace=...)` filters results to the bench and searches Google Shopping
 - **Analyze supplier step** (`analysis_pipeline.search_all_suppliers`): takes a
   `marketplace` and only instantiates the bench's scrapers. The default is the
   UK, so existing behaviour is unchanged.
-- **Analyze gate** (`api/analyze.py`): now checks `fee_calculator_ready`, not
-  the presence of a registered card. A registered AU card no longer makes AU
-  run the UK pipeline; AU stays search-only until Phase E1/E5.
+- **Analyze gate** (`api/analyze.py`): checks `analyze_ready`, which requires
+  the market's own flag, a registered fee card and a non-empty bench. AU's
+  Analyze is unlocked in Phase E1; the standalone fee calculator remains
+  gated by `fee_calculator_ready` until Phase E5.
 
-## Currency is not solved by the bench
+## Currency is handled per source
 
 The bench decides **which sources** may answer. It does not convert a supplier
-price into AUD.
+price into AUD, and no row is converted across currencies.
 
-- `scrapers/aliexpress_api.py` defaults to `GB` / `GBP` / `en_GB`; an AU call
-  needs an explicit AU/AUD scope before its prices can be compared with an AUD
-  eBay listing.
-- `scrapers/cjdropshipping.py` reads CJ's `sellPrice` as USD and converts it to
-  GBP at a fixed `0.79`. That is a GBP number; it must not be summed with AUD.
+- `scrapers/aliexpress_api.py` defaults to `GB` / `GBP` / `en_GB` for the UK;
+  an AU scraper passes `AU` / `AUD` / `en_AU` per call. AUD rows pass through
+  unchanged; a row stating another currency is skipped.
+- `scrapers/cjdropshipping.py` reads CJ's `sellPrice` as USD. The UK path keeps
+  its historical fixed `0.79` conversion; a non-GBP market tags the row
+  `currency="USD"` and the pipeline excludes it from the AUD comparison with a
+  sentence. CJ's browser fallback is disabled for non-GBP because the page does
+  not state its currency.
+- The AliExpress browser fallback is likewise disabled for non-GBP.
 
-Therefore Phase D does **not** enable AU pricing. The AU Analyze, Deep Search,
-Category Hunter and Fee Calculator surfaces stay locked. Phase E must settle a
-sourced currency path (or show the supplier price in its own currency with no
-cross-currency profit) before any AU supplier row reaches a verdict.
+Phase E1 therefore enables AU Analyze with native AUD supplier rows only. Deep
+Search, Bulk, Category Hunter and the Fee Calculator stay locked until their
+own phases.
 
 ## Tests
 

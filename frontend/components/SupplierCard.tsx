@@ -7,7 +7,7 @@ import MatchBadge, {
   STOCK_NOT_STATED,
 } from "@/components/ui/MatchBadge";
 import ProvenanceBadge from "@/components/ui/ProvenanceBadge";
-import { formatGBP } from "@/lib/format";
+import { formatMoney } from "@/lib/format";
 
 export interface AvailabilityLine {
   /** Dim subject word, e.g. "Stock". Empty when `value` carries its own. */
@@ -50,7 +50,8 @@ export function describeStock(row: MatchAvailabilityFields): AvailabilityLine {
  * `shipping_cost` becomes a price; the source's own text always wins.
  */
 export function describeShipping(
-  row: MatchAvailabilityFields
+  row: MatchAvailabilityFields,
+  currency = "GBP"
 ): AvailabilityLine {
   const raw = (row.shipping_raw ?? "").trim();
   const days = positive(row.shipping_days);
@@ -58,7 +59,11 @@ export function describeShipping(
   if (raw) return { label: "Shipping", value: raw + tail, known: true };
   const cost = positive(row.shipping_cost);
   if (cost != null)
-    return { label: "Shipping", value: formatGBP(cost) + tail, known: true };
+    return {
+      label: "Shipping",
+      value: formatMoney(cost, currency) + tail,
+      known: true,
+    };
   return { label: "", value: SHIPPING_UNKNOWN, known: false };
 }
 
@@ -82,15 +87,27 @@ function AvailabilityRow({ line }: { line: AvailabilityLine }) {
 export default function SupplierCard({
   supplier,
   ebayPrice,
+  currency = "GBP",
+  ebayCurrency,
 }: {
   supplier: ScrapedProduct;
   ebayPrice?: number;
+  /** Currency of this supplier row, when the caller knows it. */
+  currency?: string;
+  /** Currency of the eBay listing; a delta is shown only when it matches. */
+  ebayCurrency?: string;
 }) {
-  const delta = ebayPrice != null ? ebayPrice - supplier.price : null;
+  const rowCurrency = supplier.currency || currency;
+  const comparable =
+    ebayCurrency == null ||
+    supplier.currency == null ||
+    supplier.currency.toUpperCase() === ebayCurrency.toUpperCase();
+  const delta =
+    ebayPrice != null && comparable ? ebayPrice - supplier.price : null;
   const deliveryKnown =
     supplier.delivery_days_min != null && supplier.delivery_days_max != null;
   const stock = describeStock(supplier);
-  const shipping = describeShipping(supplier);
+  const shipping = describeShipping(supplier, rowCurrency);
 
   return (
     <a
@@ -174,7 +191,7 @@ export default function SupplierCard({
                 Total landed
               </span>
               <span className="font-mono tabular-nums">
-                {formatGBP(supplier.total_landed_cost)}
+                {formatMoney(supplier.total_landed_cost, rowCurrency)}
               </span>
             </div>
           )}
@@ -213,7 +230,7 @@ export default function SupplierCard({
         </div>
         <div className="text-right">
           <div className="text-lg font-bold text-white font-mono tabular-nums">
-            {formatGBP(supplier.price)}
+            {formatMoney(supplier.price, rowCurrency)}
           </div>
           {delta != null && (
             <div
@@ -222,7 +239,7 @@ export default function SupplierCard({
               }`}
             >
               {delta > 0 ? "+" : ""}
-              {formatGBP(delta)} vs eBay
+              {formatMoney(delta, rowCurrency)} vs eBay
             </div>
           )}
         </div>

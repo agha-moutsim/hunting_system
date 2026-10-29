@@ -1,26 +1,29 @@
 # AU market config - Phase C
 
-Status: the AU fee card is registered for `EBAY_AU`, but the calculator is
-**locked** until Phase E5. This is deliberate: the card is priced in AUD and
-the current fee page still formats money as GBP.
+Status: the AU fee card is registered for `EBAY_AU`. Analyze uses it in AUD
+from Phase E1; the standalone fee calculator is **locked** until Phase E5,
+because the fee page still formats money as GBP and has no AU plan/region
+controls.
 
 ## 1. Two states, never one
 
 The registry carries two separate facts:
 
-| Field                  | Meaning                                                         |
-| ---------------------- | --------------------------------------------------------------- |
-| `fee_table`            | The sourced card key the market may price with.                 |
-| `fee_calculator_ready` | Whether every surface is wired to use that card today.          |
-| public `fee_table`     | The usable card, or `None` while the calculator is locked.      |
-| `fee_table_registered` | The card on file, even while locked.                            |
-| `fee_warning`          | The sentence a surface shows instead of a fee or profit figure. |
+| Field                  | Meaning                                                          |
+| ---------------------- | ---------------------------------------------------------------- |
+| `fee_table`            | The sourced card key the market may price with.                  |
+| `fee_calculator_ready` | Whether the standalone fee calculator is wired for the market.   |
+| `analyze_ready`        | Whether the full Analyze pipeline may run for the market.        |
+| public `fee_table`     | The usable card, or `None` while the calculator is locked.       |
+| `fee_table_registered` | The card on file, even while locked.                             |
+| `fee_warning`          | The sentence a calculator surface shows instead of a fee figure. |
 
 `EBAY_AU` currently reads:
 
 ```python
 "fee_table": "au-rate-card-2026-10-09",
 "fee_calculator_ready": False,
+"analyze_ready": True,   # Phase E1
 ```
 
 The public selector therefore reports `fee_table: None` and
@@ -29,13 +32,13 @@ registered card as usable, and it never falls back to the UK card.
 
 ## 2. Registry snapshot
 
-| Market    | Currency | Registered card           | Calculator ready |
-| --------- | -------- | ------------------------- | ---------------- |
-| `EBAY_GB` | GBP      | `uk-rate-card-2026-09-30` | yes              |
-| `EBAY_AU` | AUD      | `au-rate-card-2026-10-09` | no (Phase E5)    |
-| `EBAY_US` | USD      | none                      | no               |
-| `EBAY_DE` | EUR      | none                      | no               |
-| `EBAY_CA` | CAD      | none                      | no               |
+| Market    | Currency | Registered card           | Analyze ready | Calculator ready |
+| --------- | -------- | ------------------------- | ------------- | ---------------- |
+| `EBAY_GB` | GBP      | `uk-rate-card-2026-09-30` | yes           | yes              |
+| `EBAY_AU` | AUD      | `au-rate-card-2026-10-09` | yes (E1)      | no (Phase E5)    |
+| `EBAY_US` | USD      | none                      | no            | no               |
+| `EBAY_DE` | EUR      | none                      | no            | no               |
+| `EBAY_CA` | CAD      | none                      | no            | no               |
 
 A market with no card gets the no-card sentence; a market with a registered
 but locked card gets the registered-card sentence. Neither is a price.
@@ -67,6 +70,8 @@ API then applies the request value, then the market default, then
   card is a 422 sentence, not a calculation.
 - While `fee_calculator_ready` is false, both routes return 422 for
   `EBAY_AU` with the registered-card sentence.
+- `POST /api/analyze` uses `analyze_ready`, not `fee_calculator_ready`, so AU
+  runs its full AUD pipeline while the fee routes stay closed.
 - `require_uk_market` still guards Deep Search, Bulk and Category Hunter
   because they compare eBay prices with GBP supplier costs. It no longer
   claims the fee card is UK-only; the fee calculator has its own gate.
@@ -80,8 +85,10 @@ exposes it. The bench is policy, not the catalog, and an absent bench is empty
 
 - never the UK list. See `supplier-bench.md`.
 
-The bench does not solve supplier currency. Until Phase E1/E2 settle an AUD
-path, AU supplier rows must not reach a profit or verdict calculation.
+The bench does not itself solve supplier currency. Phase E1 scopes AliGate to
+AU/AUD, passes AUD rows through, tags CJ's USD rows and excludes them from the
+AUD comparison, and disables the unstated-currency browser fallbacks. See
+`analyze.md`. Deep Search, Bulk and Category Hunter remain locked.
 
 ## 6. Phase E5 flip
 

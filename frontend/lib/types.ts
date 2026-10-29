@@ -6,8 +6,9 @@
  * One eBay marketplace the selector may offer.
  *
  * `fee_warning` is not decoration: it is the sentence that must replace a fee
- * or profit figure, because only the UK has a registered fee table. The UI
- * must never fall back to a GBP number when `fee_table` is null.
+ * calculator figure when the standalone calculator is locked. The UI must
+ * never fall back to a GBP number when `fee_table` is null. `analyze_ready`
+ * is separate: AU Analyze runs in AUD while its calculator stays locked.
  */
 export interface MarketplaceInfo {
   id: string;
@@ -16,6 +17,20 @@ export interface MarketplaceInfo {
   currency: string;
   currency_symbol: string;
   fee_table: string | null;
+  fee_table_registered?: string | null;
+  fee_calculator_ready?: boolean;
+  analyze_ready?: boolean;
+  price_band?: { min: number; max: number } | null;
+  demand_floors?: Record<string, number> | null;
+  momentum_1d?: number | null;
+  seller_defaults?: {
+    seller_type?: string | null;
+    buyer_region?: string | null;
+    seller_plan?: string | null;
+    uk_resident?: boolean | null;
+    vat_registered?: boolean | null;
+  } | null;
+  supplier_bench?: string[];
   fee_warning: string | null;
   deals_url: string | null;
   deals_http_status: number | null;

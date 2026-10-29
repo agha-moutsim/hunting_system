@@ -1,6 +1,6 @@
 # Handoff - current state
 
-Last updated: 2026-10-29, AU supplier bench landed (three commits); next is AU Phase E1.
+Last updated: 2026-10-29, AU Analyze (Phase E1) landed; next is AU Phase E2 Deep Search.
 Read this first, then `implementation.md` (phase specs and rules) and `design.md` (surfaces).
 
 ## Where the work stands
@@ -27,10 +27,9 @@ three commits per phase.
 ## Next move
 
 Phase J is implemented and verified; the ten planned phases are complete. The active work is
-the AU market thread below: Phase D just closed, and **Phase E1 (Analyze) is next** - gated on a
-currency-safe AU supplier price, not on the bench alone. The older user-owned list under
-"Pending items that need the user's word" and the two exposed credentials remain open. There is
-no Phase K.
+the AU market thread below: **Phase E1 (Analyze) just closed**, and **Phase E2 (Deep Search) is
+next**. The older user-owned list under "Pending items that need the user's word" and the two
+exposed credentials remain open. There is no Phase K.
 
 The one live-browser gap from Phase A remains: the extension is loaded and reaches the backend,
 but it has not completed a successful capture. It is a verification gap, not a missing phase.
@@ -70,12 +69,19 @@ The Australian build is a separate six-phase thread on top of the ten shipped ph
   scrapers. Analyze now gates on `fee_calculator_ready`, not the presence of a registered
   card, so the AU card does not accidentally run the UK pipeline. Details:
   `docs/au-market/supplier-bench.md`; pins: `tests/test_au_supplier_bench.py` plus the
-  discovery/Hunter tests. **Currency remains unsolved:** AliGate still defaults to GBP and
-  CJ's USD `sellPrice` is converted to GBP at 0.79, so AU pricing stays locked.
-- **Phase E1 - next.** Unlock Analyze for AU only after the supplier price can be compared
-  with an AUD eBay listing without a fabricated conversion. Then E2 Deep Search, E3 Bulk,
-  E4 Category Hunter, E5 fee calculator; Phase F is UI + docs. Three commits per phase, a
-  short report at each phase end.
+  discovery/Hunter tests. **Currency policy:** AliGate is now scoped per market (AU/AUD for
+  AU), and CJ's USD `sellPrice` is tagged USD and excluded from AUD comparisons rather than
+  converted. The UK keeps its historical USD->GBP 0.79 path.
+- **Phase E1 - complete (three commits).** Analyze is unlocked for AU in AUD while the
+  standalone fee calculator stays locked. `analyze_ready` is a separate switch from
+  `fee_calculator_ready`; AU uses its own `A$0.99-A$50.00` band and 15/10 demand floors,
+  eBay Australia is searched with the explicit AUD band, AliGate is asked for AU/AUD/en_AU,
+  AUD rows pass through, and CJ's USD rows are tagged and excluded with a sentence rather
+  than converted. AU results are not written to History. Details:
+  `docs/au-market/analyze.md`; pins: `tests/test_au_currency.py`,
+  `tests/test_au_analyze.py`, plus the updated market/route tests. **Next:** Phase E2 Deep
+  Search, then E3 Bulk, E4 Category Hunter, E5 fee calculator; Phase F is UI + docs. Three
+  commits per phase, a short report at each phase end.
 
 Still open from the older thread: the live-browser capture gap, the history migration spec,
 the four redundant `listing_observations` rows on `266923866336`, Deep Search/batch observation

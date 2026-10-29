@@ -171,7 +171,7 @@ export default function Scorecard({
   sellerQuery,
   currency = "GBP",
 }: {
-  /** ISO currency of the eBay/demand figures. Supplier rows stay GBP. */
+  /** ISO currency of the eBay/demand figures; each supplier row carries its own. */
   currency?: string;
   ebayProduct: ScrapedProduct;
   demand?: DemandData | null;
@@ -375,22 +375,28 @@ export default function Scorecard({
               value={formatMoney(ebayProduct.price, ebayCurrency)}
             />
             {suppliers.map((s, i) => {
-              const delta = ebayProduct.price - s.price;
+              const supplierCurrency = s.currency || currency;
+              const comparable =
+                s.currency == null ||
+                s.currency.toUpperCase() === ebayCurrency.toUpperCase();
+              const delta = comparable ? ebayProduct.price - s.price : null;
               return (
                 <Metric
                   key={i}
                   label={s.source}
                   value={
                     <span className="flex flex-col gap-1">
-                      <span>{formatMoney(s.price, "GBP")}</span>
-                      <span
-                        className={`text-xs font-medium ${
-                          delta > 0 ? "text-brand-lime" : "text-accent-red"
-                        }`}
-                      >
-                        {delta > 0 ? "+" : ""}
-                        {formatMoney(delta, "GBP")}
-                      </span>
+                      <span>{formatMoney(s.price, supplierCurrency)}</span>
+                      {delta != null && (
+                        <span
+                          className={`text-xs font-medium ${
+                            delta > 0 ? "text-brand-lime" : "text-accent-red"
+                          }`}
+                        >
+                          {delta > 0 ? "+" : ""}
+                          {formatMoney(delta, supplierCurrency)}
+                        </span>
+                      )}
                     </span>
                   }
                 />
@@ -414,6 +420,8 @@ export default function Scorecard({
                 key={i}
                 supplier={s}
                 ebayPrice={ebayProduct.price}
+                currency={s.currency || currency}
+                ebayCurrency={ebayCurrency}
               />
             ))}
           </div>

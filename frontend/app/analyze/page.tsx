@@ -17,6 +17,12 @@ import { AnalyzeResponse, FiltersResponse, PriceRange } from "@/lib/types";
 export default function AnalyzePage() {
   const { marketplace } = useMarketplace();
   const marketIsUk = marketplace.id === "EBAY_GB";
+  // Analyze and the standalone fee calculator are separate switches: AU runs
+  // a full AUD analysis while its calculator stays locked until Phase E5.
+  const fullAnalysis = marketplace.analyze_ready ?? marketIsUk;
+  const supplierCount = marketplace.supplier_bench?.length ?? 0;
+  const marketBand = marketplace.price_band;
+  const historySaved = marketIsUk;
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -71,10 +77,17 @@ export default function AnalyzePage() {
               {activeRange ? `£${activeRange.min}–£${activeRange.max}` : "…"}
             </Badge>
           )}
+          {!marketIsUk && fullAnalysis && marketBand && (
+            <Badge tone="info">
+              {marketplace.currency_symbol}
+              {marketBand.min.toFixed(2)}–{marketplace.currency_symbol}
+              {marketBand.max.toFixed(2)} band
+            </Badge>
+          )}
         </div>
         <p className="text-sm text-text-secondary mt-1">
-          {marketIsUk
-            ? "Full sourcing analysis: eBay → demand → 7 suppliers → AI → scorecard"
+          {fullAnalysis
+            ? `Full ${marketplace.currency} sourcing analysis: eBay → demand → ${supplierCount} suppliers → AI → scorecard`
             : `Search-only ${marketplace.label} analysis: real eBay listing and demand prices. Supplier costs and profit stay UK-only.`}
         </p>
       </div>
@@ -98,8 +111,11 @@ export default function AnalyzePage() {
           </Button>
         </form>
         <p className="text-xs text-text-dim mt-2">
-          Usually 30–90s (capped at 3 min). Results are saved to History. If it
-          times out, retry or use Deep Search → Fast.
+          Usually 30–90s (capped at 3 min).{" "}
+          {historySaved
+            ? "Results are saved to History."
+            : "Results are not written to History yet: stored analyses carry no currency."}{" "}
+          If it times out, retry or use Deep Search → Fast.
         </p>
       </Card>
 
@@ -119,14 +135,14 @@ export default function AnalyzePage() {
               <div className="skeleton h-10 rounded-lg" />
             </div>
             <p className="text-xs text-text-dim text-center">
-              eBay → demand → 7 suppliers → verdict. Backend:{" "}
+              eBay → demand → {supplierCount} suppliers → verdict. Backend:{" "}
               <span className="font-mono">localhost:8000</span>
             </p>
           </div>
         </Card>
       )}
 
-      {!marketIsUk && (
+      {!fullAnalysis && (
         <Card className="border-accent-amber/40">
           <div className="text-sm text-accent-amber">
             {marketplace.fee_warning}
@@ -138,6 +154,20 @@ export default function AnalyzePage() {
           </p>
         </Card>
       )}
+
+      {fullAnalysis &&
+        !marketplace.fee_calculator_ready &&
+        marketplace.fee_warning && (
+          <Card className="border-accent-amber/40">
+            <div className="text-sm text-accent-amber">
+              {marketplace.fee_warning}
+            </div>
+            <p className="mt-1 text-xs text-text-secondary">
+              Analyze runs in {marketplace.currency} and prices with the
+              registered card; the standalone fee calculator stays locked.
+            </p>
+          </Card>
+        )}
 
       {error && (
         <Card className="border-accent-red/40">
