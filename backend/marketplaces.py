@@ -90,6 +90,28 @@ def fee_calculator_ready(market: dict) -> bool:
     )
 
 
+SELLER_DEFAULT_FIELDS = (
+    "seller_type",
+    "buyer_region",
+    "seller_plan",
+    "uk_resident",
+    "vat_registered",
+)
+
+
+def seller_defaults(market: dict) -> dict:
+    """The seller-side starting point this market states, not a fee rate.
+
+    These values answer "which branch is this market's calculator in?" rather
+    than "what does the seller earn?". A field the market does not state stays
+    None so the engine's own card default applies; it is never guessed here.
+    The seller's own config.SELLER_PROFILE still wins when a request supplies
+    a value.
+    """
+    raw = market.get("seller_defaults") or {}
+    return {field: raw.get(field) for field in SELLER_DEFAULT_FIELDS}
+
+
 def fee_warning(market: dict) -> Optional[str]:
     """Why this market cannot be priced, or None when it can.
 
@@ -131,6 +153,7 @@ def public_marketplace(market: dict) -> dict:
         "fee_table": market.get("fee_table") if ready else None,
         "fee_table_registered": market.get("fee_table"),
         "fee_calculator_ready": ready,
+        "seller_defaults": seller_defaults(market),
         "fee_warning": fee_warning(market),
         "deals_url": market.get("deals_url"),
         "deals_http_status": market.get("deals_http_status"),

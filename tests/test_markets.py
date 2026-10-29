@@ -31,6 +31,7 @@ from marketplaces import (
     format_money,
     get_marketplace,
     offered_marketplaces,
+    seller_defaults,
 )
 from scrapers.ebay import EbayScraper, _base_api_filter
 from scrapers.ebay_deals import DealItem, EbayDealsScraper, parse_deals_page
@@ -73,6 +74,31 @@ class TestRegistry:
         assert "not enabled" in warning
         assert "AUD" in warning
         assert "No AUD fee table" not in warning
+
+    def test_seller_defaults_are_market_branches_not_fee_rates(self):
+        uk = seller_defaults(get_marketplace("EBAY_GB"))
+        assert uk == {
+            "seller_type": "business",
+            "buyer_region": "uk",
+            "seller_plan": None,
+            "uk_resident": True,
+            "vat_registered": False,
+        }
+        au = seller_defaults(get_marketplace("EBAY_AU"))
+        assert au == {
+            "seller_type": "private",
+            "buyer_region": "au",
+            "seller_plan": "starter",
+            "uk_resident": None,
+            "vat_registered": None,
+        }
+        assert not any("rate" in key for key in au)
+
+    def test_seller_defaults_are_a_copy_not_the_config_dict(self):
+        market = get_marketplace("EBAY_AU")
+        defaults = seller_defaults(market)
+        defaults["seller_type"] = "business"
+        assert seller_defaults(market)["seller_type"] == "private"
 
     def test_markets_without_a_card_say_no_fee_table(self):
         for market_id in ("EBAY_US", "EBAY_DE", "EBAY_CA"):
@@ -279,6 +305,8 @@ class TestApiRefusesWhatItCannotPrice:
         assert au["fee_table"] is None
         assert au["fee_table_registered"] == "au-rate-card-2026-10-09"
         assert au["fee_calculator_ready"] is False
+        assert au["seller_defaults"]["seller_type"] == "private"
+        assert au["seller_defaults"]["buyer_region"] == "au"
         assert "not enabled" in au["fee_warning"]
 
     def test_a_non_uk_fee_table_request_is_a_sentence_not_a_gbp_number(self):
