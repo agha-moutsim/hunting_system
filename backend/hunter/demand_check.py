@@ -10,6 +10,7 @@ def batch_demand_check(
     min_sold_30d: Optional[int] = None,
     min_sold_7d: Optional[int] = None,
     progress_callback=None,
+    marketplace: str = "EBAY_GB",
 ) -> list[CategoryProduct]:
     """Check demand (sold counts) for multiple products.
 
@@ -20,14 +21,26 @@ def batch_demand_check(
     """
     from config import FILTERS
     from engine.stores import resolve_stores
+    from marketplaces import get_marketplace, market_filter_defaults
     from scrapers.ebay_sold import EbaySoldScraper
 
+    market = get_marketplace(marketplace)
     if min_sold_30d is None:
-        min_sold_30d = FILTERS["demand_min_30d"]
+        if market["id"] == "EBAY_GB":
+            min_sold_30d = FILTERS["demand_min_30d"]
+        else:
+            min_sold_30d = market_filter_defaults(market).get(
+                "demand_min_30d", FILTERS["demand_min_30d"]
+            )
     if min_sold_7d is None:
-        min_sold_7d = FILTERS["demand_min_7d"]
+        if market["id"] == "EBAY_GB":
+            min_sold_7d = FILTERS["demand_min_7d"]
+        else:
+            min_sold_7d = market_filter_defaults(market).get(
+                "demand_min_7d", FILTERS["demand_min_7d"]
+            )
 
-    scraper = EbaySoldScraper()
+    scraper = EbaySoldScraper(marketplace)
     results = []
 
     for i, product in enumerate(products):
@@ -49,7 +62,9 @@ def batch_demand_check(
             # instead of paying for a second store-discovery request.
             # Empty sold_data ⇒ [] (never padded to 4).
             try:
-                product.ebay_stores = resolve_stores(sold_data=sold_data)
+                product.ebay_stores = resolve_stores(
+                    sold_data=sold_data, marketplace=marketplace
+                )
             except Exception as e:
                 print(f"[WARN] Store build failed for '{product.title}': {e}")
                 product.ebay_stores = []

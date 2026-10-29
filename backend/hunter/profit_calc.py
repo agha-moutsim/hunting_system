@@ -15,15 +15,18 @@ from scrapers.base import DemandData, ScrapedProduct
 def batch_profit_calc(
     products: list[CategoryProduct],
     filters: Optional[dict] = None,
+    marketplace: str = "EBAY_GB",
 ) -> list[CategoryProduct]:
     """Calculate profit and verdict for multiple products."""
     from config import FILTERS
+    from marketplaces import get_marketplace
 
     if filters is None:
         filters = FILTERS
 
+    market = get_marketplace(marketplace)
     for product in products:
-        _calc_single(product, filters)
+        _calc_single(product, filters, market)
 
     # Sort by margin (highest first)
     products.sort(key=lambda p: p.margin, reverse=True)
@@ -31,7 +34,7 @@ def batch_profit_calc(
     return products
 
 
-def _calc_single(product: CategoryProduct, filters: dict):
+def _calc_single(product: CategoryProduct, filters: dict, market=None):
     """Adapt one CategoryProduct to DecisionEngine evidence.
 
     REGRESSION-005: when there is no supplier price this used to write
@@ -42,6 +45,10 @@ def _calc_single(product: CategoryProduct, filters: dict):
     """
     from engine.decisions import DecisionEngine
     from engine.provenance import Provenance
+    from marketplaces import get_marketplace
+
+    if market is None:
+        market = get_marketplace("EBAY_GB")
 
     if product.price <= 0 or product.supplier_price <= 0:
         product.verdict = "PENDING"
@@ -58,8 +65,9 @@ def _calc_single(product: CategoryProduct, filters: dict):
         )
         return
 
+    source = "ebay_au" if market["id"] == "EBAY_AU" else "ebay_uk"
     evidence = ScrapedProduct(
-        source="ebay_uk",
+        source=source,
         title=product.title,
         price=product.price,
         url=product.url,
@@ -88,7 +96,7 @@ def _calc_single(product: CategoryProduct, filters: dict):
     except Exception:
         pass
 
-    verdict = DecisionEngine(filters).evaluate(
+    verdict = DecisionEngine(filters, marketplace=market["id"]).evaluate(
         evidence,
         demand,
         product.supplier_price,
@@ -109,9 +117,10 @@ def _calc_single(product: CategoryProduct, filters: dict):
     from engine.provenance import Provenance
     product.profit_provenance = Provenance.ESTIMATED.value
     product.profit_provenance_label = Provenance.ESTIMATED.label
-    _fee_table = fee_engine.get_fee_table()
+    _fee_table = fee_engine.get_fee_table(market.get("fee_table"))
+    market_label = "Australia" if market["id"] == "EBAY_AU" else "UK"
     product.profit_provenance_method = (
-        f"eBay UK rate card {_fee_table['key']} ({_fee_table['version']}): "
+        f"eBay {market_label} rate card {_fee_table['key']} ({_fee_table['version']}): "
         "final value fee by category + per-order fee + regulatory operating "
         f"fee, plus {_fee_table['vat_rate']:g}% VAT on eBay's fees, the "
         "returns buffer and packaging"

@@ -2,13 +2,27 @@
 
 import logging
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 
-from api.market_context import marketplace_for_optional_request, require_uk_market
+from api.market_context import marketplace_for_optional_request
 from api.schemas import HunterLookupRequest, HunterScanRequest
+from marketplaces import analyze_ready, fee_warning, get_marketplace, market_filter_defaults
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _require_ready_market(request: Request | None, surface: str) -> dict:
+    market = marketplace_for_optional_request(request)
+    if analyze_ready(market):
+        return market
+    reason = fee_warning(market) or (
+        "No supplier bench is registered for this marketplace."
+    )
+    raise HTTPException(
+        status_code=422,
+        detail=f"{surface} is not enabled for {market['label']}. {reason}",
+    )
 
 
 @router.get("/hunter/categories")
@@ -37,29 +51,45 @@ def hunter_scan(req: HunterScanRequest, request: Request = None):
     from hunter.demand_check import batch_demand_check
     from utils.filters import load_filters
 
-    require_uk_market(marketplace_for_optional_request(request), "Category Hunter")
+    market = _require_ready_market(request, "Category Hunter")
 
     # Active range (user-adjustable, PR-5/PR-7): omitted client values
-    # resolve to the ACTIVE range; a client value is honoured only when
-    # it forms a sane range, otherwise we fall back to the active one.
-    rng = load_filters()
+    # resolve to the market's own range; a client value is honoured only when
+    # it forms a sane range, otherwise we fall back to that range. UK keeps
+    # the persisted active range; AU uses its market band.
+    if market["id"] == "EBAY_GB":
+        rng = load_filters()
+    else:
+        defaults = market_filter_defaults(market)
+        rng = {
+            "price_min": defaults.get("price_min", (market.get("price_band") or {}).get("min", 0.99)),
+            "price_max": defaults.get("price_max", (market.get("price_band") or {}).get("max", 50.0)),
+        }
     price_min = rng["price_min"] if req.price_min is None else float(req.price_min)
     price_max = rng["price_max"] if req.price_max is None else float(req.price_max)
     if not (0 < price_min < price_max <= 10000):
         price_min, price_max = rng["price_min"], rng["price_max"]
 
     resolved = resolve_category(req.category)
-    products = scan_category(
-        req.category,
+    scan_kwargs = dict(
         price_min=price_min,
         price_max=price_max,
         max_results=req.max_results,
     )
+    if market["id"] != "EBAY_GB":
+        scan_kwargs["marketplace"] = market["id"]
+    products = scan_category(req.category, **scan_kwargs)
     total_scanned = len(products)
 
-    with_demand = batch_demand_check(products)
+    if market["id"] == "EBAY_GB":
+        with_demand = batch_demand_check(products)
+    else:
+        with_demand = batch_demand_check(products, marketplace=market["id"])
 
     return {
+        "marketplace": market["id"],
+        "currency": market["currency"],
+        "currency_symbol": market["currency_symbol"],
         "products": [_product_dict(p) for p in with_demand],
         "total_scanned": total_scanned,
         "total_with_demand": len(with_demand),
@@ -88,13 +118,20 @@ def hunter_lookup(req: HunterLookupRequest, request: Request = None):
     from engine.price_gate import clamp_band
     from utils.filters import load_filters
 
-    market = marketplace_for_optional_request(request)
-    require_uk_market(market, "Category Hunter")
+    market = _require_ready_market(request, "Category Hunter")
 
     # PR-5/PR-7: thresholds may come per-request; the price range always
-    # resolves to the PERSISTED active value (same gate as the scan).
-    active = load_filters()
-    filters = clamp_band(req.filters)
+    # resolves to the market's own active value (same gate as the scan).
+    if market["id"] == "EBAY_GB":
+        active = load_filters()
+        defaults = None
+    else:
+        defaults = market_filter_defaults(market)
+        active = {
+            "price_min": defaults.get("price_min", (market.get("price_band") or {}).get("min", 0.99)),
+            "price_max": defaults.get("price_max", (market.get("price_band") or {}).get("max", 50.0)),
+        }
+    filters = clamp_band(req.filters, defaults=defaults)
     filters["price_min"] = active["price_min"]
     filters["price_max"] = active["price_max"]
 
@@ -111,7 +148,12 @@ def hunter_lookup(req: HunterLookupRequest, request: Request = None):
     with_supplier, excluded_suppliers = batch_supplier_lookup(
         products, marketplace=market["id"]
     )
-    final = batch_profit_calc(with_supplier, filters)
+    if market["id"] == "EBAY_GB":
+        final = batch_profit_calc(with_supplier, filters)
+    else:
+        final = batch_profit_calc(
+            with_supplier, filters, marketplace=market["id"]
+        )
 
     rng = filters
     # Report header range: client echo of the scan band is shown only when
@@ -142,6 +184,9 @@ def hunter_lookup(req: HunterLookupRequest, request: Request = None):
         report.notes = excluded_note("eBay listings", excluded_suppliers)
 
     payload = report.to_dict()
+    payload["marketplace"] = market["id"]
+    payload["currency"] = market["currency"]
+    payload["currency_symbol"] = market["currency_symbol"]
     # C11/C13 — every report row carries the store stamp the scan path
     # carries, so a lookup response never shows unstamped store lists.
     _stamp_report_stores(payload)
@@ -151,13 +196,14 @@ def hunter_lookup(req: HunterLookupRequest, request: Request = None):
     # category: a run where every supplier lookup timed out looked identical
     # to a category with nothing in it.
     payload["summary"] = _lookup_summary(
-        final, total_scanned, excluded_suppliers
+        final, total_scanned, excluded_suppliers, marketplace=market["id"]
     )
     return payload
 
 
 def _lookup_summary(
-    products: list, total_scanned: int, excluded_over_band: int
+    products: list, total_scanned: int, excluded_over_band: int,
+    marketplace: str = "EBAY_GB",
 ) -> dict:
     """Real counts for the empty state - never a message invented to fill it.
 
@@ -175,8 +221,17 @@ def _lookup_summary(
         reasons[key] = reasons.get(key, 0) + 1
 
     from utils.filters import load_filters
+    from marketplaces import get_marketplace, market_filter_defaults
 
-    rng = load_filters()
+    market = get_marketplace(marketplace)
+    if market["id"] == "EBAY_GB":
+        rng = load_filters()
+    else:
+        defaults = market_filter_defaults(market)
+        rng = {
+            "price_min": defaults.get("price_min", (market.get("price_band") or {}).get("min", 0.99)),
+            "price_max": defaults.get("price_max", (market.get("price_band") or {}).get("max", 50.0)),
+        }
     return {
         "products_returned": rows,
         "with_supplier": with_supplier,

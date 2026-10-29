@@ -127,6 +127,7 @@ def scan_category(
     price_min: float = FILTERS["price_min"],
     price_max: float = FILTERS["price_max"],
     max_results: int = 50,
+    marketplace: str = "EBAY_GB",
 ) -> list[CategoryProduct]:
     """Browse a known category, or search eBay for what the user actually typed.
 
@@ -141,29 +142,36 @@ def scan_category(
         return []
 
     # Try API first
-    products = _scan_via_api(resolved, price_min, price_max, max_results)
+    products = _scan_via_api(
+        resolved, price_min, price_max, max_results, marketplace=marketplace
+    )
     if products:
         return products
 
     # Fallback to scraping
-    return _scan_via_scrape(resolved, price_min, price_max, max_results)
+    return _scan_via_scrape(
+        resolved, price_min, price_max, max_results, marketplace=marketplace
+    )
 
 
 def _search_params(resolved: ResolvedSearch, price_min: float, price_max: float,
-                   max_results: int) -> dict:
+                   max_results: int, marketplace: str = "EBAY_GB") -> dict:
     """The Browse API query for a resolved search.
 
     Exactly one of `category_ids` (browse) or `q` (search) is ever sent —
     sending both would let eBay ignore the keywords.
     """
+    from marketplaces import get_marketplace
+
+    market = get_marketplace(marketplace)
     params: dict = {
         "limit": min(max_results, 50),
         "filter": (
             f"buyingOptions:{{FIXED_PRICE}},"
             f"conditions:{{NEW}},"
-            f"deliveryCountry:GB,"
+            f"deliveryCountry:{market['country_code']},"
             f"price:[{price_min}..{price_max}],"
-            f"priceCurrency:GBP"
+            f"priceCurrency:{market['currency']}"
         ),
         "sort": "-relevance",
     }
@@ -179,8 +187,12 @@ def _scan_via_api(
     price_min: float,
     price_max: float,
     max_results: int,
+    marketplace: str = "EBAY_GB",
 ) -> list[CategoryProduct]:
     """Browse or search via the Browse API."""
+    from marketplaces import get_marketplace
+
+    market = get_marketplace(marketplace)
     if not EBAY_CLIENT_ID or not EBAY_CLIENT_SECRET:
         return []
 
@@ -204,10 +216,12 @@ def _scan_via_api(
         # Search eBay — a category browse, or a real keyword search
         resp = requests.get(
             f"{EBAY_API_BASE}/buy/browse/v1/item_summary/search",
-            params=_search_params(resolved, price_min, price_max, max_results),
+            params=_search_params(
+                resolved, price_min, price_max, max_results, marketplace=marketplace
+            ),
             headers={
                 "Authorization": f"Bearer {token}",
-                "X-EBAY-C-MARKETPLACE-ID": EBAY_MARKETPLACE,
+                "X-EBAY-C-MARKETPLACE-ID": get_marketplace(marketplace)["id"],
                 "Content-Type": "application/json",
             },
             timeout=15,
@@ -270,21 +284,26 @@ def _scan_via_scrape(
     price_min: float,
     price_max: float,
     max_results: int,
+    marketplace: str = "EBAY_GB",
 ) -> list[CategoryProduct]:
     """Fallback: scrape the eBay category page, or run the search on the site.
 
     A keyword search has no category page, so it uses eBay's own search URL
     (`/sch/i.html?_nkw=`) rather than a category shelf.
     """
+    from marketplaces import get_marketplace
+
+    market = get_marketplace(marketplace)
+    site_base = market["site_base"].rstrip("/")
     products = []
 
     try:
         if resolved.is_category:
-            path = f"{EBAY_UK_BASE}/b/{resolved.category_id}/n.html"
+            path = f"{site_base}/b/{resolved.category_id}/n.html"
             extra = ""
         else:
             quoted = quote_plus(resolved.text)
-            path = f"{EBAY_UK_BASE}/sch/i.html"
+            path = f"{site_base}/sch/i.html"
             extra = f"&_nkw={quoted}"
         url = (
             f"{path}?"
@@ -300,7 +319,11 @@ def _scan_via_scrape(
         session = requests.Session()
         session.headers.update({
             "User-Agent": SCRAPE_CONFIG["user_agent"],
-            "Accept-Language": SCRAPE_CONFIG["accept_language"],
+            "Accept-Language": (
+                "en-AU,en;q=0.9"
+                if market["country_code"] == "AU"
+                else SCRAPE_CONFIG["accept_language"]
+            ),
         })
 
         resp = session.get(url, timeout=15)

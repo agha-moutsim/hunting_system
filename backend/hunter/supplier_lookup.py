@@ -173,7 +173,11 @@ async def _lookup_single_supplier(
         scraper = None
         try:
             from scrapers.cjdropshipping import CJDropshippingScraper
-            scraper = CJDropshippingScraper()
+            scraper_kwargs = (
+                {} if marketplace == "EBAY_GB"
+                else {"marketplace": marketplace}
+            )
+            scraper = CJDropshippingScraper(**scraper_kwargs)
             products = await asyncio.wait_for(scraper.search(product.title), timeout=10)
             hit = _first_valid(
                 products, product.title, product.price or 0.0,
@@ -229,7 +233,11 @@ async def _lookup_single_supplier(
         scraper = None
         try:
             from scrapers.aliexpress import AliExpressScraper
-            scraper = AliExpressScraper()
+            scraper_kwargs = (
+                {} if marketplace == "EBAY_GB"
+                else {"marketplace": marketplace}
+            )
+            scraper = AliExpressScraper(**scraper_kwargs)
             products = await asyncio.wait_for(scraper.search(product.title), timeout=10)
             hit = _first_valid(
                 products, product.title, product.price or 0.0,
@@ -425,7 +433,8 @@ def batch_supplier_lookup(
         else:
             p.supplier_status = "out_of_band"
             p.supplier_status_reason = (
-                f"eBay price GBP{p.price:.2f} is outside the active range"
+                f"eBay price {market['currency']} {p.price:.2f} "
+                "is outside the active range"
             )
             _excluded_over_band += 1
 
