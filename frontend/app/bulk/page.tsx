@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useState, FormEvent } from "react";
+import { useState, useEffect, FormEvent } from "react";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Badge from "@/components/ui/Badge";
@@ -8,13 +8,22 @@ import Spinner from "@/components/Spinner";
 import EbayStoresCard from "@/components/EbayStoresCard";
 import { apiPost } from "@/lib/api";
 import { BulkResponse, DeepSearchResult } from "@/lib/types";
-import { formatGBP, formatPercent, truncate } from "@/lib/format";
+import { formatMoney, formatPercent, truncate } from "@/lib/format";
+import { useMarketplace } from "@/lib/marketplace";
 
 export default function BulkPage() {
+  const { marketplace } = useMarketplace();
+  const marketIsUk = marketplace.id === "EBAY_GB";
+  const analysisReady = marketplace.analyze_ready ?? marketIsUk;
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<BulkResponse | null>(null);
+
+  useEffect(() => {
+    setResult(null);
+    setError(null);
+  }, [marketplace.id]);
 
   async function run(e: FormEvent) {
     e.preventDefault();
@@ -22,7 +31,7 @@ export default function BulkPage() {
       .split("\n")
       .map((q) => q.trim())
       .filter(Boolean);
-    if (!queries.length || loading) return;
+    if (!queries.length || loading || !analysisReady) return;
     setLoading(true);
     setError(null);
     setResult(null);
@@ -94,12 +103,31 @@ export default function BulkPage() {
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
-      <div>
+      <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-xl font-bold text-text-primary">Bulk Analysis</h1>
-        <p className="text-sm text-text-secondary mt-1">
-          Fast-mode analysis for many queries at once (no LLM)
-        </p>
+        <Badge tone="info">
+          {marketplace.currency} range{" "}
+          {marketplace.price_band
+            ? `${marketplace.currency_symbol}${marketplace.price_band.min}–${marketplace.currency_symbol}${marketplace.price_band.max}`
+            : "…"}
+        </Badge>
+        <Badge tone="info">{marketplace.label}</Badge>
       </div>
+      <p className="text-sm text-text-secondary mt-1">
+        Fast-mode analysis for many queries at once (no LLM) in{" "}
+        {marketplace.currency}
+      </p>
+
+      {!analysisReady && (
+        <Card className="border-accent-amber/40">
+          <div className="text-sm text-accent-amber">
+            Bulk Analysis is not enabled for {marketplace.label}. A registered
+            fee card and supplier bench are required before an{" "}
+            {marketplace.currency} profit can be calculated. Switch to United
+            Kingdom or use Deals and Titles to browse this market.
+          </div>
+        </Card>
+      )}
 
       <Card>
         <form onSubmit={run} className="space-y-3">
@@ -110,10 +138,13 @@ export default function BulkPage() {
               "wireless earbuds\nphone case\nkitchen organizer\n…one query per line"
             }
             className="w-full bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder-text-dim focus:outline-hidden focus:border-accent-blue min-h-[120px]"
-            disabled={loading}
+            disabled={loading || !analysisReady}
           />
           <div className="flex flex-wrap items-center gap-3">
-            <Button type="submit" disabled={loading || !text.trim()}>
+            <Button
+              type="submit"
+              disabled={loading || !text.trim() || !analysisReady}
+            >
               {loading ? "Running…" : "Run Bulk"}
             </Button>
             <span className="text-xs text-text-dim">
@@ -191,9 +222,17 @@ export default function BulkPage() {
                       {truncate(r.product_name, 80)}
                     </div>
                     <div className="text-xs text-text-secondary mt-1">
-                      eBay avg {formatGBP(r.ebay_avg_price)} · Best supplier{" "}
-                      {formatGBP(r.best_supplier_price)} · Sold 30d:{" "}
-                      {r.ebay_total_sold_30d ?? "⚠️ Unverified"}
+                      eBay avg{" "}
+                      {formatMoney(
+                        r.ebay_avg_price,
+                        r.currency || marketplace.currency
+                      )}{" "}
+                      · Best supplier{" "}
+                      {formatMoney(
+                        r.best_supplier_price,
+                        r.currency || marketplace.currency
+                      )}{" "}
+                      · Sold 30d: {r.ebay_total_sold_30d ?? "⚠️ Unverified"}
                       {(() => {
                         const preferred =
                           r.suppliers?.filter((s) => s.sourcing_preferred)
@@ -213,7 +252,7 @@ export default function BulkPage() {
                           <>
                             {preferred > 0 && ` · ${preferred} preferred`}
                             {bestTotal != null &&
-                              ` · best total ${formatGBP(bestTotal)}`}
+                              ` · best total ${formatMoney(bestTotal, r.currency || marketplace.currency)}`}
                           </>
                         );
                       })()}
@@ -225,7 +264,10 @@ export default function BulkPage() {
                         r.profit > 0 ? "text-accent-green" : "text-accent-red"
                       }`}
                     >
-                      {formatGBP(r.profit)}
+                      {formatMoney(
+                        r.profit,
+                        r.currency || marketplace.currency
+                      )}
                     </div>
                     <div className="text-xs text-text-secondary">
                       {formatPercent(r.margin)}
