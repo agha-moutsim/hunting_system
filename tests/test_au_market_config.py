@@ -1,16 +1,15 @@
 """Phase C - the AU market's config, defaults and currency boundary.
 
-The AU fee card exists and is registered, but its calculator stays locked
-until Phase E5. These pins keep the two states apart:
+Phase E5 enables the AU fee calculator. These pins keep the market contract
+straight:
 
-  * the registry carries the AU card key, while the public record reports no
-    usable table and a sentence saying why;
+  * the registry carries the AU card key and the public record exposes it;
   * the seller-side defaults are the AU branch (Individual, domestic AU), not
     the UK business branch copied across;
   * a card is never applied across currencies, even when a caller names one
     explicitly;
-  * the supplier-comparison surfaces still say UK-only without claiming the
-    fee card is UK-only too.
+  * a surface that genuinely needs the UK-only contract still says so without
+    claiming the fee card is UK-only too.
 """
 
 from __future__ import annotations
@@ -30,22 +29,20 @@ from marketplaces import (
 )
 
 
-class TestTheRegisteredCardIsNotAReadyCalculator:
-    def test_au_has_the_card_but_the_public_record_withholds_it(self):
+class TestTheRegisteredCardIsAReadyCalculator:
+    def test_au_has_the_card_and_the_public_record_exposes_it(self):
         au = get_marketplace("EBAY_AU")
         assert au["fee_table"] == "au-rate-card-2026-10-09"
-        assert fee_calculator_ready(au) is False
-        warning = fee_warning(au)
-        assert "au-rate-card-2026-10-09" in warning
-        assert "not enabled" in warning
+        assert fee_calculator_ready(au) is True
+        assert fee_warning(au) is None
 
-    def test_the_public_selector_cannot_offer_the_locked_card(self):
+    def test_the_public_selector_offers_the_aud_card(self):
         from marketplaces import public_marketplace
 
         public = public_marketplace(get_marketplace("EBAY_AU"))
-        assert public["fee_table"] is None
+        assert public["fee_table"] == "au-rate-card-2026-10-09"
         assert public["fee_table_registered"] == "au-rate-card-2026-10-09"
-        assert public["fee_calculator_ready"] is False
+        assert public["fee_calculator_ready"] is True
         assert public["seller_defaults"]["seller_type"] == "private"
 
 

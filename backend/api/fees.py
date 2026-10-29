@@ -105,6 +105,49 @@ def _seller_side(req: FeeCalculateRequest, market: dict) -> dict:
     }
 
 
+def _plan_rows(table: dict) -> list[dict]:
+    """The business card's plans in declaration order, for a selector."""
+    business = table.get("business") or {}
+    return [
+        {"key": key, **details}
+        for key, details in (business.get("plans") or {}).items()
+    ]
+
+
+def _tax_summary(table: dict) -> dict:
+    """The table's tax name/rate and whether both branches quote it inclusive.
+
+    A table whose branches disagree (the UK: business exclusive, private
+    inclusive) returns `included: None`; the per-calculation `tax` block is the
+    authority for one sale.
+    """
+    name = table.get("tax_name", "VAT")
+    rate = table.get("gst_rate", table.get("vat_rate"))
+    flags = []
+    for side in (table.get("business"), table.get("private")):
+        if side:
+            flags.append(
+                bool(
+                    side.get(
+                        "fees_include_gst",
+                        side.get("fees_include_vat", False),
+                    )
+                )
+            )
+    included = flags[0] if flags and all(f == flags[0] for f in flags) else None
+    return {"name": name, "rate": rate, "included": included}
+
+
+def _buyer_regions() -> list[dict]:
+    """The engine's buyer regions as selector rows."""
+    from engine import fees as engine_fees
+
+    return [
+        {"key": key, "label": label}
+        for key, label in engine_fees.BUYER_REGIONS.items()
+    ]
+
+
 @router.get("/fees/table")
 def fee_table(request: Request = None, key: Optional[str] = None):
     """The table the calculator prices with, plus who is selling.
@@ -127,6 +170,13 @@ def fee_table(request: Request = None, key: Optional[str] = None):
         "market_defaults": seller_defaults(market),
         "marketplace": market["id"],
         "currency": market["currency"],
+        "currency_symbol": market["currency_symbol"],
+        "default_seller_type": table.get("default_seller_type", "business"),
+        "default_plan": (table.get("business") or {}).get("default_plan"),
+        "plans": _plan_rows(table),
+        "tax": _tax_summary(table),
+        "domestic_region": table.get("domestic_region"),
+        "buyer_regions": _buyer_regions(),
     }
 
 
@@ -184,6 +234,9 @@ def calculate(req: FeeCalculateRequest, request: Request = None):
                 "version": table["version"],
                 "currency": table["currency"],
             },
+            "marketplace": market["id"],
+            "currency": table["currency"],
+            "currency_symbol": market["currency_symbol"],
             **{k: v for k, v in solved.items() if not k.startswith("_")},
         }
         if solved.get("achievable") and solved.get("price") is not None:
@@ -217,5 +270,8 @@ def calculate(req: FeeCalculateRequest, request: Request = None):
     return {
         "mode": "forward",
         "fee_table": outcome["fees"]["fee_table"],
+        "marketplace": market["id"],
+        "currency": table["currency"],
+        "currency_symbol": market["currency_symbol"],
         "calculation": outcome,
     }

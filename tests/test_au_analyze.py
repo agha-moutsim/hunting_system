@@ -53,24 +53,22 @@ def _au_demand(sold_30d: int | None = 15, sold_7d: int | None = 10) -> DemandDat
 
 
 class TestTheTwoSwitches:
-    def test_au_analyze_is_ready_while_its_calculator_is_locked(self):
+    def test_au_analyze_and_its_calculator_are_both_ready(self):
         au = get_marketplace("EBAY_AU")
 
         assert analyze_ready(au) is True
-        assert fee_calculator_ready(au) is False
+        assert fee_calculator_ready(au) is True
 
         public = public_marketplace(au)
         assert public["analyze_ready"] is True
-        assert public["fee_calculator_ready"] is False
-        assert public["fee_table"] is None
+        assert public["fee_calculator_ready"] is True
+        assert public["fee_table"] == "au-rate-card-2026-10-09"
         assert public["fee_table_registered"] == "au-rate-card-2026-10-09"
 
-    def test_the_fee_warning_does_not_claim_analyze_is_locked(self):
+    def test_a_ready_market_carries_no_fee_warning(self):
         warning = public_marketplace(get_marketplace("EBAY_AU"))["fee_warning"]
 
-        assert "not enabled" in warning
-        assert "AUD" in warning
-        assert "Analyze can use the card" in warning
+        assert warning is None
 
     def test_a_market_without_a_card_or_bench_is_not_analyze_ready(self):
         assert analyze_ready(get_marketplace("EBAY_US")) is False

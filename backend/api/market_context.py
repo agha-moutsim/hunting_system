@@ -46,13 +46,12 @@ def require_uk_market(market: dict, surface: str) -> None:
     """Refuse a supplier-comparison surface on a non-UK marketplace.
 
     Analyze has a search-only path because it can return an eBay listing and
-    demand picture without pricing a resale. Deep Search gained a market-aware
-    AUD path in Phase E2, so it now uses `analyze_ready` instead. Bulk and
-    Category Hunter still compare eBay prices with GBP supplier costs and
-    remain UK-only until their phases: running them under a USD/EUR/AUD/CAD
-    heading would add across currencies. The fee calculator has its own gate
-    (`require_fee_market`), because its card is market-specific rather than
-    tied to the supplier bench.
+    demand picture without pricing a resale. Deep Search, Bulk and Category
+    Hunter gained market-aware paths in Phases E2-E4 and use `analyze_ready`
+    instead. This helper remains for a caller that genuinely needs the UK-only
+    contract; it is no longer used by the AU-enabled surfaces. The fee
+    calculator has its own gate (`require_fee_market`), because its card is
+    market-specific rather than tied to the supplier bench.
     """
     if market["id"] == "EBAY_GB":
         return
@@ -73,9 +72,8 @@ def require_fee_market(market: dict) -> None:
     This is the API half of the Phase J rule. The engine's `ACTIVE_TABLE` is
     the UK card; letting a USD request fall through to it would produce a
     precise-looking number under the wrong currency. A registered card is not
-    enough: EBAY_AU carries its sourced card but stays locked until Phase E5,
-    so the same gate covers both "no card" and "card not enabled yet". The
-    refusal carries the shared sentence rather than a bare 422.
+    enough: the same gate covers both "no card" and "card not enabled yet".
+    The refusal carries the shared sentence rather than a bare 422.
     """
     from marketplaces import fee_calculator_ready, fee_warning
 

@@ -214,9 +214,11 @@ MARKETPLACES = {
         "currency_symbol": "A$",
         "delivery_country": "AU",
         "fee_table": "au-rate-card-2026-10-09",
-        "fee_calculator_ready": False,
-        #: The full Analyze pipeline is unlocked for AU in Phase E1. The
-        #: standalone fee calculator remains gated by fee_calculator_ready.
+        #: Phase E5 enables the standalone calculator now that the page can
+        #: render AUD, the AU plan selector and the domestic/international
+        #: buyer region.
+        "fee_calculator_ready": True,
+        #: The full Analyze pipeline is unlocked for AU in Phase E1.
         "analyze_ready": True,
         "seller_defaults": {
             "seller_type": "private",

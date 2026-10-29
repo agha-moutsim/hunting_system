@@ -11,11 +11,11 @@ The rules this module exists to make hard to break:
   * only markets whose deals URL was observed reachable are offered;
   * a market without a fee table has no fee table. We do not fall back to the
     UK card, because a GBP rate applied to a USD sale is a fabricated number;
-  * a registered card is not the same as an enabled calculator. EBAY_AU
-    carries its sourced card key, but `fee_calculator_ready` stays False until
-    the AU seller defaults and unlock land. The public `fee_table` remains
-    None until then, so a surface cannot mistake "card on file" for "ready to
-    price".
+  * a registered card is not automatically an enabled calculator. A market
+    may carry a sourced card while `fee_calculator_ready` is still False; the
+    public `fee_table` stays None until the switch is on, so a surface cannot
+    mistake "card on file" for "ready to price". EBAY_AU's switch was turned
+    on in Phase E5, when its AUD calculator surface was ready.
 
 Absent is stated. `fee_warning` carries the sentence a surface must show
 instead of a price, and `fee_table_registered` names a card that exists but is
@@ -79,11 +79,11 @@ def offered_marketplaces() -> list[dict]:
 def fee_calculator_ready(market: dict) -> bool:
     """Whether this market's standalone fee calculator may be used today.
 
-    A fee table alone is not enough. The AU card is registered and sourced,
-    and Analyze uses it, but the standalone calculator switch stays off until
-    Phase E5 wires the AU seller controls into every calculator surface.
-    Keeping the switch separate means adding a card can never silently expose
-    a calculator that still assumes the UK branch.
+    A fee table alone is not enough. The switch is turned on only when the
+    market's calculator surface can render its currency, seller branches and
+    plan controls. Keeping the switch separate means adding a card can never
+    silently expose a calculator that still assumes the UK branch. AU's
+    switch was turned on in Phase E5.
     """
     return bool(market.get("fee_table")) and bool(
         market.get("fee_calculator_ready")
@@ -117,9 +117,8 @@ def analyze_ready(market: dict) -> bool:
 
     This is deliberately separate from `fee_calculator_ready`. AU carries a
     sourced fee card and a supplier bench, so its Analyze pipeline can price a
-    product and produce a verdict, while the standalone fee calculator and its
-    seller controls stay locked until Phase E5. A market without a card or a
-    bench stays search-only: there is nothing honest to compare.
+    product and produce a verdict. A market without a card or a bench stays
+    search-only: there is nothing honest to compare.
     """
     return bool(
         market.get("analyze_ready")
