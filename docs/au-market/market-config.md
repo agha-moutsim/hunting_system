@@ -71,7 +71,19 @@ API then applies the request value, then the market default, then
   because they compare eBay prices with GBP supplier costs. It no longer
   claims the fee card is UK-only; the fee calculator has its own gate.
 
-## 5. Phase E5 flip
+## 5. Supplier bench (Phase D)
+
+Each market also carries `supplier_bench`: the active source slugs it may use.
+UK keeps AliExpress, CJ, B&Q, Toolstation and Joybuy; AU is AliExpress + CJ
+only. `marketplaces.supplier_bench()` is the only reader and the public record
+exposes it. The bench is policy, not the catalog, and an absent bench is empty
+
+- never the UK list. See `supplier-bench.md`.
+
+The bench does not solve supplier currency. Until Phase E1/E2 settle an AUD
+path, AU supplier rows must not reach a profit or verdict calculation.
+
+## 6. Phase E5 flip
 
 When the calculator UI can render AUD, the AU plan selector and the AU
 domestic/international region, set:
@@ -84,7 +96,7 @@ for `EBAY_AU`. The public `fee_table` then becomes the AU key, `fee_warning`
 becomes `None`, and both fee routes open. Do not flip it earlier: a correct
 AUD calculation displayed with a `£` symbol is still a misleading screen.
 
-## 6. Pins
+## 7. Pins
 
 - `tests/test_markets.py` - registry, public selector, refusal sentences.
 - `tests/test_au_market_config.py` - seller defaults, card resolution,

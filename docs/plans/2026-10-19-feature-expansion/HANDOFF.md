@@ -1,6 +1,6 @@
 # Handoff - current state
 
-Last updated: 2026-10-29, AU market config landed (three commits).
+Last updated: 2026-10-29, AU supplier bench landed (three commits); next is AU Phase E1.
 Read this first, then `implementation.md` (phase specs and rules) and `design.md` (surfaces).
 
 ## Where the work stands
@@ -26,9 +26,11 @@ three commits per phase.
 
 ## Next move
 
-Phase J is implemented and verified; the ten planned phases are complete. The only open work is
-the user-owned list under "Pending items that need the user's word", plus rotating the two exposed
-credentials. There is no Phase K.
+Phase J is implemented and verified; the ten planned phases are complete. The active work is
+the AU market thread below: Phase D just closed, and **Phase E1 (Analyze) is next** - gated on a
+currency-safe AU supplier price, not on the bench alone. The older user-owned list under
+"Pending items that need the user's word" and the two exposed credentials remain open. There is
+no Phase K.
 
 The one live-browser gap from Phase A remains: the extension is loaded and reaches the backend,
 but it has not completed a successful capture. It is a verification gap, not a missing phase.
@@ -61,11 +63,19 @@ The Australian build is a separate six-phase thread on top of the ten shipped ph
   `seller_plan`/`buyer_region` from the market rather than the UK profile. Analyze, Deep
   Search, Bulk, Category Hunter and the fee calculator remain locked for AU until Phase E.
   Details: `docs/au-market/market-config.md`; pins: `tests/test_au_market_config.py`.
-- **Phase D - next.** AU supplier bench: AliExpress + CJ only; B&Q / Toolstation / Joybuy UK
-  dropped.
-- **Then:** Phase E (unlock E1 Analyze, E2 Deep Search, E3 Bulk, E4 Category Hunter, E5 fee
-  calculator), Phase F (UI + docs). Three commits per phase, a short report at each phase
-  end.
+- **Phase D - complete (three commits).** The supplier bench is now a market property:
+  UK keeps AliExpress/CJ/B&Q/Toolstation/Joybuy; AU is AliExpress + CJ only. SerpApi
+  discovery is scoped to the bench and to Google Australia (`Australia` / `au`), Category
+  Hunter lookup skips Joybuy for AU, and `search_all_suppliers` instantiates only the bench's
+  scrapers. Analyze now gates on `fee_calculator_ready`, not the presence of a registered
+  card, so the AU card does not accidentally run the UK pipeline. Details:
+  `docs/au-market/supplier-bench.md`; pins: `tests/test_au_supplier_bench.py` plus the
+  discovery/Hunter tests. **Currency remains unsolved:** AliGate still defaults to GBP and
+  CJ's USD `sellPrice` is converted to GBP at 0.79, so AU pricing stays locked.
+- **Phase E1 - next.** Unlock Analyze for AU only after the supplier price can be compared
+  with an AUD eBay listing without a fabricated conversion. Then E2 Deep Search, E3 Bulk,
+  E4 Category Hunter, E5 fee calculator; Phase F is UI + docs. Three commits per phase, a
+  short report at each phase end.
 
 Still open from the older thread: the live-browser capture gap, the history migration spec,
 the four redundant `listing_observations` rows on `266923866336`, Deep Search/batch observation

@@ -37,6 +37,7 @@ from engine.provenance import stamp_scraped_product
 from engine.sourcing import apply_ranking, shipping_is_known
 from engine.scorecard import format_scorecard
 from engine.source_type import supplier_type
+from marketplaces import get_marketplace, supplier_bench
 from engine.stores import resolve_stores, store_provenance_block
 # ProductAnalyzer is imported but not constructed here any more (Phase A1
 # removed the synchronous wait). The name is kept because it is the seam the
@@ -271,12 +272,24 @@ def _score_supplier(
     return True
 
 
-async def search_all_suppliers(query: str, progress=None) -> list[ScrapedProduct]:
-    """Search all 7 supplier scrapers in parallel and return combined results."""
+async def search_all_suppliers(
+    query: str,
+    progress=None,
+    marketplace: str = "EBAY_GB",
+) -> list[ScrapedProduct]:
+    """Search the market's active supplier scrapers in parallel.
+
+    The bench is market policy, not the catalog: AU gets AliExpress + CJ and
+    never the UK retailers. The default is the UK, so the historical callers
+    keep their seven-supplier behaviour.
+    """
     from scrapers.aliexpress import AliExpressScraper
     from scrapers.bandq import BandQScraper
     from scrapers.cjdropshipping import CJDropshippingScraper
     from scrapers.toolstation import ToolstationScraper
+
+    market = get_marketplace(marketplace)
+    bench = set(supplier_bench(market))
 
     # REGRESSION-009: created per call, never at module level. A Semaphore
     # binds to the first loop that awaits it, and this module is driven by a
@@ -290,11 +303,14 @@ async def search_all_suppliers(query: str, progress=None) -> list[ScrapedProduct
     #                bars aggregating product data for analysis
     #   godropship - the domain is FOR SALE (spaceship.com, $16,995)
     #   joybuy     - JD "Risk Control" challenge survives playwright-stealth
+    candidates = [
+        ("aliexpress", "AliExpress", AliExpressScraper),
+        ("cj_dropshipping", "CJ Dropshipping", CJDropshippingScraper),
+        ("bandq", "B&Q", BandQScraper),
+        ("toolstation", "Toolstation", ToolstationScraper),
+    ]
     scrapers = [
-        ("AliExpress", AliExpressScraper),
-        ("CJ Dropshipping", CJDropshippingScraper),
-        ("B&Q", BandQScraper),
-        ("Toolstation", ToolstationScraper),
+        (name, cls) for slug, name, cls in candidates if slug in bench
     ]
 
     async def _run_one(name: str, ScraperClass):
@@ -321,7 +337,16 @@ async def search_all_suppliers(query: str, progress=None) -> list[ScrapedProduct
     # at most MAX_CALLS), the seven per-supplier scrapers are the fallback.
     # Started before the gather so it costs no extra wall-clock time.
     from scrapers.serpapi_discovery import discover as serpapi_discover
-    discovery_task = asyncio.ensure_future(asyncio.to_thread(serpapi_discover, query))
+    if marketplace == "EBAY_GB":
+        # Keep the one-argument call for the default path: tests and callers
+        # replace `discover` with a one-argument stub.
+        discovery_task = asyncio.ensure_future(
+            asyncio.to_thread(serpapi_discover, query)
+        )
+    else:
+        discovery_task = asyncio.ensure_future(
+            asyncio.to_thread(serpapi_discover, query, marketplace=marketplace)
+        )
 
     pairs = await asyncio.gather(*(_run_one(name, cls) for name, cls in scrapers))
 
@@ -364,6 +389,7 @@ async def run_analysis_pipeline(
     progress=None,
     filters: dict | None = None,
     timing_sink: dict | None = None,
+    marketplace: str = "EBAY_GB",
 ) -> dict:
     """Execute the full analysis: scrape eBay → suppliers → LLM → verdict.
 
@@ -378,7 +404,14 @@ async def run_analysis_pipeline(
         if progress:
             progress(msg)
 
-    ebay = EbayScraper()
+    market = get_marketplace(marketplace)
+    # The UK keeps its zero-argument constructor so the existing test doubles
+    # and callers are untouched. A future non-UK unlock passes the market in.
+    ebay = (
+        EbayScraper()
+        if marketplace == "EBAY_GB"
+        else EbayScraper(marketplace=market["id"])
+    )
     results = {
         "ebay_product": None,
         "demand": None,
@@ -561,8 +594,18 @@ async def run_analysis_pipeline(
         _open("suppliers")
         _report("Step 3/5 — Searching 7 suppliers (max ~45s each, 2 at a time)…")
         try:
+            if marketplace == "EBAY_GB":
+                supplier_task = search_all_suppliers(
+                    ebay_product.title, progress=_report
+                )
+            else:
+                supplier_task = search_all_suppliers(
+                    ebay_product.title,
+                    progress=_report,
+                    marketplace=marketplace,
+                )
             supplier_results = await asyncio.wait_for(
-                search_all_suppliers(ebay_product.title, progress=_report),
+                supplier_task,
                 timeout=90.0,
             )
         except asyncio.TimeoutError:
@@ -627,7 +670,9 @@ async def run_analysis_pipeline(
         # makes `supplier_results[0]` (used for best_supplier_price below)
         # the preferred sourcing option rather than whichever scraper
         # happened to answer first.
-        supplier_results = apply_ranking(supplier_results, "GB")
+        supplier_results = apply_ranking(
+            supplier_results, market["country_code"]
+        )
         supplier_results = supplier_results[:MAX_SUPPLIERS]
         # C13 — the label is data, and these rows reach the UI unlabelled
         # without it: ScrapedProduct only carried the `verified` bool, so
