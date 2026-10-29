@@ -33,9 +33,10 @@ import uuid
 
 from fastapi import APIRouter, HTTPException, Request
 
-from api.market_context import marketplace_for_optional_request, require_uk_market
+from api.market_context import marketplace_for_optional_request
 from api.schemas import DeepSearchRequest
 from api.provenance_block import build_provenance_block, unverified_stamp
+from marketplaces import analyze_ready, fee_warning, get_marketplace
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -63,6 +64,28 @@ _JOBS: dict[str, dict] = {}
 _LOCK = threading.RLock()
 
 
+def _require_ready_market(request: Request | None, surface: str) -> dict:
+    """The requested market, refused unless it can price a resale.
+
+    `analyze_ready` is the right gate here, not UK-only: AU has a sourced
+    card and an AUD supplier bench, so Deep Search can compare AUD with AUD.
+    A market without a card or bench still cannot, and its refusal names the
+    missing piece rather than pretending the feature is UK-only.
+    """
+    market = marketplace_for_optional_request(request)
+    if analyze_ready(market):
+        return market
+    reason = fee_warning(market) or (
+        "No supplier bench is registered for this marketplace."
+    )
+    raise HTTPException(
+        status_code=422,
+        detail=(
+            f"{surface} is not enabled for {market['label']}. {reason}"
+        ),
+    )
+
+
 @router.post("/deep-search")
 def deep_search(req: DeepSearchRequest, request: Request = None) -> dict:
     """Start a full deep research job and hand back its id at once.
@@ -71,16 +94,26 @@ def deep_search(req: DeepSearchRequest, request: Request = None) -> dict:
     query, supplier scrapes, then the LLM verdict — happens on a worker
     thread. Poll GET /deep-search/jobs/{job_id} for progress.
     """
-    require_uk_market(marketplace_for_optional_request(request), "Deep Search")
-    job = _create_job(req.query)
+    market = _require_ready_market(request, "Deep Search")
+    job = _create_job(req.query, market["id"])
     # Captured before the worker exists: read after _spawn_job this would
     # be a race, reporting whichever state the thread had reached by the
     # time the response was built. POST describes the creation, not the
     # outcome - the poll reports the outcome.
     status = job["status"]
     _spawn_job(job)
-    logger.info("Deep search job %s started for %r", job["id"], req.query)
-    return {"job_id": job["id"], "status": status, "query": job["query"]}
+    logger.info(
+        "Deep search job %s started for %r (%s)",
+        job["id"], req.query, market["id"],
+    )
+    return {
+        "job_id": job["id"],
+        "status": status,
+        "query": job["query"],
+        "marketplace": market["id"],
+        "currency": market["currency"],
+        "currency_symbol": market["currency_symbol"],
+    }
 
 
 @router.get("/deep-search/jobs/{job_id}")
@@ -101,6 +134,7 @@ def deep_search_job(job_id: str) -> dict:
             )
         status = job["status"]
         query = job["query"]
+        marketplace = job.get("marketplace", "EBAY_GB")
         job_error = job.get("job_error")
         sink_result = job["sink"].get("result")
 
@@ -116,7 +150,9 @@ def deep_search_job(job_id: str) -> dict:
             )
             job_error = job["job_error"]
 
-        payload = _payload_for(status, query, sink_result, job_error)
+        payload = _payload_for(
+            status, query, sink_result, job_error, marketplace
+        )
         payload["job_id"] = job_id
         payload["job_status"] = status
         if job_error:
@@ -133,26 +169,37 @@ def deep_search_fast(req: DeepSearchRequest, request: Request = None):
     """
     from deep_search import deep_search_fast as _fast
 
-    require_uk_market(marketplace_for_optional_request(request), "Deep Search")
+    market = _require_ready_market(request, "Deep Search")
     sink: dict = {}
+    # UK keeps the historical three-argument call so existing test doubles
+    # and the saved-search runner keep working; a non-UK run states its id.
+    run_args = (
+        (req.query, FAST_TIMEOUT_S, sink)
+        if market["id"] == "EBAY_GB"
+        else (req.query, FAST_TIMEOUT_S, sink, market["id"])
+    )
     try:
         result = asyncio.run(
             asyncio.wait_for(
-                _to_thread(_fast, req.query, FAST_TIMEOUT_S, sink),
+                _to_thread(_fast, *run_args),
                 timeout=FAST_TIMEOUT_S,
             )
         )
     except (TimeoutError, asyncio.TimeoutError):
-        return _partial_or_timeout(req.query, FAST_TIMEOUT_S, sink, full=False)
+        return _partial_or_timeout(
+            req.query, FAST_TIMEOUT_S, sink, full=False,
+            marketplace=market["id"],
+        )
     return _response(result)
 
 
-def _create_job(query: str) -> dict:
+def _create_job(query: str, marketplace: str = "EBAY_GB") -> dict:
     with _LOCK:
         _prune_jobs_locked()
         job = {
             "id": uuid.uuid4().hex,
             "query": query,
+            "marketplace": marketplace,
             "sink": {},
             "created": time.monotonic(),
             "status": "running",
@@ -179,8 +226,16 @@ def _execute_job(job: dict) -> None:
     """
     from deep_search import deep_search_product
 
+    marketplace = job.get("marketplace", "EBAY_GB")
     try:
-        result = deep_search_product(job["query"], JOB_BUDGET_S, job["sink"])
+        if marketplace == "EBAY_GB":
+            result = deep_search_product(
+                job["query"], JOB_BUDGET_S, job["sink"]
+            )
+        else:
+            result = deep_search_product(
+                job["query"], JOB_BUDGET_S, job["sink"], marketplace
+            )
     except Exception as exc:  # noqa: BLE001 - the job record is the report
         logger.exception("Deep search job %s failed", job["id"])
         job["status"] = "failed"
@@ -203,7 +258,8 @@ def _prune_jobs_locked() -> None:
         del _JOBS[job_id]
 
 
-def _payload_for(status: str, query: str, sink_result, job_error: str | None) -> dict:
+def _payload_for(status: str, query: str, sink_result, job_error: str | None,
+                 marketplace: str = "EBAY_GB") -> dict:
     """Build the poll payload for one job status.
 
     An overrun answers with the run's own work via `_partial_or_timeout`,
@@ -213,14 +269,21 @@ def _payload_for(status: str, query: str, sink_result, job_error: str | None) ->
     """
     if status == "timed_out":
         return _partial_or_timeout(
-            query, JOB_BUDGET_S, {"result": sink_result} if sink_result else {},
-            full=True,
+            query, JOB_BUDGET_S,
+            {"result": sink_result} if sink_result else {},
+            full=True, marketplace=marketplace,
         )
 
     from deep_search import DeepSearchResult
+    market = get_marketplace(marketplace)
 
     if sink_result is None:
-        blank = DeepSearchResult(product_name=query)
+        blank = DeepSearchResult(
+            product_name=query,
+            marketplace=market["id"],
+            currency=market["currency"],
+            currency_symbol=market["currency_symbol"],
+        )
         blank.verdict = "PENDING"
         if status == "failed":
             blank.notes = f"Background job failed: {job_error}"
@@ -256,10 +319,17 @@ async def _to_thread(fn, *args):
     return await loop.run_in_executor(None, fn, *args)
 
 
-def _timeout_result(query: str, seconds: float, full: bool) -> dict:
+def _timeout_result(query: str, seconds: float, full: bool,
+                    marketplace: str = "EBAY_GB") -> dict:
     from deep_search import DeepSearchResult
 
-    r = DeepSearchResult(product_name=query)
+    market = get_marketplace(marketplace)
+    r = DeepSearchResult(
+        product_name=query,
+        marketplace=market["id"],
+        currency=market["currency"],
+        currency_symbol=market["currency_symbol"],
+    )
     r.verdict = "PENDING"
     r.notes = (
         f"Request timed out after {int(seconds)}s. "
@@ -285,7 +355,8 @@ def _timeout_result(query: str, seconds: float, full: bool) -> dict:
 
 
 def _partial_or_timeout(query: str, seconds: float, sink: dict | None,
-                        *, full: bool) -> dict:
+                        *, full: bool,
+                        marketplace: str = "EBAY_GB") -> dict:
     """Answer with whatever the run had already finished.
 
     A1.4 — and, after B1, what an overrunning background job answers with
@@ -302,7 +373,7 @@ def _partial_or_timeout(query: str, seconds: float, sink: dict | None,
     """
     partial = (sink or {}).get("result")
     if partial is None:
-        return _timeout_result(query, seconds, full)
+        return _timeout_result(query, seconds, full, marketplace)
 
     if not partial.verdict:
         partial.verdict = "PENDING"

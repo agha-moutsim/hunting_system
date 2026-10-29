@@ -471,7 +471,9 @@ class TestNonUkAnalyzeIsSearchOnly:
             )
 
         assert resp.status_code == 422
-        assert "UK-only" in resp.json()["detail"]
+        detail = resp.json()["detail"]
+        assert "not enabled" in detail
+        assert "No USD fee table" in detail
 
     def test_a_failed_refresh_is_reported_in_the_meta(self, tmp_path, monkeypatch):
         session = _session(tmp_path, monkeypatch)()

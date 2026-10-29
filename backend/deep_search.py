@@ -22,11 +22,12 @@ from engine.match import (
     score_candidates,
 )
 from engine.price_gate import (
-    band_label, excluded_note, filter_dicts, in_band,
+    band_label, clamp_band, excluded_note, in_band_range,
 )
 from engine.provenance import Provenance
 from engine.source_type import supplier_type as classify_source
 from engine.sourcing import apply_ranking
+from marketplaces import get_marketplace, market_filter_defaults, supplier_bench
 from scrapers.availability import parse_stock_text, parse_shipping_text
 
 # The Ollama URL and model are still read locally here (pre-existing), but the
@@ -38,7 +39,7 @@ from config import OLLAMA_KEEP_ALIVE, OLLAMA_NUM_PREDICT, OLLAMA_TIMEOUT_S
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
 
-# A1.4 â€” budgets the run owns, below the route's FULL_TIMEOUT_S (120 s).
+# A1.4 — budgets the run owns, below the route's FULL_TIMEOUT_S (120 s).
 #
 # The run happens on a worker thread that asyncio.wait_for ABANDONS when the
 # route's budget expires: a thread cannot be cancelled, so an overrun does not
@@ -46,7 +47,7 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
 # answers with an all-zero object. Two reservations make the run finish first.
 #
 # HANDOFF_RESERVE_S covers the gap between "this function stopped" and "the
-# route has the payload" â€” one worst-case step of overshoot (a single web
+# route has the payload" — one worst-case step of overshoot (a single web
 # search may wait its full 30 s) plus serialising the result.
 # SUPPLIER_STAGE_S is held back from the earlier stages so discovery,
 # verification and image gating are never the part that runs out of road.
@@ -65,8 +66,97 @@ _HEADERS = {
 }
 
 
+def _market_headers(market: dict) -> dict:
+    """Request headers for one market, without changing the UK default."""
+    headers = dict(_HEADERS)
+    if market.get("currency") == "AUD":
+        headers["Accept-Language"] = "en-AU,en;q=0.9"
+    return headers
+
+
+def _filters_for(market: dict) -> dict:
+    """The filter set this market's run should use.
+
+    The UK keeps the user-adjustable filter store. Every other market states
+    its own band and floors; a missing key is not filled from the GBP config.
+    """
+    if market["id"] == "EBAY_GB":
+        from utils.filters import load_filters
+
+        return load_filters()
+    defaults = market_filter_defaults(market)
+    return clamp_band(defaults, defaults or None)
+
+
+def _sold_scraper(market: dict):
+    """A sold scraper for this market; the UK keeps its zero-arg call."""
+    from scrapers.ebay_sold import EbaySoldScraper
+
+    if market["id"] == "EBAY_GB":
+        return EbaySoldScraper()
+    return EbaySoldScraper(marketplace=market["id"])
+
+
+def _row_currency(row) -> str:
+    """The ISO currency a supplier row states, or '' when it states none."""
+    if isinstance(row, dict):
+        return str(row.get("currency") or "").strip().upper()
+    return str(getattr(row, "currency", "") or "").strip().upper()
+
+
+def _drop_foreign_suppliers(rows: list, currency: str) -> tuple[list, list]:
+    """Keep only rows comparable with this market's currency.
+
+    A stated currency must match. An unstated currency is acceptable only on
+    the UK path, where the historical scrapers converted to GBP without
+    tagging the row; on AU an untagged row is not assumed to be AUD.
+    """
+    keep: list = []
+    foreign: list = []
+    for row in rows:
+        stated = _row_currency(row)
+        if stated:
+            (keep if stated == currency.upper() else foreign).append(row)
+        elif currency.upper() == "GBP":
+            keep.append(row)
+        else:
+            foreign.append(row)
+    return keep, foreign
+
+
+def _foreign_currency_note(rows: list, currency: str) -> str:
+    """The sentence a mixed-currency run must carry (never silent)."""
+    codes = sorted({_row_currency(row) or "unstated" for row in rows})
+    return (
+        f"{len(rows)} supplier row(s) priced in {', '.join(codes)} were "
+        f"excluded from the {currency.upper()} comparison — no currency "
+        "conversion is applied."
+    )
+
+
+#: Web-search scope for each supplier slug. The market's bench decides which
+#: of these run; a slug absent from the bench never gets a query.
+_SEARCH_SITES = {
+    "aliexpress": "aliexpress.com",
+    "cj_dropshipping": "cjdropshipping.com",
+    "bandq": "diy.com B&Q",
+    "toolstation": "toolstation.com",
+    "joybuy": "joybuy.co.uk",
+}
+
+
+def _search_queries(query: str, market: dict) -> list[str]:
+    """The web searches this market's bench is allowed to run."""
+    queries = [f"{query} eBay {market['label']} sold price"]
+    for slug in supplier_bench(market):
+        site = _SEARCH_SITES.get(slug)
+        if site:
+            queries.append(f"{query} site:{site}")
+    return queries
+
+
 def _parse_llm_money(value) -> float | None:
-    """Extract a numeric GBP figure from LLM output ('Â£12.99', 12.99, '12.99')."""
+    """Extract a numeric figure from LLM output ('A$12.99', 12.99, '12.99')."""
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return float(value)
     if isinstance(value, str):
@@ -76,22 +166,44 @@ def _parse_llm_money(value) -> float | None:
     return None
 
 
-def _llm_price_range_in_band(text: str) -> bool:
+def _llm_price_range_in_band(
+    text: str,
+    price_range: tuple[float, float] | None = None,
+    currency_symbol: str = "£",
+) -> bool:
     """True when EVERY figure in an LLM range string sits inside the band.
 
-    The string looks like 'Â£5.99 - Â£12.99 (avg Â£8.50)' â€” one out-of-band
+    The string looks like '£5.99 - £12.99 (avg £8.50)' — one out-of-band
     figure makes the whole string unusable (PR-1: no figure shown out of band).
+    The symbol and band belong to the market that produced the string; AU
+    therefore reads A$ against A$0.99-A$50, not £ against the GBP range.
     """
-    figures = [_parse_llm_money(m) for m in re.findall(r"Â£\s*\d+(?:\.\d+)?", text)]
+    symbol = re.escape(currency_symbol or "£")
+    figures = [
+        _parse_llm_money(m)
+        for m in re.findall(rf"{symbol}\s*\d+(?:\.\d+)?", text)
+    ]
     figures = [f for f in figures if f is not None]
     if not figures:
-        # No Â£ markers â€” try every bare number, but only if there are 2+ (a range)
+        # The UK's historical prompt sometimes omits the £ marker, so a bare
+        # range is still readable there. A non-GBP market is different: an
+        # unlabelled range could be GBP, so accepting it would cross
+        # currencies. It is discarded instead.
+        if currency_symbol not in ("£", ""):
+            return False
+        # Try every bare number, but only if there are 2+ (a range). A single
+        # stray number is not a price range.
         bare = [_parse_llm_money(m) for m in re.findall(r"\d+(?:\.\d+)?", text)]
         bare = [f for f in bare if f is not None]
         figures = bare if len(bare) >= 2 else []
     if not figures:
-        return False  # unparseable string â€” never ship an unverified figure
-    return all(in_band(f) for f in figures)
+        return False  # unparseable string — never ship an unverified figure
+    if price_range is None:
+        from engine.price_gate import active_bounds
+
+        price_range = active_bounds()
+    lo, hi = price_range
+    return all(in_band_range(f, lo, hi) for f in figures)
 
 
 # ---------------------------------------------------------------------------
@@ -139,9 +251,9 @@ class DeepSearchResult:
     sold_prices: List[float] = field(default_factory=list)
     active_prices: List[float] = field(default_factory=list)
     ebay_total_sold_30d: int = 0
-    # None = unknown (no parseable sale dates) â€” never an estimate (C1/C4).
+    # None = unknown (no parseable sale dates) — never an estimate (C1/C4).
     ebay_total_sold_7d: Optional[int] = None
-    # C10 â€” set ONLY when real New-filtered eBay items backed this result.
+    # C10 — set ONLY when real New-filtered eBay items backed this result.
     # '' = unknown, so the Condition row reports Unverified, never "New".
     ebay_condition: str = ""
     suppliers: List[dict] = field(default_factory=list)  # [{name, price, url, type, delivery}]
@@ -156,25 +268,35 @@ class DeepSearchResult:
     notes: str = ""
     sources: List[str] = field(default_factory=list)
     raw_analysis: str = ""
-    # C13 â€” per-field origin: {field: {provenance, source_url, method}}.
+    # C13 — per-field origin: {field: {provenance, source_url, method}}.
     # Consumed by the JSON/CSV exporters so every row says where it came from.
     field_provenance: dict = field(default_factory=dict)
-    # C11 â€” up to 4 REAL eBay competitor stores, built by engine.stores from
+    # C11 — up to 4 REAL eBay competitor stores, built by engine.stores from
     # the same sold query this run already made. Never LLM-supplied.
     ebay_stores: List[dict] = field(default_factory=list)
     ebay_stores_provenance: dict = field(default_factory=dict)
+    # Phase E2 — which market and currency every figure above belongs to.
+    # Appended last so existing positional constructions cannot shift.
+    marketplace: str = "EBAY_GB"
+    currency: str = "GBP"
+    currency_symbol: str = "£"
 
     def attach_stores(self, sold_data: Any = None, demand: Any = None,
-                      products: Any = None, query: str = "") -> None:
+                      products: Any = None, query: str = "",
+                      marketplace: str = "EBAY_GB") -> None:
         """Populate the C11 store block, preferring data we already fetched."""
         from engine.stores import resolve_stores, store_provenance_block
         ladder: dict = {}
         try:
             # Network-last: sold_data/demand/products cost nothing extra.
+            store_kwargs = (
+                {} if marketplace == "EBAY_GB"
+                else {"marketplace": marketplace}
+            )
             stores = resolve_stores(sold_data=sold_data, demand=demand,
                                     products=products, query=query,
-                                    provenance=ladder)
-        except Exception as e:  # noqa: BLE001 â€” stores never break an analysis
+                                    provenance=ladder, **store_kwargs)
+        except Exception as e:  # noqa: BLE001 — stores never break an analysis
             print(f"[WARN] store discovery failed: {e}")
             stores = []
         self.ebay_stores = stores
@@ -202,15 +324,16 @@ class DeepSearchResult:
         lines = [
             f"Product: {self.product_name}",
             f"Category: {self.product_category}",
-            f"eBay UK monthly sales: {self.ebay_items_sold_month}",
+            f"eBay {self.currency} monthly sales: {self.ebay_items_sold_month}",
             f"eBay price range: {self.ebay_price_range}",
-            f"eBay avg price: Â£{self.ebay_avg_price:.2f}",
+            f"eBay avg price: {self.currency_symbol}{self.ebay_avg_price:.2f}",
             f"Suppliers found: {len(self.suppliers)}",
         ]
         for s in self.suppliers:
-            lines.append(f"  - {s.get('name', 'N/A')} | Â£{s.get('price', 0):.2f} | {s.get('supplier_type', '')} | {s.get('url', '')}")
-        lines.append(f"Best supplier cost: Â£{self.best_supplier_price:.2f}")
-        lines.append(f"Profit: Â£{self.profit:.2f} | Margin: {self.margin:.1f}%")
+            symbol = self.currency_symbol
+            lines.append(f"  - {s.get('name', 'N/A')} | {symbol}{s.get('price', 0):.2f} | {s.get('supplier_type', '')} | {s.get('url', '')}")
+        lines.append(f"Best supplier cost: {self.currency_symbol}{self.best_supplier_price:.2f}")
+        lines.append(f"Profit: {self.currency_symbol}{self.profit:.2f} | Margin: {self.margin:.1f}%")
         lines.append(f"Verdict: {self.verdict}")
         lines.append(f"Competition: {self.competition_level}")
         lines.append(f"Profit potential: {self.profit_potential}")
@@ -261,14 +384,20 @@ def _ollama_generate(
 # Web search via DuckDuckGo HTML
 # ---------------------------------------------------------------------------
 
-def _web_search(query: str, num_results: int = 8) -> List[dict]:
+def _web_search(query: str, num_results: int = 8,
+                market: dict | None = None) -> List[dict]:
     """Search DuckDuckGo (HTML endpoint, no API key) and return result dicts."""
     url = "https://html.duckduckgo.com/html/"
-    params = {"q": query, "kl": "uk-en"}
+    market = market or get_marketplace("EBAY_GB")
+    code = str(market.get("country_code") or "GB").lower()
+    region = "uk-en" if code == "gb" else f"{code}-en"
+    params = {"q": query, "kl": region}
     results: List[dict] = []
 
     try:
-        resp = requests.post(url, data=params, headers=_HEADERS, timeout=30)
+        resp = requests.post(
+            url, data=params, headers=_market_headers(market), timeout=30
+        )
         resp.raise_for_status()
     except requests.RequestException:
         return results
@@ -297,10 +426,12 @@ def _web_search(query: str, num_results: int = 8) -> List[dict]:
 # Page text extraction
 # ---------------------------------------------------------------------------
 
-def _fetch_page_text(url: str, max_chars: int = 3000) -> str:
+def _fetch_page_text(url: str, max_chars: int = 3000,
+                     market: dict | None = None) -> str:
     """Fetch a web page, strip non-content elements, return cleaned text."""
+    market = market or get_marketplace("EBAY_GB")
     try:
-        resp = requests.get(url, headers=_HEADERS, timeout=20)
+        resp = requests.get(url, headers=_market_headers(market), timeout=20)
         resp.raise_for_status()
     except requests.RequestException:
         return ""
@@ -330,7 +461,7 @@ def _fetch_page_text(url: str, max_chars: int = 3000) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Supplier candidate verification (C12 / C13 â€” verify or drop)
+# Supplier candidate verification (C12 / C13 — verify or drop)
 # ---------------------------------------------------------------------------
 
 _MAX_VERIFIED_SUPPLIERS = 7  # C12: never pad past what we could confirm
@@ -340,7 +471,7 @@ def _page_availability(html: str, url: str) -> dict:
     """Stock + shipping read off a fetched supplier page.
 
     C13: every value here is whatever the page actually said, and the URL
-    is the receipt. When the page says nothing we leave the fields empty â€”
+    is the receipt. When the page says nothing we leave the fields empty —
     `shipping_cost` stays 0.0 (unknown), never a plausible-looking number.
     """
     soup = BeautifulSoup(html, "html.parser")
@@ -416,7 +547,7 @@ def _reference_image_hash(sold_data) -> int | None:
 
     Deep Search works from the sold-listing window rather than a single
     product page, so those listings ARE the reference. Returns None when
-    there is no sold data or no readable image â€” the image signal then
+    there is no sold data or no readable image — the image signal then
     simply does not apply and scoring stays text-only, because a substitute
     image would be a guess (C1/C13).
     """
@@ -454,14 +585,14 @@ def _gate_suppliers(
         return rows
     if ebay_image_hash is not None:
         for row in rows:
-            # A1.4 â€” each fetch may wait its full 5 s, so the tail of a long
+            # A1.4 — each fetch may wait its full 5 s, so the tail of a long
             # row list is exactly what pushes the run past the route. Stop
             # hashing and score the rest on title and price alone; every
             # row still says which tier it reached (C14), so the score
             # loses a component rather than gaining a guessed one.
             if deadline is not None and time.monotonic() >= deadline:
                 print("[INFO] supplier image matching stopped at the time budget "
-                      "â€” remaining rows scored without an image")
+                      "— remaining rows scored without an image")
                 break
             if isinstance(row, dict) and row.get("image_hash") is None:
                 row["image_hash"] = image_hash_for(row.get("image_url"))
@@ -473,7 +604,7 @@ def _gate_suppliers(
     dropped = len(scored) - len(kept)
     if dropped:
         print(f"[INFO] {dropped} supplier row(s) below match threshold - dropped (C14)")
-    # C12 â€” the ceiling, applied AFTER the gate so the survivors are the
+    # C12 — the ceiling, applied AFTER the gate so the survivors are the
     # strongest matches rather than the first ones we happened to collect.
     from config import MAX_SUPPLIERS
     if len(kept) > MAX_SUPPLIERS:
@@ -483,7 +614,7 @@ def _gate_suppliers(
 
 
 def _extract_title(html: str) -> str:
-    """Page title, preferring og:title â€” the product name, not the site name."""
+    """Page title, preferring og:title — the product name, not the site name."""
     soup = BeautifulSoup(html, "html.parser")
     og = soup.select_one('meta[property="og:title"]')
     if og and og.get("content"):
@@ -494,12 +625,20 @@ def _extract_title(html: str) -> str:
     return h1.get_text(strip=True) if h1 else ""
 
 
-def _extract_price(html: str) -> float:
+def _extract_price(
+    html: str,
+    currency_symbol: str = "£",
+    currency_code: str = "GBP",
+) -> float:
     """A price read off the page, or 0.0 when none is present.
 
     Looks at JSON-LD first (structured, reliable) then falls back to the
-    first Â£-prefixed amount in visible text. 0.0 means NOT CONFIRMED â€”
+    first market-symbol amount in visible text. 0.0 means NOT CONFIRMED —
     the caller drops the row rather than showing a guess (C1).
+
+    For a non-GBP market the JSON-LD offer must NAME that currency. An offer
+    with no `priceCurrency` is not assumed to be AUD; the visible A$ fallback
+    is the only other evidence, and if that is absent the row is dropped.
     """
     # JSON-LD product blocks
     soup = BeautifulSoup(html, "html.parser")
@@ -523,22 +662,39 @@ def _extract_price(html: str) -> float:
                 price = offer.get("price") or offer.get("lowPrice")
                 if price is None:
                     continue
-                try:
-                    val = float(str(price).replace(",", "").replace("Â£", ""))
-                except (TypeError, ValueError):
+                offer_currency = str(
+                    offer.get("priceCurrency") or ""
+                ).strip().upper()
+                if currency_code.upper() != "GBP":
+                    if offer_currency != currency_code.upper():
+                        continue
+                match = re.search(
+                    r"\d+(?:\.\d+)?", str(price).replace(",", "")
+                )
+                if not match:
                     continue
+                val = float(match.group())
                 if val > 0:
                     return val
             if node.get("price") is not None:
-                try:
-                    val = float(str(node["price"]).replace(",", "").replace("Â£", ""))
+                node_currency = str(
+                    node.get("priceCurrency") or ""
+                ).strip().upper()
+                if currency_code.upper() != "GBP":
+                    if node_currency != currency_code.upper():
+                        continue
+                match = re.search(
+                    r"\d+(?:\.\d+)?", str(node["price"]).replace(",", "")
+                )
+                if match:
+                    val = float(match.group())
                     if val > 0:
                         return val
-                except (TypeError, ValueError):
-                    pass
 
-    # Visible-text fallback: first Â£ amount inside a plausible retail range.
-    for match in re.finditer(r"Â£\s*([0-9]+(?:\.[0-9]{1,2})?)", soup.get_text(" ")):
+    # Visible-text fallback: first market-symbol amount inside a plausible
+    # retail range.
+    pattern = re.escape(currency_symbol) + r"\s*([0-9]+(?:\.[0-9]{1,2})?)"
+    for match in re.finditer(pattern, soup.get_text(" ")):
         try:
             val = float(match.group(1))
         except ValueError:
@@ -549,20 +705,24 @@ def _extract_price(html: str) -> float:
 
 
 def _verify_supplier_candidates(query: str, candidates: list,
-                                deadline: float | None = None) -> list:
+                                deadline: float | None = None,
+                                market: dict | None = None) -> list:
     """Fetch each candidate URL and keep ONLY what it confirms.
 
     C13: the LLM may name a URL, but the price, title, link and supplier
     type written into the result all come from the page itself. Anything
-    that cannot be fetched or parsed is dropped â€” we never show a supplier
+    that cannot be fetched or parsed is dropped — we never show a supplier
     row we did not read off a live page.
 
     `deadline` (A1.4) bounds the loop: each fetch may take its full 15 s and
     a candidate that FAILS does not count toward the cap below, so N dead
     URLs used to cost N Ã— 15 s on top of everything already spent. A URL we
-    never reached is dropped for the same reason any other one is â€” it was
+    never reached is dropped for the same reason any other one is — it was
     not confirmed.
     """
+    market = market or get_marketplace("EBAY_GB")
+    currency = market["currency"]
+    currency_symbol = market["currency_symbol"]
     verified_rows: list = []
     seen_urls: set = set()
 
@@ -571,7 +731,7 @@ def _verify_supplier_candidates(query: str, candidates: list,
             break
         if deadline is not None and time.monotonic() >= deadline:
             print("[INFO] supplier verification stopped at the time budget "
-                  "â€” remaining candidates never fetched")
+                  "— remaining candidates never fetched")
             break
         if not isinstance(cand, dict):
             continue
@@ -581,13 +741,15 @@ def _verify_supplier_candidates(query: str, candidates: list,
         seen_urls.add(url)
 
         try:
-            resp = requests.get(url, headers=_HEADERS, timeout=15)
+            resp = requests.get(
+                url, headers=_market_headers(market), timeout=15
+            )
             resp.raise_for_status()
             html = resp.text
         except requests.RequestException:
             continue  # unverifiable -> dropped, never shown
 
-        price = _extract_price(html)
+        price = _extract_price(html, currency_symbol, currency)
         title = _extract_title(html)
         if price <= 0 or not title:
             continue  # confirm nothing usable -> drop (C1/C12)
@@ -597,18 +759,19 @@ def _verify_supplier_candidates(query: str, candidates: list,
             "name": host,
             "full_name": host,
             "price": price,
+            "currency": currency,
             "url": url,
             "supplier_type": classify_source(name=host, url=url),
             "delivery_days": "",
             "product_title": title,
             "notes": "Retrieved and priced from the live product page.",
-            # C13 â€” provenance travels with the row.
+            # C13 — provenance travels with the row.
             "provenance": Provenance.VERIFIED.value,
             "provenance_label": Provenance.VERIFIED.label,
             "source_url": url,
             "source_name": host,
             "match_basis": cand.get("why", "") or "candidate URL confirmed by fetch",
-            # P4 â€” stock/shipping as the page stated them. Absent text means
+            # P4 — stock/shipping as the page stated them. Absent text means
             # unknown; the keys are still present so consumers never guess.
             **_page_availability(html, url),
         })
@@ -616,20 +779,25 @@ def _verify_supplier_candidates(query: str, candidates: list,
     return verified_rows
 
 
-def _discover_approved_suppliers(query: str) -> list[dict]:
-    """P4 â€” SerpApi Google Shopping rows for the 7 approved suppliers.
+def _discover_approved_suppliers(
+    query: str, marketplace: str = "EBAY_GB"
+) -> list[dict]:
+    """P4 — SerpApi Google Shopping rows for this market's supplier bench.
 
     Primary discovery. SerpApi already hands us the title, price and stock
     read off the live listing, so these rows need no second fetch; they are
     reshaped to the same dict `_verify_supplier_candidates` builds so the
-    matcher downstream scores both sources identically.
+    matcher downstream scores both sources identically. The market selects
+    the bench AND the Google Shopping location; AU therefore cannot return
+    B&Q, Toolstation or Joybuy rows.
 
     Fails closed: no SERPAPI_KEY, a transport error or an empty result all
     produce [] and the analysis simply carries fewer suppliers (C12).
     """
+    market = get_marketplace(marketplace)
     try:
         from scrapers.serpapi_discovery import discover
-        rows = discover(str(query or "").strip())
+        rows = discover(str(query or "").strip(), marketplace=market["id"])
     except Exception as e:
         print(f"[WARN] supplier discovery failed: {e}")
         return []
@@ -649,12 +817,15 @@ def _discover_approved_suppliers(query: str) -> list[dict]:
             "name": product.source,
             "full_name": product.source,
             "price": float(product.price or 0.0),
+            # Unstated stays unstated: tagging it with the market's currency
+            # would turn a USD row into an AUD one without a conversion.
+            "currency": getattr(product, "currency", "") or "",
             "url": product.url,
             "supplier_type": cfg_type,
             "delivery_days": delivery,
             "product_title": product.title,
             "notes": "Price and title read from the live Google Shopping listing.",
-            # C13 â€” provenance travels with the row. Every value here came
+            # C13 — provenance travels with the row. Every value here came
             # off a real listing, so it is verified; nothing is a guess.
             "provenance": Provenance.VERIFIED.value,
             "provenance_label": Provenance.VERIFIED.label,
@@ -662,10 +833,10 @@ def _discover_approved_suppliers(query: str) -> list[dict]:
             "source_name": product.source,
             "match_basis": "Google Shopping listing",
             "image_url": product.image_url or None,
-            # C14 â€” pHash is computed only when both images exist; a caller
+            # C14 — pHash is computed only when both images exist; a caller
             # that has none leaves it None, never a made-up hash.
             "image_hash": None,
-            # P4 â€” stock/shipping as the source stated them; absent stays
+            # P4 — stock/shipping as the source stated them; absent stays
             # unknown, never defaulted.
             "in_stock": product.in_stock or "",
             "stock_raw": product.stock_raw or "",
@@ -693,10 +864,10 @@ def _discover_approved_suppliers(query: str) -> list[dict]:
 _SYSTEM_PROMPT = """\
 You are a UK eBay reselling research assistant. You are given raw search
 results and page extracts about a product. Analyse the data and return a
-JSON object (all prices in GBP Â£).
+JSON object (all prices in GBP £).
 
 You produce ANALYSIS, never facts. You will NOT be asked for seller names,
-seller URLs, supplier names, supplier prices or supplier links â€” the system
+seller URLs, supplier names, supplier prices or supplier links — the system
 retrieves those from real sources and verifies them. Do not invent any.
 
 {
@@ -704,7 +875,7 @@ retrieves those from real sources and verifies them. Do not invent any.
   "product_category": "string",
   "brand_name": "<brand/manufacturer named in the product data, else empty string>",
   "ebay_items_sold_month": "your ESTIMATE of items sold per month on eBay UK, e.g. '500-1000'",
-  "ebay_price_range": "Â£low - Â£high (avg Â£avg)",
+  "ebay_price_range": "£low - £high (avg £avg)",
   "ebay_avg_price": 15.99,
   "supplier_candidates": [
     {
@@ -719,14 +890,14 @@ retrieves those from real sources and verifies them. Do not invent any.
 }
 
 Rules:
-- All prices MUST be in GBP (Â£).
+- All prices MUST be in GBP (£).
 - `supplier_candidates` is a list of CANDIDATE URLs you saw in the supplied
   data. Only include a URL that literally appeared in the data. If you have
   none, return an empty list. The system will fetch and verify each one;
   anything it cannot confirm is DISCARDED, so a guessed URL is wasted work.
 - NEVER return a supplier name, supplier price, seller name or seller URL.
   Those come from the retrieval layer, not from you.
-- brand_name must be a real brand explicitly named in the data â€” empty string
+- brand_name must be a real brand explicitly named in the data — empty string
   when the product is generic/unknown (never guess).
 - Label your own numbers as estimates: ebay_items_sold_month, ebay_price_range
   and ebay_avg_price are ESTIMATES unless the supplied data states them.
@@ -734,6 +905,35 @@ Rules:
 - Return ONLY valid JSON, no markdown fences, no commentary.
 - ebay_avg_price should be a number (not a string).
 """
+
+
+def _system_prompt(market: dict) -> str:
+    """The LLM system prompt in the market's own currency and country.
+
+    The UK prompt is returned byte-for-byte unchanged: existing behaviour and
+    its tests pin that text. AU gets its own currency/symbol/label so the
+    model is never asked for a GBP estimate that the price gate would then
+    discard as unreadable.
+    """
+    if market["id"] == "EBAY_GB":
+        return _SYSTEM_PROMPT
+    label = market["label"]
+    currency = market["currency"]
+    symbol = market["currency_symbol"]
+    return (
+        _SYSTEM_PROMPT
+        .replace(
+            "You are a UK eBay reselling research assistant.",
+            f"You are an eBay {label} reselling research assistant.",
+        )
+        .replace("GBP (£)", f"{currency} ({symbol})")
+        .replace("GBP £", f"{currency} {symbol}")
+        .replace("eBay UK", f"eBay {label}")
+        .replace(
+            "£low - £high (avg £avg)",
+            f"{symbol}low - {symbol}high (avg {symbol}avg)",
+        )
+    )
 
 
 def _stamp_provenance(result: "DeepSearchResult") -> None:
@@ -846,7 +1046,7 @@ def _stamp_provenance(result: "DeepSearchResult") -> None:
         result.set_fact_provenance(name, Provenance.AI_INSIGHT,
                                    method="LLM analysis of retrieved pages")
 
-    # C11/C13 â€” the store block's own stamp rides into the fields map too,
+    # C11/C13 — the store block's own stamp rides into the fields map too,
     # so an export consumer reading `provenance.fields` sees stores without
     # needing a second top-level key.
     if result.ebay_stores_provenance:
@@ -857,14 +1057,15 @@ def deep_search_product(
     query: str,
     budget_s: float | None = None,
     sink: dict | None = None,
+    marketplace: str = "EBAY_GB",
 ) -> DeepSearchResult:
-    """Research a product across eBay UK and the wider web.
+    """Research a product across one eBay market and the wider web.
 
     Runs multiple targeted searches, fetches page content, sends
     everything to the local Ollama LLM, and returns a structured
     DeepSearchResult.
 
-    A1.4 â€” `budget_s` is the ROUTE's budget (api/deep_search.FULL_TIMEOUT_S).
+    A1.4 — `budget_s` is the ROUTE's budget (api/deep_search.FULL_TIMEOUT_S).
     The run reserves HANDOFF_RESERVE_S of it for handing the result back and
     stops every stage after the eBay query at that line, so it returns what
     it found instead of being abandoned mid-flight and discarded. `sink`, when
@@ -892,7 +1093,18 @@ def deep_search_product(
         _stamp_provenance(result)
         sink["result"] = result
 
-    result = DeepSearchResult(product_name=query)
+    market = get_marketplace(marketplace)
+    filters = _filters_for(market)
+    band = (filters["price_min"], filters["price_max"])
+    symbol = market["currency_symbol"]
+    # UK keeps its historical one-argument sold call; AU states its band.
+    sold_kwargs = {} if market["id"] == "EBAY_GB" else {"price_band": band}
+    result = DeepSearchResult(
+        product_name=query,
+        marketplace=market["id"],
+        currency=market["currency"],
+        currency_symbol=symbol,
+    )
     sources: List[str] = []
     collected_data: List[str] = []
     band_notes: List[str] = []
@@ -900,19 +1112,21 @@ def deep_search_product(
     # â”€â”€ Get real eBay sold data first â”€â”€
     sold_for_stores = None
     try:
-        from scrapers.ebay_sold import EbaySoldScraper
-        sold_scraper = EbaySoldScraper()
-        sold_data = sold_scraper.get_sold_data(query)
+        sold_scraper = _sold_scraper(market)
+        sold_data = sold_scraper.get_sold_data(query, **sold_kwargs)
         sold_for_stores = sold_data
 
         # Use real data instead of LLM estimates
         if sold_data.items:
-            # C10 â€” EbaySoldScraper queries with conditions:{NEW}, so every
+            # C10 — EbaySoldScraper queries with conditions:{NEW}, so every
             # item that came back is New. No items = no condition to claim.
             result.ebay_condition = "New"
             if getattr(sold_data, "excluded_over_band", 0):
                 band_notes.append(
-                    excluded_note("sold listings", sold_data.excluded_over_band)
+                    excluded_note(
+                        "sold listings", sold_data.excluded_over_band,
+                        band, symbol,
+                    )
                 )
             result.ebay_total_sold_30d = sold_data.total_sold_30d
             result.ebay_total_sold_7d = sold_data.total_sold_7d
@@ -939,36 +1153,34 @@ def deep_search_product(
                 if sold_data.total_sold_30d is not None
                 else ""
             )
-            result.ebay_price_range = f"Â£{sold_data.price_min:.2f} - Â£{sold_data.price_max:.2f} (avg Â£{sold_data.price_avg:.2f})"
+            result.ebay_price_range = (
+                f"{symbol}{sold_data.price_min:.2f} - "
+                f"{symbol}{sold_data.price_max:.2f} "
+                f"(avg {symbol}{sold_data.price_avg:.2f})"
+            )
             result.sources.extend([item.url for item in sold_data.items[:5] if item.url])
     except Exception as e:
         print(f"[WARN] eBay sold data unavailable: {e}")
 
-    # C11 â€” competitor stores from the query we just ran (no extra request
+    # C11 — competitor stores from the query we just ran (no extra request
     # in the normal case). Falls back to a search only if that yielded none.
-    result.attach_stores(sold_data=sold_for_stores, query=query)
+    result.attach_stores(
+        sold_data=sold_for_stores, query=query, marketplace=market["id"]
+    )
     # The eBay query and the stores off it are the floor of any answer: they
     # are published before anything discretionary can go wrong.
     _publish()
 
-    search_queries = [
-        f"{query} eBay UK sold price",
-        f"{query} site:godropship.co.uk",
-        f"{query} site:diy.com B&Q",
-        f"{query} site:cjdropshipping.com",
-        f"{query} site:toolstation.com",
-        f"{query} site:joybuy.co.uk",
-        f"{query} site:aliexpress.com",
-    ]
+    search_queries = _search_queries(query, market)
 
-    for sq in search_queries[:5]:
-        # A1.4 â€” one search may wait its full 30 s, so the check sits BEFORE
+    for sq in search_queries:
+        # A1.4 — one search may wait its full 30 s, so the check sits BEFORE
         # it: once the line is passed we would rather run none than start a
         # step that ends after the route has already given up on us.
         if _out_of_time(_prestop):
             _skipped.append("web search")
             break
-        hits = _web_search(sq, num_results=5)
+        hits = _web_search(sq, num_results=5, market=market)
         for hit in hits:
             if hit["url"]:
                 sources.append(hit["url"])
@@ -987,7 +1199,7 @@ def deep_search_product(
             break
         if not src.startswith("http"):
             continue
-        page_text = _fetch_page_text(src)
+        page_text = _fetch_page_text(src, market=market)
         if page_text:
             collected_data.append(f"[Page: {src}]\n{page_text[:2000]}")
             fetch_count += 1
@@ -1002,7 +1214,7 @@ def deep_search_product(
         f"Analyse the above and return the JSON object as specified."
     )
 
-    # A1.4 â€” the model is the single biggest wait on this path: its own
+    # A1.4 — the model is the single biggest wait on this path: its own
     # budget OLLAMA_TIMEOUT_S is the route's ENTIRE budget, so handing it
     # that value is what made an overrun certain. What it may have is what
     # is left before the supplier stage starts, and none at all once that
@@ -1013,23 +1225,24 @@ def deep_search_product(
 
     if _llm_timeout <= 0:
         _skipped.append("model")
-        print("[INFO] Deep search reached the model with no time left â€” "
+        print("[INFO] Deep search reached the model with no time left — "
               "continuing on real eBay data, supplier estimates Unverified")
         result.raw_analysis = ""
         parsed = {}
     else:
         try:
+            system_prompt = _system_prompt(market)
             raw_llm = _ollama_generate(
-                user_prompt, system=_SYSTEM_PROMPT, timeout=_llm_timeout
+                user_prompt, system=system_prompt, timeout=_llm_timeout,
             )
             result.raw_analysis = raw_llm
             parsed = _parse_llm_json(raw_llm)
         except RuntimeError as e:
-            # Rule-based fallback â€” never fabricate: leave LLM fields empty/Unverified
+            # Rule-based fallback — never fabricate: leave LLM fields empty/Unverified
             print(f"[WARN] Deep search LLM failed: {e}")
             result.raw_analysis = ""
             result.notes = (
-                f"LLM unavailable ({e}). Showing real eBay sold data only â€” "
+                f"LLM unavailable ({e}). Showing real eBay sold data only — "
                 "supplier estimates marked Unverified."
             )
             parsed = {}
@@ -1047,65 +1260,89 @@ def deep_search_product(
 
         # LLM price range is gated on ITS OWN numbers, not on avg (PR-2 layer 4)
         price_range = parsed.get("ebay_price_range", "")
-        if price_range and not _llm_price_range_in_band(price_range):
+        if price_range and not _llm_price_range_in_band(
+            price_range, band, symbol
+        ):
             band_notes.append(
-                f"LLM price range '{price_range}' discarded (outside {band_label()})"
+                f"LLM price range '{price_range}' discarded "
+                f"(outside {band_label(band, symbol)})"
             )
             price_range = ""
         result.ebay_price_range = price_range
 
-        # Parse avg price â€” must sit inside the band or it is not usable (PR-1)
+        # Parse avg price — must sit inside the band or it is not usable (PR-1)
         avg = parsed.get("ebay_avg_price", 0)
         try:
             avg_f = float(avg)
         except (ValueError, TypeError):
             avg_f = 0.0
-        if avg_f and not in_band(avg_f):
+        if avg_f and not in_band_range(avg_f, *band):
             band_notes.append(
-                f"LLM price estimate Â£{avg_f:.2f} discarded (outside band)"
+                f"LLM price estimate {symbol}{avg_f:.2f} discarded "
+                f"(outside {band_label(band, symbol)})"
             )
             avg_f = 0.0
             result.ebay_price_range = ""
         result.ebay_avg_price = avg_f
 
-    # C13 â€” the LLM is NOT a source of sellers. `ebay_top_sellers` used to
+    # C13 — the LLM is NOT a source of sellers. `ebay_top_sellers` used to
     # be read straight from `parsed`, so an invented name AND an invented
     # URL could be rendered as a real eBay store with a real-looking link.
     # Popped unconditionally: the field is written only by the retrieval
     # layer (real New-filtered eBay items), never by the model.
     parsed.pop("ebay_top_sellers", None)
 
-    # C12/C13 â€” supplier rows are NEVER taken from the LLM.
+    # C12/C13 — supplier rows are NEVER taken from the LLM.
     # `parsed["suppliers"]` used to be assigned verbatim and then feed
     # best_supplier_price -> profit -> verdict, so a hallucinated price could
     # produce a PASS. Candidates the LLM names are only ever URLs to FETCH;
     # a row exists here only if it was retrieved and confirmed (verify-or-drop).
     parsed.pop("suppliers", None)
-    # P4 â€” SerpApi Google Shopping is the PRIMARY source of approved
+    # P4 — SerpApi Google Shopping is the PRIMARY source of approved
     # suppliers; the LLM's candidate URLs are only the SUPPLEMENT, because
     # the model can name nothing beyond what the corpus already surfaced.
     # Both streams then pass through the same gate, so neither can reach the
     # result without a computed match (C14) and neither can push the list
     # past the C12 ceiling.
     if _out_of_time():
-        # A1.4 â€” past the line. Discovery is a SerpApi round trip and
+        # A1.4 — past the line. Discovery is a SerpApi round trip and
         # verification can hold its full 15 s per candidate that fails to
         # confirm, so starting a stage we already know we cannot finish is
         # how a run gets abandoned with everything else thrown away.
         _skipped.append("supplier discovery")
         verified_suppliers = []
     else:
-        verified_suppliers = _discover_approved_suppliers(query)
+        # UK keeps the historical call shapes so existing test doubles
+        # (and the offline fixtures) stay valid; AU states its market.
+        discover_kwargs = (
+            {} if market["id"] == "EBAY_GB"
+            else {"marketplace": market["id"]}
+        )
+        verify_kwargs = (
+            {} if market["id"] == "EBAY_GB" else {"market": market}
+        )
+        verified_suppliers = _discover_approved_suppliers(
+            query, **discover_kwargs
+        )
         seen_supplier_urls = {row.get("url", "") for row in verified_suppliers}
         for row in _verify_supplier_candidates(
             query, parsed.get("supplier_candidates", []) or [],
-            deadline=_deadline,
+            deadline=_deadline, **verify_kwargs,
         ):
             if row.get("url", "") in seen_supplier_urls:
-                continue  # same listing reached twice â€” one row, not two
+                continue  # same listing reached twice — one row, not two
             seen_supplier_urls.add(row.get("url", ""))
             verified_suppliers.append(row)
-        # C14 â€” retrieved is not the same as matching. Every confirmed page is
+        # Currency boundary: never compare a USD row with AUD eBay prices.
+        # A foreign row is dropped WITH a sentence, exactly as Analyze does.
+        verified_suppliers, foreign_suppliers = _drop_foreign_suppliers(
+            verified_suppliers, market["currency"]
+        )
+        if foreign_suppliers:
+            band_notes.append(
+                _foreign_currency_note(foreign_suppliers, market["currency"])
+            )
+        # C14 — retrieved is not the same as matching. Every confirmed page is
         # now scored against the eBay title, and anything the matcher cannot
         # place above the threshold is dropped rather than shown (C12).
         verified_suppliers = _gate_suppliers(
@@ -1119,25 +1356,27 @@ def deep_search_product(
     if verified_suppliers:
         # Sourcing policy: rank by verified total landed cost, reviews,
         # delivery, stock and match quality rather than price alone.
-        verified_suppliers = apply_ranking(verified_suppliers, "GB")
+        verified_suppliers = apply_ranking(
+            verified_suppliers, market["country_code"]
+        )
         result.suppliers = verified_suppliers
         valid = [s for s in verified_suppliers
                  if isinstance(s.get("price"), (int, float)) and s["price"] > 0]
         if valid:
             best = valid[0]
             result.best_supplier_price = best["price"]
-            # C14 â€” a merely plausible match may still set the profit input;
+            # C14 — a merely plausible match may still set the profit input;
             # say so, because an unconfirmed identity underpins the verdict.
             if best.get("match_tier") != "verified":
                 band_notes.append(
                     f"Cheapest supplier matched only at {best.get('match_score', 0.0):.2f} "
-                    f"({best.get('match_label', 'not confirmed')}) â€” profit is "
+                    f"({best.get('match_label', 'not confirmed')}) — profit is "
                     "based on an unconfirmed product match (C14)."
                 )
     elif parsed.get("supplier_candidates") and "supplier discovery" not in _skipped:
         band_notes.append(
             "Supplier candidates could not be confirmed against their live "
-            "pages â€” dropped rather than shown unverified (C12)."
+            "pages — dropped rather than shown unverified (C12)."
         )
     _publish()
 
@@ -1151,14 +1390,16 @@ def deep_search_product(
 
     # â”€â”€ Calculate profit & verdict (same logic as Analyze tab) â”€â”€
     _calculate_profit_and_verdict(
-        result, brand_name=str(parsed.get("brand_name", "") or "")
+        result, filters=filters,
+        brand_name=str(parsed.get("brand_name", "") or ""),
+        marketplace=market["id"],
     )
 
     # PR-4 transparency: report what the band removed (never silent)
     if band_notes:
         result.notes = (result.notes + " " if result.notes else "") + "; ".join(band_notes) + "."
 
-    # A1.4 â€” a run that stopped early says so on its own face. Without this
+    # A1.4 — a run that stopped early says so on its own face. Without this
     # the response reads as a complete analysis whose data merely happens to
     # be thin, which is exactly the quiet shortfall C13 exists to prevent.
     if _skipped:
@@ -1176,13 +1417,14 @@ def deep_search_fast(
     query: str,
     budget_s: float | None = None,
     sink: dict | None = None,
+    marketplace: str = "EBAY_GB",
 ) -> DeepSearchResult:
-    """Fast bulk analysis â€” eBay sold data + supplier scrape only, no LLM.
+    """Fast bulk analysis — eBay sold data + supplier scrape only, no LLM.
 
     Skips web searches and Ollama to run in seconds instead of minutes.
     Runs supplier scrapes in parallel for speed.
 
-    A1.4 â€” same contract as the full path: `budget_s` is the route's, the
+    A1.4 — same contract as the full path: `budget_s` is the route's, the
     scrape pool waits only for what is left of it, and `sink` receives the
     run after the eBay stage so a route timeout still returns the stores and
     sold figures this run already collected.
@@ -1196,24 +1438,37 @@ def deep_search_fast(
         _stamp_provenance(result)
         sink["result"] = result
 
-    result = DeepSearchResult(product_name=query)
+    market = get_marketplace(marketplace)
+    filters = _filters_for(market)
+    band = (filters["price_min"], filters["price_max"])
+    symbol = market["currency_symbol"]
+    # UK keeps its historical one-argument sold call; AU states its band.
+    sold_kwargs = {} if market["id"] == "EBAY_GB" else {"price_band": band}
+    result = DeepSearchResult(
+        product_name=query,
+        marketplace=market["id"],
+        currency=market["currency"],
+        currency_symbol=symbol,
+    )
     sources: List[str] = []
     band_notes: List[str] = []
 
     # â”€â”€ Get real eBay sold data â”€â”€
     sold_for_stores = None
     try:
-        from scrapers.ebay_sold import EbaySoldScraper
-        sold_scraper = EbaySoldScraper()
-        sold_data = sold_scraper.get_sold_data(query)
+        sold_scraper = _sold_scraper(market)
+        sold_data = sold_scraper.get_sold_data(query, **sold_kwargs)
         sold_for_stores = sold_data
 
         if sold_data.items:
-            # C10 â€” same basis as the full path: New-filtered query results.
+            # C10 — same basis as the full path: New-filtered query results.
             result.ebay_condition = "New"
             if getattr(sold_data, "excluded_over_band", 0):
                 band_notes.append(
-                    excluded_note("sold listings", sold_data.excluded_over_band)
+                    excluded_note(
+                        "sold listings", sold_data.excluded_over_band,
+                        band, symbol,
+                    )
                 )
             result.ebay_total_sold_30d = sold_data.total_sold_30d
             result.ebay_total_sold_7d = sold_data.total_sold_7d
@@ -1240,15 +1495,22 @@ def deep_search_fast(
                 if sold_data.total_sold_30d is not None
                 else ""
             )
-            result.ebay_price_range = f"Â£{sold_data.price_min:.2f} - Â£{sold_data.price_max:.2f} (avg Â£{sold_data.price_avg:.2f})"
+            result.ebay_price_range = (
+                f"{symbol}{sold_data.price_min:.2f} - "
+                f"{symbol}{sold_data.price_max:.2f} "
+                f"(avg {symbol}{sold_data.price_avg:.2f})"
+            )
             sources.extend([item.url for item in sold_data.items[:5] if item.url])
-            print(f"[OK] eBay sold: {sold_data.total_sold_30d} items, avg Â£{sold_data.price_avg:.2f}")
+            print(
+                f"[OK] eBay sold: {sold_data.total_sold_30d} items, "
+                f"avg {symbol}{sold_data.price_avg:.2f}"
+            )
         else:
             print(f"[WARN] eBay sold: no items found for '{query}'")
     except Exception as e:
         print(f"[WARN] eBay sold data failed: {e}")
 
-    # C11 â€” stores for Bulk, from the query we just ran.
+    # C11 — stores for Bulk, from the query we just ran.
     #
     # REGRESSION-006: this used to pass NO query, deliberately, so the store
     # block had no fallback rung and a product with few sold listings showed
@@ -1256,18 +1518,29 @@ def deep_search_fast(
     # this run already fetched is rung 1 (free), so passing the query costs
     # nothing in the common case and only spends a request when that data had
     # no sellers. That is a fair trade for actually showing the stores.
-    result.attach_stores(sold_data=sold_for_stores, query=query)
-    # A1.4 â€” the sold query and the stores off it are published before the
+    result.attach_stores(
+        sold_data=sold_for_stores, query=query, marketplace=market["id"]
+    )
+    # A1.4 — the sold query and the stores off it are published before the
     # scrape pool, so a route that gives up during scraping keeps them.
     _publish()
 
     # â”€â”€ Run supplier scrapes in PARALLEL â”€â”€
     import asyncio
 
+    # The market's bench decides which scrapers run. The UK keeps the same
+    # two it always had; AU runs the same two because its bench is AliExpress
+    # + CJ, and a market with a narrower bench never calls the others.
+    bench = set(supplier_bench(market))
+    scraper_kwargs = (
+        {} if market["id"] == "EBAY_GB"
+        else {"marketplace": market["id"]}
+    )
+
     async def _scrape_cj():
         try:
             from scrapers.cjdropshipping import CJDropshippingScraper
-            cj = CJDropshippingScraper()
+            cj = CJDropshippingScraper(**scraper_kwargs)
             products = await cj.search(query)
             print(f"[OK] CJ Dropshipping: {len(products)} products found")
             return [("CJ Dropshipping", p) for p in products[:2]]
@@ -1278,7 +1551,7 @@ def deep_search_fast(
     async def _scrape_ae():
         try:
             from scrapers.aliexpress import AliExpressScraper
-            ae = AliExpressScraper()
+            ae = AliExpressScraper(**scraper_kwargs)
             products = await ae.search(query)
             print(f"[OK] AliExpress: {len(products)} products found")
             return [("AliExpress", p) for p in products[:2]]
@@ -1286,43 +1559,45 @@ def deep_search_fast(
             print(f"[WARN] AliExpress scrape failed: {e}")
             return []
 
+    tasks = []
+    if "cj_dropshipping" in bench:
+        tasks.append(_scrape_cj())
+    if "aliexpress" in bench:
+        tasks.append(_scrape_ae())
+
     # Run all scrapes with a hard cap so one hung site can't block the API
     import concurrent.futures
 
+    supplier_results: list = []
     try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-            futs = [
-                pool.submit(asyncio.run, _scrape_cj()),
-                pool.submit(asyncio.run, _scrape_ae()),
-            ]
-            # A1.4 â€” 50 s is the ceiling, not the target: the pool waits only
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=max(1, len(tasks))
+        ) as pool:
+            futs = [pool.submit(asyncio.run, task) for task in tasks]
+            # A1.4 — 50 s is the ceiling, not the target: the pool waits only
             # for what is left of the route's budget, so the Bulk path can
             # hand its result back instead of being abandoned over the line.
             _scrape_wait = 50.0
             if _deadline is not None:
                 _scrape_wait = max(0.0, min(_scrape_wait, _deadline - time.monotonic()))
             done, not_done = concurrent.futures.wait(futs, timeout=_scrape_wait)
-            cj_results = ae_results = []
-            for i, fut in enumerate(futs):
+            for fut in futs:
                 try:
                     val = fut.result(timeout=0) if fut in done else []
                 except Exception as e:
                     print(f"[WARN] supplier scrape error: {e}")
                     val = []
-                if i == 0:
-                    cj_results = val
-                else:
-                    ae_results = val
+                supplier_results.extend(val)
             if not_done:
                 print(f"[WARN] {len(not_done)} supplier scrape(s) timed out at "
                       f"{_scrape_wait:.0f}s")
     except Exception as e:
         print(f"[WARN] Parallel scrape failed: {e}")
-        cj_results, ae_results = [], []
+        supplier_results = []
 
     # Process results — supplier prices are never range-gated (PR-1);
     # only unusable rows (no positive price) are skipped.
-    for source_name, product in cj_results + ae_results:
+    for source_name, product in supplier_results:
         if not product.price or product.price <= 0:
             continue
         store_display = product.store_name or product.seller or source_name
@@ -1331,8 +1606,11 @@ def deep_search_fast(
             "name": f"{source_name} - {store_display}" if store_display != source_name else source_name,
             "full_name": store_display,
             "price": product.price,
+            # Unstated stays unstated: tagging it with the market's currency
+            # would turn a USD row into an AUD one without a conversion.
+            "currency": getattr(product, "currency", "") or "",
             "url": product.url,
-            # C13 â€” derived from the real source, never assumed. A retailer is
+            # C13 — derived from the real source, never assumed. A retailer is
             # not a dropshipper, and not every supplier is one.
             "supplier_type": classify_source(
                 name=store_display or source_name, url=product.url
@@ -1342,17 +1620,17 @@ def deep_search_fast(
             "seller_orders": product.seller_orders,
             "product_title": product.title,
             "image_url": product.image_url,
-            # C13 â€” a row only exists because a scraper read it, so it is
+            # C13 — a row only exists because a scraper read it, so it is
             # verified, and it carries its own link as the receipt.
             "provenance": Provenance.VERIFIED.value,
             "provenance_label": Provenance.VERIFIED.label,
-            # C13 â€” verified AND how: an AliExpress row can only be a
+            # C13 — verified AND how: an AliExpress row can only be a
             # browser read when the credentialed API is unconfigured, and the
             # UI must not present that as indistinguishable from an API row.
             "fetch_method": getattr(product, "fetch_method", "") or "",
             "source_url": product.url,
             "source_name": source_name,
-            # P4 â€” availability exactly as the scraper read it. Blank/0 means
+            # P4 — availability exactly as the scraper read it. Blank/0 means
             # the source never said, which is the only honest answer (C13).
             "in_stock": getattr(product, "in_stock", ""),
             "stock_raw": getattr(product, "stock_raw", ""),
@@ -1362,7 +1640,17 @@ def deep_search_fast(
             "shipping_raw": getattr(product, "shipping_raw", ""),
         })
 
-    # C14 â€” same gate as the full path: score against the eBay title and
+    # Currency boundary: a USD row is not comparable with AUD eBay prices.
+    # It is dropped with a sentence, never converted.
+    result.suppliers, foreign_suppliers = _drop_foreign_suppliers(
+        result.suppliers, market["currency"]
+    )
+    if foreign_suppliers:
+        band_notes.append(
+            _foreign_currency_note(foreign_suppliers, market["currency"])
+        )
+
+    # C14 — same gate as the full path: score against the eBay title and
     # drop anything the matcher cannot place above the threshold (C12).
     # Applied to the whole list at once so the cheapest-row pick below only
     # ever considers rows that cleared it.
@@ -1375,7 +1663,9 @@ def deep_search_fast(
 
     # Find best supplier
     if result.suppliers:
-        result.suppliers = apply_ranking(result.suppliers, "GB")
+        result.suppliers = apply_ranking(
+            result.suppliers, market["country_code"]
+        )
         valid = [s for s in result.suppliers if isinstance(s.get("price"), (int, float)) and s["price"] > 0]
         if valid:
             best = valid[0]
@@ -1401,13 +1691,15 @@ def deep_search_fast(
         source_name="supplier scrapers (CJ / AliExpress)",
         method="" if result.suppliers else "no supplier scrape returned a price",
     )
-    # C11/C13 â€” store block stamp (same shape as the full path).
+    # C11/C13 — store block stamp (same shape as the full path).
     if result.ebay_stores_provenance:
         result.field_provenance.setdefault("ebay_stores",
                                            dict(result.ebay_stores_provenance))
 
     # Calculate profit & verdict
-    _calculate_profit_and_verdict(result)
+    _calculate_profit_and_verdict(
+        result, filters=filters, marketplace=market["id"]
+    )
 
     # PR-4 transparency: report what the band removed (never silent)
     if band_notes:
@@ -1417,19 +1709,28 @@ def deep_search_fast(
 
 
 def _calculate_profit_and_verdict(
-    result: DeepSearchResult, filters: dict | None = None, brand_name: str = ""
+    result: DeepSearchResult, filters: dict | None = None, brand_name: str = "",
+    marketplace: str | None = None,
 ):
     """Adapt a DeepSearchResult to the ONE engine rule (C1).
 
     Money math (engine.profit) and the verdict ladder (engine.decisions)
-    are not re-derived here â€” this function only builds evidence.
+    are not re-derived here — this function only builds evidence. The market
+    decides the currency, the band/floors and the seller-side defaults; AU
+    never evaluates an AUD sale against GBP thresholds.
     """
     import re
     from dataclasses import asdict
 
     from engine.decisions import DecisionEngine
     from scrapers.base import DemandData, ScrapedProduct
-    from utils.filters import load_filters
+
+    market = get_marketplace(marketplace or result.marketplace or "EBAY_GB")
+    result.marketplace = market["id"]
+    result.currency = market["currency"]
+    result.currency_symbol = market["currency_symbol"]
+    if filters is None:
+        filters = _filters_for(market)
 
     ebay_price = result.ebay_avg_price
     supplier_cost = result.best_supplier_price
@@ -1450,7 +1751,7 @@ def _calculate_profit_and_verdict(
             "expected": "eBay avg price + supplier cost required",
             "verified": False,
         })
-        result.notes = f"Cannot determine verdict â€” {', '.join(missing)}. Try Deep Search tab for full analysis with LLM."
+        result.notes = f"Cannot determine verdict — {', '.join(missing)}. Try Deep Search tab for full analysis with LLM."
         return
 
     # --- Evidence (no rules here) ---
@@ -1461,16 +1762,21 @@ def _calculate_profit_and_verdict(
             supplier_delivery_days = int(match.group(1))
             break
 
+    source = (
+        "ebay_uk" if market["id"] == "EBAY_GB"
+        else f"ebay_{market['country_code'].lower()}"
+    )
     evidence = ScrapedProduct(
-        source="ebay_uk",
+        source=source,
         title=result.product_name or "item",
         price=ebay_price,
+        currency=market["currency"],
         url="",
-        # C10 â€” '' unless real New-filtered eBay items backed this result.
+        # C10 — '' unless real New-filtered eBay items backed this result.
         # decisions.py marks the Condition row Unverified from the blank
         # value alone (C1); the other rows' verification is unaffected.
         condition=result.ebay_condition,
-        delivery_days_max=None,  # deep search has no listing delivery â€” advisory uses supplier
+        delivery_days_max=None,  # deep search has no listing delivery — advisory uses supplier
         verified=True,
         # C5: an LLM-named brand is checked against the VeRO catalog by the
         # engine; empty/unknown stays "No brand name detected" (never guessed).
@@ -1481,10 +1787,13 @@ def _calculate_profit_and_verdict(
         or _first_int(result.ebay_items_sold_month),
         sold_count_7d=result.ebay_total_sold_7d,
         verified=False,  # eBay sold-search estimates, not verified counts
+        currency=market["currency"],
     )
 
     _store_prov = result.ebay_stores_provenance or {}
-    verdict = DecisionEngine(filters or load_filters()).evaluate(
+    verdict = DecisionEngine(
+        filters or _filters_for(market), marketplace=market["id"]
+    ).evaluate(
         evidence,
         demand,
         supplier_cost,
