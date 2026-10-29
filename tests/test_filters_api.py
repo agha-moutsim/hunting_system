@@ -186,7 +186,7 @@ class TestHunterLookupRangeForcing:
 
         captured = {}
 
-        def _lookup(products):
+        def _lookup(products, **kwargs):
             return products, 0
 
         def _calc(products, filters):

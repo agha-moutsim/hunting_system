@@ -1006,7 +1006,7 @@ class TestHunterSupplierLookupEndToEnd:
             self, monkeypatch):
         from hunter import supplier_lookup as sl
 
-        async def _lookup(product):
+        async def _lookup(product, marketplace="EBAY_GB"):
             return {"name": "CJ Dropshipping", "price": 9.99,
                     "url": "https://supplier.example/p/1",
                     "match_score": compute_match(

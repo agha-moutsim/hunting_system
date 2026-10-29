@@ -303,7 +303,51 @@ class TestRegression002SupplierSource:
 
 
 # ---------------------------------------------------------------------------
-# REGRESSION-003 — the outer timeout was shorter than the work inside it
+class TestTheAUBenchDropsUKSources:
+    def test_joybuy_is_never_consulted_for_an_au_lookup(self, monkeypatch):
+        import asyncio
+
+        from hunter import supplier_lookup as sl
+        from scrapers import serpapi_discovery as sd
+        from scrapers.base import ScrapedProduct
+        from hunter.category_scan import CategoryProduct
+
+        seen = {}
+
+        def _discover(query, marketplace="EBAY_GB"):
+            seen["marketplace"] = marketplace
+            return [ScrapedProduct(
+                source="AliExpress",
+                title=query,
+                price=9.99,
+                url="https://www.aliexpress.com/item/1.html",
+                condition="",
+                verified=True,
+            )]
+
+        def _joybuy(*args, **kwargs):
+            raise AssertionError("Joybuy is not on the AU bench")
+
+        monkeypatch.setattr(sd, "discover", _discover)
+        monkeypatch.setattr(
+            "scrapers.joybuy_web.discover_web", _joybuy, raising=False
+        )
+
+        product = CategoryProduct(
+            title="Bosch 18V Combi Drill",
+            price=20.0,
+            url="https://www.ebay.com.au/itm/1",
+        )
+        row = asyncio.run(
+            sl._lookup_single_supplier(product, marketplace="EBAY_AU")
+        )
+
+        assert row is not None
+        assert row["name"] == "AliExpress"
+        assert seen["marketplace"] == "EBAY_AU"
+
+
+# REGRESSION-003 - the outer timeout was shorter than the work inside it
 #
 # LOOKUP_TIMEOUT was 15s, but the lookup could take 10s on CJ and then a
 # further 10s on the AliExpress/Amazon fallback — 20s of work inside a 15s

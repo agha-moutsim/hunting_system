@@ -304,6 +304,69 @@ class TestApprovedSuppliersOnly:
 # Budget — discovery can never spend whatever it likes
 # ---------------------------------------------------------------------------
 
+class TestMarketplaceBench:
+    def test_au_returns_only_the_two_dropship_sources(self, monkeypatch):
+        shopping = [
+            _shopping_item(source="AliExpress", title="AU Ali item", token="AE0"),
+            _shopping_item(source="CJ Dropshipping", title="AU CJ item", token="CJ0"),
+            _shopping_item(source="B&Q", title="UK B&Q item", token="BQ0"),
+            _shopping_item(source="Toolstation", title="UK TS item", token="TS0"),
+            _shopping_item(source="Joybuy", title="UK Joybuy item", token="JY0"),
+        ]
+        _patch(monkeypatch, _Router(
+            shopping=shopping,
+            immersive={
+                "AE0": _store_response([_store(
+                    name="AliExpress",
+                    link="https://www.aliexpress.com/item/1.html",
+                    title="AU Ali item",
+                )]),
+                "CJ0": _store_response([_store(
+                    name="CJ Dropshipping",
+                    link="https://www.cjdropshipping.com/product-p-1.html",
+                    title="AU CJ item",
+                )]),
+                "BQ0": _store_response([_store(
+                    name="B&Q", link="https://www.diy.com/d/p1",
+                    title="UK B&Q item")]),
+                "TS0": _store_response([_store(
+                    name="Toolstation",
+                    link="https://www.toolstation.com/p1",
+                    title="UK TS item")]),
+                "JY0": _store_response([_store(
+                    name="Joybuy", link="https://www.joybuy.com/p1",
+                    title="UK Joybuy item")]),
+            },
+        ))
+
+        rows = sd.discover("drill", marketplace="EBAY_AU")
+
+        assert {row.source for row in rows} == {"AliExpress", "CJ Dropshipping"}
+        assert all(row.source not in {"B&Q", "Toolstation", "Joybuy UK"} for row in rows)
+
+    def test_au_searches_google_australia(self, monkeypatch):
+        router = _patch(monkeypatch, _Router())
+
+        sd.discover("drill", marketplace="EBAY_AU")
+
+        assert router.calls
+        assert router.calls[0]["location"] == "Australia"
+        assert router.calls[0]["gl"] == "au"
+        assert router.calls[0]["hl"] == "en"
+
+    def test_uk_keeps_its_retail_bench_and_scope(self, monkeypatch):
+        router = _patch(monkeypatch, _Router(
+            shopping=[_shopping_item(source="Toolstation")],
+            immersive={"TOK-1": _store_response([_store()])},
+        ))
+
+        rows = sd.discover("drill")
+
+        assert rows and rows[0].source == "Toolstation"
+        assert router.calls[0]["location"] == "United Kingdom"
+        assert router.calls[0]["gl"] == "uk"
+
+
 class TestCallBudget:
     def test_discovery_never_exceeds_the_cap(self, monkeypatch):
         # 7 suppliers x 2 rows of perfectly good offers would be a lot.

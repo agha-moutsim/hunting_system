@@ -88,7 +88,8 @@ def hunter_lookup(req: HunterLookupRequest, request: Request = None):
     from engine.price_gate import clamp_band
     from utils.filters import load_filters
 
-    require_uk_market(marketplace_for_optional_request(request), "Category Hunter")
+    market = marketplace_for_optional_request(request)
+    require_uk_market(market, "Category Hunter")
 
     # PR-5/PR-7: thresholds may come per-request; the price range always
     # resolves to the PERSISTED active value (same gate as the scan).
@@ -107,7 +108,9 @@ def hunter_lookup(req: HunterLookupRequest, request: Request = None):
     total_scanned = int(req.products[0].get("_total_scanned", len(products))) if req.products else len(products)
     total_with_demand = len(products)
 
-    with_supplier, excluded_suppliers = batch_supplier_lookup(products)
+    with_supplier, excluded_suppliers = batch_supplier_lookup(
+        products, marketplace=market["id"]
+    )
     final = batch_profit_calc(with_supplier, filters)
 
     rng = filters

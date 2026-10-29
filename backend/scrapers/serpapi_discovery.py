@@ -32,6 +32,7 @@ import requests
 
 from config import SUPPLIERS_JSON
 from engine.source_type import supplier_type as classify_source
+from marketplaces import get_marketplace, supplier_bench
 from scrapers.availability import serpapi_item_availability
 from scrapers.base import ScrapedProduct
 from scrapers.google_shopping import _parse_price
@@ -179,16 +180,38 @@ def _get_json(params: dict, api_key: str, budget: "_Budget",
     return data
 
 
-def _search_shopping(query: str, api_key: str, budget: _Budget) -> list[dict] | None:
-    """One `google_shopping` call.
+def _search_scope(market: dict) -> dict:
+    """The Google Shopping location for a marketplace.
+
+    Google's country code for the United Kingdom is `uk`, not the ISO `gb`;
+    every other registered market uses its ISO code. The language stays `en`
+    for the markets this discovery bench serves (GB and AU).
+    """
+    country = str(market.get("country_code") or "GB").upper()
+    return {
+        "location": market.get("label") or "United Kingdom",
+        "gl": "uk" if country == "GB" else country.lower(),
+        "hl": "en",
+    }
+
+
+def _search_shopping(
+    query: str,
+    api_key: str,
+    budget: _Budget,
+    market: dict | None = None,
+) -> list[dict] | None:
+    """One `google_shopping` call, scoped to `market`.
 
     [] = the call worked and found nothing. None = the call itself failed.
+    The default is the UK market so existing callers keep their behaviour.
     """
     if not budget.spend():
         return None
     data = _get_json(
-        {"engine": "google_shopping", "q": query, "location": "United Kingdom",
-         "gl": "uk", "hl": "en"},
+        {"engine": "google_shopping", "q": query, **_search_scope(
+            market or get_marketplace("EBAY_GB")
+        )},
         api_key,
         budget,
     )
@@ -198,26 +221,38 @@ def _search_shopping(query: str, api_key: str, budget: _Budget) -> list[dict] | 
     return results if isinstance(results, list) else []
 
 
-def _slug_for(item: dict) -> str:
-    """Approved slug for a shopping result, '' when it is not one of the 7.
+def _slug_for(item: dict, allowed: tuple[str, ...] | None = None) -> str:
+    """Approved slug for a shopping result, '' when it is not approved.
 
     Domain match wins; the displayed source is the fallback, and it is the
     one that actually fires here — Google's own links carry no merchant host.
+    `allowed` narrows the answer to one market's bench; None means the whole
+    active catalog, which is what the historical tests and callers expect.
     """
+    def accepted(slug: str) -> bool:
+        return bool(slug) and (allowed is None or slug in allowed)
+
     host = (urlparse(str(item.get("link", ""))).hostname or "").lower().replace("www.", "")
     for domain, slug in _DOMAIN_TO_SLUG.items():
         if host and (host == domain or host.endswith("." + domain)):
-            return slug
+            if accepted(slug):
+                return slug
 
     shown = str(item.get("source") or item.get("seller") or item.get("name") or "").lower()
     if shown:
         for slug, tokens in _SOURCE_TOKENS.items():
             if slug in _SUPPLIERS and any(tok in shown for tok in tokens):
-                return slug
+                if accepted(slug):
+                    return slug
     return ""
 
 
-def _resolve_store(item: dict, api_key: str, budget: _Budget) -> tuple[str, dict] | None:
+def _resolve_store(
+    item: dict,
+    api_key: str,
+    budget: _Budget,
+    allowed: tuple[str, ...] | None = None,
+) -> tuple[str, dict] | None:
     """Turn one shopping result into a real merchant offer.
 
     Costs one `google_immersive_product` call and returns the `stores[]`
@@ -254,7 +289,10 @@ def _resolve_store(item: dict, api_key: str, budget: _Budget) -> tuple[str, dict
             continue  # no merchant URL -> no row (C1: never invent one)
         # The offer must belong to an APPROVED supplier, and it says so by
         # its own domain or its own name — not by where Google filed it.
-        slug = _slug_for({"link": store["link"], "name": store.get("name", "")})
+        slug = _slug_for(
+            {"link": store["link"], "name": store.get("name", "")},
+            allowed=allowed,
+        )
         if slug:
             return slug, store
     return None
@@ -398,13 +436,32 @@ def _site_query(slug: str, query: str) -> str:
     return f"site:{domains[0]} {query}" if domains else ""
 
 
-def discover(query: str) -> list[ScrapedProduct]:
+def discover(
+    query: str,
+    marketplace: str = "EBAY_GB",
+) -> list[ScrapedProduct]:
     """Approved-supplier rows for `query`, from SerpApi Google Shopping.
 
+    `marketplace` selects the bench and the Google Shopping location. The
+    default is the UK, so historical callers keep their behaviour. AU uses
+    AliExpress + CJ only and searches Google Australia; B&Q, Toolstation and
+    Joybuy are not in that bench and cannot be returned by accident.
+
     Coverage first: every supplier's first real row, then the spare rows,
-    then the P4 cap of MAX_SUPPLIERS. Fails closed: no SERPAPI_KEY means no
-    request and no rows.
+    then the P4 cap. Fails closed: no SERPAPI_KEY means no request and no
+    rows, and an empty bench means no rows without a request.
     """
+    market = get_marketplace(marketplace)
+    bench = tuple(
+        slug for slug in supplier_bench(market) if slug in _ACTIVE_SUPPLIERS
+    )
+    if not bench:
+        print(
+            f"[WARN] No supplier bench for {market['label']} - "
+            "supplier discovery returns no rows"
+        )
+        return []
+
     api_key = os.getenv("SERPAPI_KEY", "")
     if not api_key:
         print("[WARN] SERPAPI_KEY not set - supplier discovery returns no rows")
@@ -414,7 +471,7 @@ def discover(query: str) -> list[ScrapedProduct]:
     query = str(query).strip()
 
     budget = _Budget(MAX_CALLS)
-    generic = _search_shopping(query, api_key, budget)
+    generic = _search_shopping(query, api_key, budget, market)
     if generic is None:
         return []  # transport is failing - one attempt, never the whole budget
 
@@ -424,9 +481,9 @@ def discover(query: str) -> list[ScrapedProduct]:
     for item in generic:
         if not isinstance(item, dict):
             continue
-        slug = _slug_for(item)
+        slug = _slug_for(item, allowed=bench)
         if not slug:
-            continue  # not an approved supplier - dropped, never padded in
+            continue  # not on this market's bench - dropped, never padded in
         if slug not in waiting:
             waiting[slug] = []
             order.append(slug)
@@ -442,7 +499,7 @@ def discover(query: str) -> list[ScrapedProduct]:
             if budget.exhausted:
                 break  # out of searches: the rest of this bucket is unwinnable
             item = bucket.pop(0)
-            resolved = _resolve_store(item, api_key, budget)
+            resolved = _resolve_store(item, api_key, budget, allowed=bench)
             if resolved is None:
                 continue  # unresolvable -> try the next offer, never fabricate
             real_slug, store = resolved
@@ -462,10 +519,10 @@ def discover(query: str) -> list[ScrapedProduct]:
             break
         _resolve_one(slug)
 
-    # Stage 2 — suppliers the generic pass missed, dropshippers first: UK
-    # Google Shopping ranks the high-street retailers on its own, the
-    # dropship marketplaces rarely if ever.
-    missing = [s for s in _SUPPLIERS if s not in rows]
+    # Stage 2 — suppliers the generic pass missed, dropshippers first. The
+    # bench order is the policy order; a UK-only retailer is not in the AU
+    # bench at all, so it cannot be searched there.
+    missing = [s for s in bench if s not in rows]
     missing.sort(key=lambda s: _SUPPLIERS[s].get("type", "") != "dropship")
     for slug in missing:
         if budget.exhausted or budget.left <= 0:
@@ -473,11 +530,11 @@ def discover(query: str) -> list[ScrapedProduct]:
         targeted = _site_query(slug, query)
         if not targeted:
             continue
-        found = _search_shopping(targeted, api_key, budget)
+        found = _search_shopping(targeted, api_key, budget, market)
         if found is None:
             break  # same failing key/endpoint - stop spending the budget
         for item in found:
-            if not isinstance(item, dict) or _slug_for(item) != slug:
+            if not isinstance(item, dict) or _slug_for(item, allowed=bench) != slug:
                 continue  # a site: pass that drifted off-target
             if len(waiting.get(slug, [])) < MAX_PER_SUPPLIER:
                 waiting.setdefault(slug, []).append(item)
@@ -495,14 +552,14 @@ def discover(query: str) -> list[ScrapedProduct]:
         _resolve_one(slug)
 
     # Coverage first: every supplier's first row, then the spare rows,
-    # then the P4 total cap.
+    # then the P4 total cap (which is also the bench size for a small market).
     out: list[ScrapedProduct] = []
     for slug in order:
         if slug in rows and rows[slug]:
             out.append(rows[slug][0])
     for slug in order:
         out.extend(rows.get(slug, [])[1:])
-    return out[:MAX_SUPPLIERS]
+    return out[: min(MAX_SUPPLIERS, len(bench))]
 
 
 # P4 callers reach this by either name - same call, same rows.

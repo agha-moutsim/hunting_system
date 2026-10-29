@@ -10,6 +10,7 @@ from engine.price_gate import in_band
 from engine.source_type import supplier_type
 from engine.provenance import Provenance
 from engine.sourcing import rank_suppliers, apply_assessment
+from marketplaces import get_marketplace, supplier_bench
 
 # Timeout for ONE supplier fetch inside a product lookup (seconds).
 SUPPLIER_FETCH_TIMEOUT = 10
@@ -33,6 +34,7 @@ def _first_valid(
     reference_title: str = "",
     ebay_price: float = 0.0,
     ebay_image_hash: int | None = None,
+    destination_market: str = "GB",
 ):
     """The best supplier row with a usable price that also MATCHED (C14).
 
@@ -77,13 +79,16 @@ def _first_valid(
         return None
     # Sourcing policy: a cheaper or better-verified supplier can outrank a
     # merely stronger text match, but only after the match gate above.
-    ranked = rank_suppliers(valid, "GB")
+    ranked = rank_suppliers(valid, destination_market)
     for product, assessment in ranked:
         apply_assessment(product, assessment)
     return ranked[0][0] if ranked else None
 
 
-async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
+async def _lookup_single_supplier(
+    product: CategoryProduct,
+    marketplace: str = "EBAY_GB",
+) -> Optional[dict]:
     """Find the cheapest *genuinely matching* supplier offer for one product.
 
     REGRESSION-002: this used to lead with CJ/Aliexpress, whose
@@ -97,6 +102,9 @@ async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
     The matcher still decides: a bad offer from a good source is dropped
     exactly as before (C14).
     """
+    market = get_marketplace(marketplace)
+    bench = supplier_bench(market)
+    destination = market["country_code"]
     results = []
 
     async def _scrape_discovery():
@@ -107,7 +115,12 @@ async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
         """
         try:
             from scrapers.serpapi_discovery import discover
-            rows = await asyncio.to_thread(discover, product.title)
+            if marketplace == "EBAY_GB":
+                rows = await asyncio.to_thread(discover, product.title)
+            else:
+                rows = await asyncio.to_thread(
+                    discover, product.title, marketplace=marketplace
+                )
         except Exception as e:
             print(f"[WARN] Supplier discovery failed: {e}")
             return None
@@ -117,6 +130,7 @@ async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
         hit = _first_valid(
             rows, product.title, product.price or 0.0,
             image_hash_for(getattr(product, "image_url", None)),
+            destination_market=destination,
         )
         if not hit:
             return None  # offers existed, none cleared C14 -> not a match
@@ -154,6 +168,8 @@ async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
         }
 
     async def _scrape_cj():
+        if "cj_dropshipping" not in bench:
+            return None
         scraper = None
         try:
             from scrapers.cjdropshipping import CJDropshippingScraper
@@ -162,6 +178,7 @@ async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
             hit = _first_valid(
                 products, product.title, product.price or 0.0,
                 image_hash_for(getattr(product, "image_url", None)),
+                destination_market=destination,
             )
             if hit:
                 return {
@@ -207,6 +224,8 @@ async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
         return None
 
     async def _scrape_ae():
+        if "aliexpress" not in bench:
+            return None
         scraper = None
         try:
             from scrapers.aliexpress import AliExpressScraper
@@ -215,6 +234,7 @@ async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
             hit = _first_valid(
                 products, product.title, product.price or 0.0,
                 image_hash_for(getattr(product, "image_url", None)),
+                destination_market=destination,
             )
             if hit:
                 return {
@@ -273,6 +293,8 @@ async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
         Returns None on any failure. A secondary source that cannot be reached
         must not take the lookup down with it.
         """
+        if "joybuy" not in bench:
+            return None
         try:
             from scrapers.joybuy_web import discover_web
             rows = await asyncio.to_thread(discover_web, product.title)
@@ -285,6 +307,7 @@ async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
         hit = _first_valid(
             rows, product.title, product.price or 0.0,
             image_hash_for(getattr(product, "image_url", None)),
+            destination_market=destination,
         )
         if not hit:
             return None
@@ -329,9 +352,10 @@ async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
     # blocking SerpApi call each, so overlapping them costs the SLOWER of the
     # two instead of their sum.
     try:
-        settled = await asyncio.gather(
-            _scrape_discovery(), _scrape_joybuy_web(), return_exceptions=True
-        )
+        tasks = [_scrape_discovery()]
+        if "joybuy" in bench:
+            tasks.append(_scrape_joybuy_web())
+        settled = await asyncio.gather(*tasks, return_exceptions=True)
         for outcome in settled:
             # return_exceptions=True means a crash in one source surfaces here
             # rather than cancelling the other; it is skipped, never guessed at.
@@ -363,7 +387,7 @@ async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
     if results:
         valid = [r for r in results if r.get("price", 0) > 0]
         if valid:
-            ranked = rank_suppliers(valid, "GB")
+            ranked = rank_suppliers(valid, destination)
             for product, assessment in ranked:
                 apply_assessment(product, assessment)
             return ranked[0][0] if ranked else None
@@ -374,6 +398,7 @@ async def _lookup_single_supplier(product: CategoryProduct) -> Optional[dict]:
 def batch_supplier_lookup(
     products: list[CategoryProduct],
     progress_callback=None,
+    marketplace: str = "EBAY_GB",
 ) -> tuple[list[CategoryProduct], int]:
     """Find supplier prices for multiple products (sequential with timeout).
 
@@ -389,6 +414,7 @@ def batch_supplier_lookup(
     """
     global _excluded_over_band
     _excluded_over_band = 0
+    market = get_marketplace(marketplace)
 
     # Client-supplied products: eBay price must also sit in the band (PR-1)
     kept_products = []
@@ -415,7 +441,10 @@ def batch_supplier_lookup(
 
             # Add timeout for each product
             supplier = loop.run_until_complete(
-                asyncio.wait_for(_lookup_single_supplier(product), timeout=LOOKUP_TIMEOUT)
+                asyncio.wait_for(
+                    _lookup_single_supplier(product, marketplace=marketplace),
+                    timeout=LOOKUP_TIMEOUT,
+                )
             )
 
             if supplier and not isinstance(supplier, Exception):
@@ -429,7 +458,7 @@ def batch_supplier_lookup(
                 product.supplier_status = "found"
                 product.supplier_status_reason = (
                     f"{supplier.get('name', 'supplier')} at "
-                    f"GBP{supplier.get('price', 0):.2f}"
+                    f"{market['currency']} {supplier.get('price', 0):.2f}"
                 )
                 # C13 - the source's own shipping words. 0.0 means "not
                 # stated", which profit treats as an incomplete figure rather
