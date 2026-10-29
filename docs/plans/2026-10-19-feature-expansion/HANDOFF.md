@@ -1,6 +1,6 @@
 # Handoff - current state
 
-Last updated: 2026-10-29, AU Deep Search (Phase E2) landed; next is AU Phase E3 Bulk.
+Last updated: 2026-10-29, AU Bulk (Phase E3) landed; next is AU Phase E4 Category Hunter.
 Read this first, then `implementation.md` (phase specs and rules) and `design.md` (surfaces).
 
 ## Where the work stands
@@ -92,9 +92,20 @@ The Australian build is a separate six-phase thread on top of the ten shipped ph
   **1963 passed, 9 deselected**; frontend **216 tests across 16 files**, typecheck and
   production build clean. Details: `docs/au-market/deep-search.md`; pins:
   `tests/test_au_deep_search.py`, updated `tests/test_markets.py`, and the unchanged UK
-  job/provenance/store pins. **Next:** Phase E3
-  Bulk, then E4 Category Hunter, E5 fee calculator; Phase F is UI + docs. Three commits per
-  phase, a short report at each phase end.
+  job/provenance/store pins.
+- **Phase E3 - complete (three commits).** Bulk is unlocked through `analyze_ready`, so AU
+  runs `deep_search_fast()` in AUD while the fee calculator stays locked. `POST /api/bulk`
+  refuses a market without a card or bench with "not enabled", returns
+  `marketplace`/`currency`/`currency_symbol`, and passes `marketplace=` to
+  `deep_search_fast()` only for non-UK markets (UK keeps the one-argument call). The fast
+  path keeps its AUD band, floors, sold site, bench and currency boundary; a USD supplier
+  row is excluded with a sentence, never converted. The UI reads the marketplace, shows a
+  lock notice, disables the form for unready markets, formats every amount in its own
+  currency, and clears a stale result on a market switch. Checks: backend **1963 passed,
+  9 deselected** plus `tests/test_au_bulk.py` (3 passed); frontend typecheck clean.
+  Details: `docs/au-market/bulk.md`; pins: `tests/test_au_bulk.py`. **Next:** Phase E4
+  Category Hunter, then E5 fee calculator; Phase F is UI + docs. Three commits per phase,
+  a short report at each phase end.
 
 Still open from the older thread: the live-browser capture gap, the history migration spec,
 the four redundant `listing_observations` rows on `266923866336`, Deep Search/batch observation

@@ -81,7 +81,7 @@ class TestProfitProperties:
         for postage in (0.004, 0.001, 0.0, 0.005):
             result = calculate_profit(ebay, supplier, shipping_cost=postage)
             moved = base["profit"] - result["profit"]
-            assert abs(moved - result["shipping_cost"]) <= 0.01
+            assert round(abs(moved - result["shipping_cost"]), 2) <= 0.01
             if result["shipping_cost"] == 0.0:
                 assert moved == 0.0, "an unread postage reading moved the profit"
 

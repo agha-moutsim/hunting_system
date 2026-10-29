@@ -72,9 +72,9 @@ API then applies the request value, then the market default, then
   `EBAY_AU` with the registered-card sentence.
 - `POST /api/analyze` uses `analyze_ready`, not `fee_calculator_ready`, so AU
   runs its full AUD pipeline while the fee routes stay closed.
-- `require_uk_market` still guards Deep Search, Bulk and Category Hunter
-  because they compare eBay prices with GBP supplier costs. It no longer
-  claims the fee card is UK-only; the fee calculator has its own gate.
+- `require_uk_market` still guards Category Hunter. Deep Search and Bulk now
+  use `analyze_ready`, so AU runs both in AUD with its sourced card and bench.
+  The fee calculator still has its own gate.
 
 ## 5. Supplier bench (Phase D)
 
@@ -88,7 +88,7 @@ exposes it. The bench is policy, not the catalog, and an absent bench is empty
 The bench does not itself solve supplier currency. Phase E1 scopes AliGate to
 AU/AUD, passes AUD rows through, tags CJ's USD rows and excludes them from the
 AUD comparison, and disables the unstated-currency browser fallbacks. See
-`analyze.md`. Deep Search, Bulk and Category Hunter remain locked.
+`analyze.md`. Category Hunter remains locked until Phase E4.
 
 ## 6. Phase E5 flip
 
