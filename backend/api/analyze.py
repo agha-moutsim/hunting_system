@@ -15,7 +15,11 @@ from analysis_pipeline import (
     run_async,
     save_analysis_to_db,
 )
-from marketplaces import fee_calculator_ready, fee_warning
+from marketplaces import (
+    analyze_ready,
+    fee_warning,
+    market_filter_defaults,
+)
 from utils.filters import load_filters
 from engine.price_gate import clamp_band
 
@@ -39,15 +43,14 @@ def _serialize(obj):
 
 
 def _market_only_analysis(query: str, is_url: bool, market: dict) -> dict:
-    """Browse a marketplace whose calculator is not enabled, without pricing.
+    """Browse a marketplace that has no full analysis path, without pricing.
 
-    A registered fee card is not an enabled calculator: EBAY_AU carries its
-    sourced AUD card but stays locked until Phase E5. Comparing a USD/AUD
-    asking price with a GBP supplier cost, or pricing it with a card the
-    market is not ready to use, would be arithmetic across currencies. So this
-    route returns the real eBay listing and the real active-listing demand
-    picture, and no supplier rows, no profit, no verdict. The returned
-    sentence says exactly that.
+    A market without a registered fee card or a supplier bench has nothing
+    honest to compare: a USD/EUR/CAD asking price against a GBP supplier cost,
+    or a price computed with a card the market does not have, would be
+    arithmetic across currencies. So this route returns the real eBay listing
+    and the real active-listing demand picture, and no supplier rows, no
+    profit, no verdict. The returned sentence says exactly that.
     """
     from engine.condition_gate import is_new
     from scrapers.ebay import EbayScraper
@@ -126,7 +129,7 @@ def _market_only_analysis(query: str, is_url: bool, market: dict) -> dict:
 def analyze(req: AnalyzeRequest, request: Request = None):
     """Run the full pipeline: eBay → demand → 7 suppliers → LLM → verdict → scorecard."""
     market = marketplace_for_optional_request(request)
-    if not fee_calculator_ready(market):
+    if not analyze_ready(market):
         raw = _market_only_analysis(req.query, req.is_url, market)
         resp = {
             "ebay_product": _serialize(raw.get("ebay_product")),
@@ -148,23 +151,41 @@ def analyze(req: AnalyzeRequest, request: Request = None):
         resp["provenance"] = build_provenance_block(resp)
         return resp
 
-    # PR-5/PR-7: thresholds may come per-request, but the price range is the
-    # PERSISTED active value — selection/search gates read the same file, so
-    # the verdict's Price row can never disagree with what was fetched.
-    active = load_filters()
-    filters = clamp_band(req.filters)
-    filters["price_min"] = active["price_min"]
-    filters["price_max"] = active["price_max"]
+    # PR-5/PR-7: thresholds may come per-request, but the UK price range is
+    # the PERSISTED active value — selection/search gates read the same file,
+    # so the verdict's Price row can never disagree with what was fetched.
+    # AU states its own AUD band and demand floors; a caller's values override
+    # them, and the GBP band is never copied across.
+    if market["id"] == "EBAY_GB":
+        active = load_filters()
+        filters = clamp_band(req.filters)
+        filters["price_min"] = active["price_min"]
+        filters["price_max"] = active["price_max"]
+    else:
+        market_defaults = market_filter_defaults(market)
+        filters = dict(market_defaults)
+        filters.update(req.filters or {})
+        filters = clamp_band(filters, market_defaults or None)
+
+    history_allowed = market["id"] == "EBAY_GB"
+    history_refusal = (
+        f"This result is not written to History: stored analyses do not carry "
+        f"a currency, and keeping {market['currency']} prices beside GBP ones "
+        "would let them be compared."
+    )
 
     timing_sink: dict = {}
+    pipeline_kwargs = {
+        "is_url": req.is_url,
+        "filters": filters,
+        "timing_sink": timing_sink,
+    }
+    if market["id"] != "EBAY_GB":
+        pipeline_kwargs["marketplace"] = market["id"]
+
     try:
         raw = run_async(
-            run_analysis_pipeline(
-                req.query,
-                is_url=req.is_url,
-                filters=filters,
-                timing_sink=timing_sink,
-            ),
+            run_analysis_pipeline(req.query, **pipeline_kwargs),
             timeout=PIPELINE_TIMEOUT_S,
         )
     except (TimeoutError, asyncio.TimeoutError):
@@ -199,7 +220,8 @@ def analyze(req: AnalyzeRequest, request: Request = None):
             "budget": _serialize(budget),
             "errors": [
                 f"Analysis timed out after {int(PIPELINE_TIMEOUT_S)}s. "
-                "Supplier scrapers or the LLM hung — retry, or try Deep Search → Fast."
+                "Supplier scrapers or the LLM hung — retry, or try Deep Search → Fast.",
+                *([] if history_allowed else [history_refusal]),
             ],
             "marketplace": market["id"],
             "currency": market["currency"],
@@ -212,7 +234,7 @@ def analyze(req: AnalyzeRequest, request: Request = None):
         # not finish, so persist it here; the ordinary save below never runs.
         # An empty list means no search completed, and writes nothing.
         completed_searches = timing_sink.get("query_observations") or []
-        if completed_searches:
+        if completed_searches and history_allowed:
             try:
                 save_analysis_to_db(
                     {
@@ -230,12 +252,17 @@ def analyze(req: AnalyzeRequest, request: Request = None):
 
     # Persist. Phase G - a query that returned no usable product still ran a
     # real Browse search, and its result set is evidence the churn page needs;
-    # save_analysis_to_db handles that no-product case itself.
-    if raw.get("ebay_product") or raw.get("query_observations"):
+    # save_analysis_to_db handles that no-product case itself. Non-GBP rows
+    # stay out of History until stored analyses carry a currency.
+    if history_allowed and (
+        raw.get("ebay_product") or raw.get("query_observations")
+    ):
         try:
             save_analysis_to_db(raw)
         except Exception as e:
             logger.warning("DB save failed (non-fatal): %s", e)
+    elif not history_allowed:
+        raw.setdefault("errors", []).append(history_refusal)
 
     resp = {
         "ebay_product": _serialize(raw.get("ebay_product")),

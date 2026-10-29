@@ -2,7 +2,8 @@ from typing import Optional
 
 from scrapers.base import ScrapedProduct, DemandData
 from engine.decisions import Verdict, FilterResult
-from engine.profit import calculate_profit
+from engine.profit import calculate_market_profit
+from marketplaces import get_marketplace
 
 
 def _status_icon(passed: bool) -> str:
@@ -14,8 +15,15 @@ def format_scorecard(
     supplier_matches: list,
     demand_data: Optional[DemandData],
     verdict: Verdict,
+    marketplace: str = "EBAY_GB",
 ) -> str:
-    """Build a human-readable scorecard string for one product."""
+    """Build a human-readable scorecard string for one product.
+
+    Every money line uses the selected market's symbol and fee card. The
+    default keeps the historical UK output for existing callers.
+    """
+    market = get_marketplace(marketplace)
+    symbol = market["currency_symbol"]
     lines: list[str] = []
 
     lines.append("=" * 55)
@@ -48,7 +56,7 @@ def format_scorecard(
         lines.append(f"  Sold (30d): {demand_data.sold_count_30d}")
         lines.append(f"  Sold (7d):  {demand_data.sold_count_7d or 0}")
         if demand_data.avg_sold_price is not None:
-            lines.append(f"  Avg sold:   \u00a3{demand_data.avg_sold_price:.2f}")
+            lines.append(f"  Avg sold:   {symbol}{demand_data.avg_sold_price:.2f}")
         if demand_data.last_sale_date:
             lines.append(f"  Last sale:  {demand_data.last_sale_date}")
     else:
@@ -64,7 +72,7 @@ def format_scorecard(
         lines.append("-" * 55)
         lines.append(f"  In band:    {demand_data.active_listings_in_band}")
         if demand_data.avg_active_price is not None:
-            lines.append(f"  Avg asking: \u00a3{demand_data.avg_active_price:.2f}")
+            lines.append(f"  Avg asking: {symbol}{demand_data.avg_active_price:.2f}")
     lines.append("")
 
     # --- Supplier matches ---
@@ -74,7 +82,12 @@ def format_scorecard(
         for s in supplier_matches[:3]:
             title = getattr(s, "title", str(s))[:40]
             price = getattr(s, "price", "?")
-            lines.append(f"  \u2022 {title}  \u00a3{price}")
+            price_text = (
+                f"{price:.2f}"
+                if isinstance(price, (int, float))
+                else str(price)
+            )
+            lines.append(f"  \u2022 {title}  {symbol}{price_text}")
     else:
         lines.append("  No supplier matches found")
     lines.append("")
@@ -86,20 +99,21 @@ def format_scorecard(
     # is stated because a money figure without its model is not defensible.
     lines.append("PROFIT CALCULATION")
     lines.append("-" * 55)
-    lines.append(f"  eBay price:       \u00a3{ebay_product.price:.2f}")
+    lines.append(f"  eBay price:       {symbol}{ebay_product.price:.2f}")
     supplier_price = None
     if supplier_matches:
         candidate = getattr(supplier_matches[0], "price", None)
         if isinstance(candidate, (int, float)):
             supplier_price = candidate
-            lines.append(f"  Supplier price:   \u00a3{supplier_price:.2f}")
+            lines.append(f"  Supplier price:   {symbol}{supplier_price:.2f}")
 
     money = None
     try:
-        money = calculate_profit(
+        money = calculate_market_profit(
             ebay_product.price,
             supplier_price,
             shipping_cost=getattr(ebay_product, "shipping_cost", 0.0) or 0.0,
+            market=market,
         )
     except ValueError as exc:
         # The engine refuses to price a sale it cannot stand behind (a zero
@@ -114,17 +128,17 @@ def format_scorecard(
             label = f"{row['label']}:"
             gap = " " * max(1, 18 - len(label))
             rate = f"{row['rate']} \u00b7 " if row.get("rate") else ""
-            lines.append(f"  {label}{gap}{rate}\u00a3{row['amount']:.2f}")
+            lines.append(f"  {label}{gap}{rate}{symbol}{row['amount']:.2f}")
         buffer_percent = money["breakdown"]["risk_buffer_percent"]
         lines.append(
             f"  {'Returns buffer:':<18}{buffer_percent:g}% \u00b7 "
-            f"\u00a3{money['returns_buffer']:.2f}"
+            f"{symbol}{money['returns_buffer']:.2f}"
         )
         if money["supplier_price"] is None:
             lines.append("  Profit:           (no supplier price - not computed)")
             lines.append("  Margin:           (no supplier price - not computed)")
         else:
-            lines.append(f"  Profit:           \u00a3{verdict.profit:.2f}")
+            lines.append(f"  Profit:           {symbol}{verdict.profit:.2f}")
             lines.append(f"  Margin:           {verdict.margin:.1f}%")
             if not money["profit_is_complete"]:
                 lines.append(
@@ -132,7 +146,7 @@ def format_scorecard(
                     "assumed); the profit above is a ceiling (C1)."
                 )
     else:
-        lines.append(f"  Profit:           \u00a3{verdict.profit:.2f}")
+        lines.append(f"  Profit:           {symbol}{verdict.profit:.2f}")
         lines.append(f"  Margin:           {verdict.margin:.1f}%")
 
     # The fee card's assumptions are part of the money: when one of them

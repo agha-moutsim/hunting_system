@@ -77,13 +77,13 @@ def offered_marketplaces() -> list[dict]:
 
 
 def fee_calculator_ready(market: dict) -> bool:
-    """Whether this market may be priced today.
+    """Whether this market's standalone fee calculator may be used today.
 
     A fee table alone is not enough. The AU card is registered and sourced,
-    but its calculator switch stays off until Phase E5 wires the AU seller
-    defaults into every pricing surface. Keeping the switch separate means
-    adding a card can never silently expose a calculator that still assumes
-    the UK branch.
+    and Analyze uses it, but the standalone calculator switch stays off until
+    Phase E5 wires the AU seller controls into every calculator surface.
+    Keeping the switch separate means adding a card can never silently expose
+    a calculator that still assumes the UK branch.
     """
     return bool(market.get("fee_table")) and bool(
         market.get("fee_calculator_ready")
@@ -112,6 +112,43 @@ def seller_defaults(market: dict) -> dict:
     return {field: raw.get(field) for field in SELLER_DEFAULT_FIELDS}
 
 
+def analyze_ready(market: dict) -> bool:
+    """Whether Analyze may run its full sourcing pipeline for this market.
+
+    This is deliberately separate from `fee_calculator_ready`. AU carries a
+    sourced fee card and a supplier bench, so its Analyze pipeline can price a
+    product and produce a verdict, while the standalone fee calculator and its
+    seller controls stay locked until Phase E5. A market without a card or a
+    bench stays search-only: there is nothing honest to compare.
+    """
+    return bool(
+        market.get("analyze_ready")
+        and market.get("fee_table")
+        and supplier_bench(market)
+    )
+
+
+def market_filter_defaults(market: dict) -> dict:
+    """The filter values this market states for its own currency.
+
+    The UK's active range is user-adjustable and lives in the filter store, so
+    the UK record states nothing here. AU states its own AUD band and demand
+    floors; a missing field is omitted rather than filled from the GBP config.
+    """
+    values: dict = {}
+    band = market.get("price_band") or {}
+    if band.get("min") is not None:
+        values["price_min"] = band["min"]
+    if band.get("max") is not None:
+        values["price_max"] = band["max"]
+    floors = market.get("demand_floors") or {}
+    if floors.get("30d") is not None:
+        values["demand_min_30d"] = floors["30d"]
+    if floors.get("7d") is not None:
+        values["demand_min_7d"] = floors["7d"]
+    return values
+
+
 def supplier_bench(market: dict) -> tuple[str, ...]:
     """The active supplier slugs this market may use.
 
@@ -124,12 +161,12 @@ def supplier_bench(market: dict) -> tuple[str, ...]:
 
 
 def fee_warning(market: dict) -> Optional[str]:
-    """Why this market cannot be priced, or None when it can.
+    """Why this market's standalone fee calculator cannot be used, or None.
 
     The wording is shared by the API, the fee calculator and the header so a
     user never sees a UK fee figure under a USD/AUD heading without being told.
-    A registered-but-locked card is named rather than hidden: the card exists,
-    the calculator is simply not enabled yet.
+    A registered-but-locked card is named rather than hidden: the card exists
+    and Analyze may use it, while the standalone calculator is not enabled.
     """
     if fee_calculator_ready(market):
         return None
@@ -137,8 +174,9 @@ def fee_warning(market: dict) -> Optional[str]:
     if table:
         return (
             f"The {market['label']} fee card ({table}) is registered, but the "
-            f"fee calculator is not enabled for this marketplace yet, so no "
-            f"{market['currency']} fee or profit figure is calculated."
+            f"{market['currency']} fee calculator is not enabled for this "
+            "marketplace yet. Analyze can use the card for its own verdict; "
+            "the standalone calculator and its seller controls stay locked."
         )
     return (
         f"No {market['currency']} fee table is registered for "
@@ -164,6 +202,10 @@ def public_marketplace(market: dict) -> dict:
         "fee_table": market.get("fee_table") if ready else None,
         "fee_table_registered": market.get("fee_table"),
         "fee_calculator_ready": ready,
+        "analyze_ready": analyze_ready(market),
+        "price_band": market.get("price_band"),
+        "demand_floors": market.get("demand_floors"),
+        "momentum_1d": market.get("momentum_1d"),
         "seller_defaults": seller_defaults(market),
         "supplier_bench": list(supplier_bench(market)),
         "fee_warning": fee_warning(market),

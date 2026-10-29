@@ -305,6 +305,8 @@ class TestApiRefusesWhatItCannotPrice:
         assert au["fee_table"] is None
         assert au["fee_table_registered"] == "au-rate-card-2026-10-09"
         assert au["fee_calculator_ready"] is False
+        assert au["analyze_ready"] is True
+        assert au["price_band"] == {"min": 0.99, "max": 50.0}
         assert au["seller_defaults"]["seller_type"] == "private"
         assert au["seller_defaults"]["buyer_region"] == "au"
         assert "not enabled" in au["fee_warning"]
@@ -367,37 +369,32 @@ class TestApiRefusesWhatItCannotPrice:
         assert "EBAY_GB" in resp.json()["detail"]
 
 class TestNonUkAnalyzeIsSearchOnly:
-    def test_au_registered_card_does_not_unlock_the_full_pipeline(self, monkeypatch):
-        from scrapers.base import DemandData, ScrapedProduct
+    def test_au_registered_card_unlocks_analyze_but_not_history(self, monkeypatch):
+        captured = {}
+        saves = []
 
-        class FakeScraper:
-            def __init__(self, marketplace=None):
-                self.marketplace = get_marketplace(marketplace)
-                self.query_observations = []
+        async def _pipeline(query, **kwargs):
+            captured.update(kwargs)
+            return {
+                "ebay_product": None,
+                "demand": None,
+                "supplier_matches": [],
+                "llm_analysis": None,
+                "verdict": None,
+                "scorecard": "",
+                "errors": [],
+                "ebay_stores": [],
+                "ebay_stores_provenance": None,
+                "query_observations": [{"query": query, "listings": []}],
+                "timing": {},
+                "budget": {},
+            }
 
-            def search_checked(self, query, limit=5, price_band=None):
-                assert price_band is None
-                return [ScrapedProduct(
-                    source="ebay_au",
-                    title="An AU widget",
-                    price=20.0,
-                    currency="AUD",
-                    url="https://www.ebay.com.au/itm/123456789012",
-                    condition="New",
-                )]
-
-            def get_sold_data(self, query, price_band=None):
-                assert price_band is None
-                return DemandData(verified=False, currency="AUD")
-
-            def close(self):
-                pass
-
-        def _must_not_run(*args, **kwargs):
-            raise AssertionError("AU has a registered card, not an enabled pipeline")
-
-        monkeypatch.setattr("scrapers.ebay.EbayScraper", FakeScraper)
-        monkeypatch.setattr("api.analyze.run_analysis_pipeline", _must_not_run)
+        monkeypatch.setattr("api.analyze.run_analysis_pipeline", _pipeline)
+        monkeypatch.setattr(
+            "api.analyze.save_analysis_to_db",
+            lambda raw: saves.append(raw),
+        )
 
         with _client() as client:
             resp = client.post(
@@ -410,10 +407,13 @@ class TestNonUkAnalyzeIsSearchOnly:
         body = resp.json()
         assert body["marketplace"] == "EBAY_AU"
         assert body["currency"] == "AUD"
-        assert body["supplier_matches"] == []
-        assert body["verdict"] is None
-        assert any("search-only" in e for e in body["errors"])
-        assert any("AUD" in e for e in body["errors"])
+        assert captured["marketplace"] == "EBAY_AU"
+        assert captured["filters"]["price_min"] == 0.99
+        assert captured["filters"]["price_max"] == 50.0
+        assert captured["filters"]["demand_min_30d"] == 15
+        assert captured["filters"]["demand_min_7d"] == 10
+        assert saves == []
+        assert any("not written to History" in e for e in body["errors"])
 
     def test_it_returns_the_listing_and_demand_but_no_profit(self, monkeypatch):
         from scrapers.base import DemandData, ScrapedProduct

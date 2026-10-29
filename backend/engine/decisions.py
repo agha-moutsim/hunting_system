@@ -2,9 +2,10 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from scrapers.base import ScrapedProduct, DemandData
-from engine.profit import calculate_profit
+from engine.profit import calculate_market_profit
 from engine.price_gate import clamp_band
 from engine.condition_gate import active_condition, condition_passes
+from marketplaces import get_marketplace, market_filter_defaults
 
 
 @dataclass
@@ -49,9 +50,20 @@ class DecisionEngine:
     brand name (C5); delivery = advisory comparison (C-new).
     """
 
-    def __init__(self, filters: dict | None = None):
-        # Valid user range kept, invalid falls back to defaults (PR-5/PR-7).
-        self.filters = clamp_band(filters)
+    def __init__(
+        self,
+        filters: dict | None = None,
+        marketplace: str = "EBAY_GB",
+    ):
+        self.market = get_marketplace(marketplace)
+        # A market states its own defaults (AU's AUD band and demand floors).
+        # The caller's values win; missing keys fall back to that market, not
+        # to the GBP defaults. Valid user range kept, invalid falls back to
+        # the default set (PR-5/PR-7).
+        market_defaults = market_filter_defaults(self.market)
+        merged = dict(market_defaults)
+        merged.update(filters or {})
+        self.filters = clamp_band(merged, market_defaults or None)
 
     def evaluate(
         self,
@@ -66,17 +78,23 @@ class DecisionEngine:
 
         # --- Marketplace filter ---
         # Phase J — EBAY_GB keeps its historical `ebay_uk` source token, and
-        # `ebay_gb` is accepted too for any registry-era row. Both are the UK
-        # marketplace; the verdict is only ever computed for the UK card.
+        # `ebay_gb` is accepted too for any registry-era row. Other markets
+        # use `ebay_<country>` (EBAY_AU -> ebay_au). A row from another site
+        # is a known miss, not a pass.
         source = product.source.lower()
-        marketplace_pass = source.startswith("ebay_") and (
-            source.endswith("_uk") or source.endswith("_gb")
+        code = self.market["country_code"].lower()
+        accepted_sources = {f"ebay_{code}"}
+        if code == "gb":
+            accepted_sources |= {"ebay_uk", "ebay_gb"}
+        marketplace_pass = source in accepted_sources
+        expected = (
+            "eBay UK" if code == "gb" else f"eBay {self.market['label']}"
         )
         filters.append(FilterResult(
             name="Marketplace",
             passed=marketplace_pass,
             actual=product.source,
-            expected="eBay UK",
+            expected=expected,
             verified=product.verified,
         ))
 
@@ -99,11 +117,15 @@ class DecisionEngine:
         price_in_range = (
             self.filters["price_min"] <= product.price <= self.filters["price_max"]
         )
+        symbol = self.market["currency_symbol"]
         filters.append(FilterResult(
             name="Price",
             passed=price_in_range,
-            actual=f"£{product.price:.2f}",
-            expected=f"£{self.filters['price_min']:.2f}–£{self.filters['price_max']:.2f}",
+            actual=f"{symbol}{product.price:.2f}",
+            expected=(
+                f"{symbol}{self.filters['price_min']:.2f}–"
+                f"{symbol}{self.filters['price_max']:.2f}"
+            ),
             verified=product.verified,
         ))
 
@@ -160,10 +182,11 @@ class DecisionEngine:
         # reports the figure as incomplete in that case (C1/C13).
         profit_info = {"profit": 0.0, "margin": 0.0}
         if supplier_price is not None:
-            profit_info = calculate_profit(
+            profit_info = calculate_market_profit(
                 product.price,
                 supplier_price,
                 shipping_cost=getattr(product, "shipping_cost", 0.0) or 0.0,
+                market=self.market,
             )
 
         # --- Margin filter ---

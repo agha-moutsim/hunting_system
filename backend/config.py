@@ -149,6 +149,10 @@ MARKETPLACES = {
         "delivery_country": "GB",
         "fee_table": "uk-rate-card-2026-09-30",
         "fee_calculator_ready": True,
+        #: Analyze may run the full sourcing pipeline for this market. This is
+        #: not the fee-calculator switch: AU is analyze-ready while its
+        #: standalone calculator stays locked until Phase E5.
+        "analyze_ready": True,
         "seller_defaults": {
             "seller_type": "business",
             "buyer_region": "uk",
@@ -211,6 +215,9 @@ MARKETPLACES = {
         "delivery_country": "AU",
         "fee_table": "au-rate-card-2026-10-09",
         "fee_calculator_ready": False,
+        #: The full Analyze pipeline is unlocked for AU in Phase E1. The
+        #: standalone fee calculator remains gated by fee_calculator_ready.
+        "analyze_ready": True,
         "seller_defaults": {
             "seller_type": "private",
             "buyer_region": "au",
@@ -218,6 +225,15 @@ MARKETPLACES = {
             "uk_resident": None,
             "vat_registered": None,
         },
+        # The AUD range is user-set, not the GBP 5..50 band converted at an
+        # invented rate. These are the defaults Analyze starts from until the
+        # user sets their own band (the AU range control lands in Phase F).
+        "price_band": {"min": 0.99, "max": 50.00},
+        # AU demand floors (30d/7d). A 1-day count of 5 is advisory momentum,
+        # not a gate, so it is recorded separately and never enters the
+        # verdict ladder.
+        "demand_floors": {"30d": 15, "7d": 10},
+        "momentum_1d": 5,
         # AU has two dropship sources. B&Q, Toolstation and Joybuy UK are
         # retail/UK benches and must not be carried into an AUD analysis.
         "supplier_bench": ["aliexpress", "cj_dropshipping"],

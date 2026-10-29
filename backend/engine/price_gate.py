@@ -52,37 +52,58 @@ def in_band_range(price: float | None, lo: float, hi: float) -> bool:
     return lo <= p <= hi
 
 
-def band_label() -> str:
-    """Human-readable active range for messages: '£5.00–£35.00'."""
-    lo, hi = _range()
-    return f"\u00a3{lo:.2f}\u2013\u00a3{hi:.2f}"
+def band_label(
+    price_range: tuple[float, float] | None = None,
+    currency_symbol: str = "\u00a3",
+) -> str:
+    """Human-readable active range for messages: '£5.00–£35.00'.
+
+    Pass an explicit range/symbol for a market whose band is not the active
+    GBP one (e.g. the AU A$0.99–A$50.00 band). With no arguments this keeps
+    the historical UK behaviour.
+    """
+    lo, hi = price_range if price_range is not None else _range()
+    return f"{currency_symbol}{lo:.2f}\u2013{currency_symbol}{hi:.2f}"
 
 
-def over_band_reason(price: float | None) -> str:
+def over_band_reason(
+    price: float | None,
+    price_range: tuple[float, float] | None = None,
+    currency_symbol: str = "\u00a3",
+) -> str:
     """Refusal sentence for an out-of-range price (PR-3 Case A)."""
+    label = band_label(price_range, currency_symbol)
     try:
         p = float(price)
     except (TypeError, ValueError):
         return (
             f"This listing has no verified price \u2014 cannot confirm it is "
-            f"inside {band_label()}."
+            f"inside {label}."
         )
     return (
-        f"This listing is \u00a3{p:.2f} \u2014 outside your "
-        f"{band_label()} range."
+        f"This listing is {currency_symbol}{p:.2f} \u2014 outside your "
+        f"{label} range."
     )
 
 
-def clamp_band(filters: dict | None) -> dict:
+def clamp_band(
+    filters: dict | None,
+    defaults: dict | None = None,
+) -> dict:
     """Merge a filters dict over the full default set, keeping a VALID user
     range (PR-5/PR-7: config holds the defaults; the user may adjust).
 
     An invalid range (non-numeric, min >= max, out of sane bounds) falls
-    back to the config defaults — a poisoned file can never widen the gate.
-    A partial dict is merged over the full default filter set first, so
-    callers never lose the non-price keys (demand/margin).
+    back to the supplied defaults — the GBP config by default, or a market's
+    own band when one is passed. That matters for AU: a bad A$ range must not
+    silently become the GBP 5..35 band. A partial dict is merged over the full
+    default filter set first, so callers never lose the non-price keys
+    (demand/margin).
     """
-    out = dict(FILTERS)
+    base = dict(FILTERS)
+    if defaults:
+        base.update(defaults)
+    out = dict(base)
     out.update(filters or {})
     try:
         lo = float(out["price_min"])
@@ -92,21 +113,31 @@ def clamp_band(filters: dict | None) -> dict:
         out["price_min"] = lo
         out["price_max"] = hi
     except (TypeError, ValueError):
-        out["price_min"] = FILTERS["price_min"]
-        out["price_max"] = FILTERS["price_max"]
+        out["price_min"] = base["price_min"]
+        out["price_max"] = base["price_max"]
     return out
 
 
-def filter_products(products: list, price_attr: str = "price") -> tuple[list, int]:
+def filter_products(
+    products: list,
+    price_attr: str = "price",
+    price_range: tuple[float, float] | None = None,
+) -> tuple[list, int]:
     """Split products into (in_range, excluded_count) — PR-3 / PR-4.
 
     Works on any object with a numeric price attribute (ScrapedProduct,
-    dicts are not supported — pass a getter value instead).
+    dicts are not supported — pass a getter value instead). `price_range`
+    is the band the caller searched with; it is in that market's currency.
     """
     kept = []
     excluded = 0
     for p in products:
-        if in_band(getattr(p, price_attr, None)):
+        price = getattr(p, price_attr, None)
+        if price_range is not None:
+            passed = in_band_range(price, *price_range)
+        else:
+            passed = in_band(price)
+        if passed:
             kept.append(p)
         else:
             excluded += 1
@@ -125,12 +156,21 @@ def filter_dicts(rows: list[dict], key: str = "price") -> tuple[list[dict], int]
     return kept, excluded
 
 
-def excluded_note(kind: str, count: int) -> str:
+def excluded_note(
+    kind: str,
+    count: int,
+    price_range: tuple[float, float] | None = None,
+    currency_symbol: str = "\u00a3",
+) -> str:
     """PR-4 transparency line, e.g. '4 sold listings excluded (not in £5–£35 range)'.
 
     Covers eBay-side exclusions only — supplier prices are never excluded
-    by range (PR-1), so supplier kinds must never be passed here.
+    by range (PR-1), so supplier kinds must never be passed here. The range
+    and symbol belong to the market that produced the rows.
     """
     if count <= 0:
         return ""
-    return f"{count} {kind} excluded (not in {band_label()} range)"
+    return (
+        f"{count} {kind} excluded "
+        f"(not in {band_label(price_range, currency_symbol)} range)"
+    )

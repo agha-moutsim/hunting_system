@@ -18,6 +18,7 @@ from typing import Optional
 
 from config import PROFIT_CONFIG, SELLER_PROFILE
 from engine import fees
+from marketplaces import seller_defaults
 
 
 def calculate_profit(
@@ -27,6 +28,7 @@ def calculate_profit(
     *,
     fee_table: Optional[str] = None,
     seller_type: Optional[str] = None,
+    seller_plan: Optional[str] = None,
     uk_resident: Optional[bool] = None,
     vat_registered: Optional[bool] = None,
     promoted_rate: Optional[float] = None,
@@ -69,6 +71,7 @@ def calculate_profit(
             profile["promoted_rate"] if promoted_rate is None else promoted_rate
         ),
         seller_type=profile["seller_type"] if seller_type is None else seller_type,
+        seller_plan=seller_plan,
         uk_resident=profile["uk_resident"] if uk_resident is None else uk_resident,
         vat_registered=(
             profile["vat_registered"] if vat_registered is None else vat_registered
@@ -114,3 +117,48 @@ def calculate_profit(
         # nothing recomputes from constants beside it.
         "breakdown": {k: v for k, v in outcome.items() if not k.startswith("_")},
     }
+
+
+def calculate_market_profit(
+    ebay_price: float,
+    supplier_price: float,
+    shipping_cost: float = 0.0,
+    *,
+    market: dict,
+    category=None,
+    promoted_rate: Optional[float] = None,
+) -> dict:
+    """Price one sale with the market's own card and seller branch.
+
+    A market without a fee card raises instead of falling through to the UK
+    card. The seller defaults come from the market record: UK is the business
+    branch; AU is the Individual/free-selling branch unless a caller later
+    selects a business plan. `seller_plan` is only passed for a business sale,
+    so the AU private branch keeps the card's own default (None).
+    """
+    table = market.get("fee_table")
+    if not table:
+        raise ValueError(
+            f"No {market.get('currency', '')} fee card is registered for "
+            f"{market.get('label', market.get('id', 'this market'))}; "
+            "profit is not calculated."
+        )
+
+    defaults = seller_defaults(market)
+    seller_type = defaults["seller_type"]
+    seller_plan = (
+        defaults["seller_plan"] if seller_type == "business" else None
+    )
+    return calculate_profit(
+        ebay_price,
+        supplier_price,
+        shipping_cost,
+        fee_table=table,
+        seller_type=seller_type,
+        seller_plan=seller_plan,
+        uk_resident=defaults["uk_resident"],
+        vat_registered=defaults["vat_registered"],
+        promoted_rate=promoted_rate,
+        category=category,
+        buyer_region=defaults["buyer_region"] or "uk",
+    )

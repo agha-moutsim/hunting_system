@@ -249,7 +249,7 @@ def _run_pipeline(monkeypatch, *, is_url, top_sellers):
     engine code (price gate, condition gate, verdict, scorecard) runs for
     real, because that is what the store block has to survive."""
 
-    async def _no_suppliers(query, progress=None):
+    async def _no_suppliers(query, progress=None, marketplace="EBAY_GB"):
         return []
 
     monkeypatch.setattr(ap, "apply_purchase_history",

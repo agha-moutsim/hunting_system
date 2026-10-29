@@ -29,15 +29,20 @@ from db.queries import (
 from engine.decisions import DecisionEngine, Verdict as VerdictData
 from engine.condition_gate import condition_passes, filter_products_by_condition
 from engine.price_gate import (
-    PRICE_MIN, PRICE_MAX, band_label, excluded_note,
-    filter_products, in_band, over_band_reason,
+    PRICE_MIN, PRICE_MAX, band_label, clamp_band, excluded_note,
+    filter_products, in_band_range, over_band_reason,
 )
 from engine.match import TIER_NO_MATCH, compute_match, image_hash_for
 from engine.provenance import stamp_scraped_product
 from engine.sourcing import apply_ranking, shipping_is_known
 from engine.scorecard import format_scorecard
 from engine.source_type import supplier_type
-from marketplaces import get_marketplace, supplier_bench
+from marketplaces import (
+    get_marketplace,
+    market_filter_defaults,
+    supplier_bench,
+)
+from utils.filters import load_filters
 from engine.stores import resolve_stores, store_provenance_block
 # ProductAnalyzer is imported but not constructed here any more (Phase A1
 # removed the synchronous wait). The name is kept because it is the seam the
@@ -426,12 +431,35 @@ async def run_analysis_pipeline(
             progress(msg)
 
     market = get_marketplace(marketplace)
+    market_id = market["id"]
+    market_currency = market["currency"]
+    currency_symbol = market["currency_symbol"]
+
+    # A market's filters are in that market's currency. The UK's active range
+    # is user-adjustable and lives in the filter store; AU states its own AUD
+    # band and demand floors, and a caller's values override them.
+    market_defaults = (
+        None if market_id == "EBAY_GB" else market_filter_defaults(market)
+    )
+    if filters is None:
+        filters = (
+            load_filters()
+            if market_defaults is None
+            else dict(market_defaults)
+        )
+    elif market_defaults is not None:
+        merged = dict(market_defaults)
+        merged.update(filters)
+        filters = merged
+    filters = clamp_band(filters, market_defaults)
+    price_band = (filters["price_min"], filters["price_max"])
+
     # The UK keeps its zero-argument constructor so the existing test doubles
-    # and callers are untouched. A future non-UK unlock passes the market in.
+    # and callers are untouched. Other markets pass the market in.
     ebay = (
         EbayScraper()
-        if marketplace == "EBAY_GB"
-        else EbayScraper(marketplace=market["id"])
+        if market_id == "EBAY_GB"
+        else EbayScraper(marketplace=market_id)
     )
     results = {
         "ebay_product": None,
@@ -507,12 +535,15 @@ async def run_analysis_pipeline(
                 _report("✗ " + str(e))
                 return results
             # PR-3 Case A: over-band URL refuses before any further work.
-            if not in_band(ebay_product.price):
-                results["errors"].append(over_band_reason(ebay_product.price))
-                _report("✗ " + over_band_reason(ebay_product.price))
+            if not in_band_range(ebay_product.price, *price_band):
+                reason = over_band_reason(
+                    ebay_product.price, price_band, currency_symbol
+                )
+                results["errors"].append(reason)
+                _report("✗ " + reason)
                 return results
         else:
-            search_results = ebay.search(query, limit=5)
+            search_results = ebay.search(query, limit=5, price_band=price_band)
             if not search_results:
                 # An empty search carries two different truths: without
                 # credentials no request was made at all, while credentials
@@ -526,8 +557,9 @@ async def run_analysis_pipeline(
                 else:
                     results["errors"].append(
                         f'eBay returned no listings for "{query}" with the active '
-                        f"filters ({band_label()}, New-only). Try different or fewer "
-                        f"words, check the spelling, or retry shortly."
+                        f"filters ({band_label(price_band, currency_symbol)}, "
+                        f"New-only). Try different or fewer words, check the "
+                        f"spelling, or retry shortly."
                     )
                 _report("✗ No eBay listings reached us for this search")
                 return results
@@ -542,18 +574,26 @@ async def run_analysis_pipeline(
                 _report("✗ No NEW listing found")
                 return results
             # PR-3 Case B: first listing INSIDE the band; never result #1 blindly.
-            in_band_results, excluded_results = filter_products(new_results)
+            in_band_results, excluded_results = filter_products(
+                new_results, price_range=price_band
+            )
             if not in_band_results:
                 # PR-3 Case C: honest empty result, never an out-of-band guess.
+                label = band_label(price_band, currency_symbol)
                 results["errors"].append(
-                    f'No eBay listing for "{query}" found in the {band_label()} band.'
+                    f'No eBay listing for "{query}" found in the {label} band.'
                 )
-                _report(f"✗ No listing in the {band_label()} band")
+                _report(f"✗ No listing in the {label} band")
                 return results
             ebay_product = in_band_results[0]
             # PR-4: discarded search results are counted, never silent
             if excluded_results:
-                note = excluded_note("eBay search results", excluded_results)
+                note = excluded_note(
+                    "eBay search results",
+                    excluded_results,
+                    price_band,
+                    currency_symbol,
+                )
                 results["errors"].append(f"⚠️ {note}")
                 _report(f"– {note}")
             if excluded_non_new:
@@ -580,7 +620,7 @@ async def run_analysis_pipeline(
         _open("demand")
         _report("Step 2/5 — Fetching demand data…")
         search_term = ebay_product.title if not is_url else query
-        demand = ebay.get_sold_data(search_term)
+        demand = ebay.get_sold_data(search_term, price_band=price_band)
         # P5: verified 7-day figure from the browser purchase-history capture
         # (single-item analysis only — one item id per analysed URL).
         demand = apply_purchase_history(demand, ebay_product.url)
@@ -607,15 +647,26 @@ async def run_analysis_pipeline(
         else:
             _report("– No demand counts available (marked Unverified)")
         if demand and getattr(demand, "excluded_over_band", 0):
-            note = excluded_note("sold listings", demand.excluded_over_band)
+            note = excluded_note(
+                "sold listings",
+                demand.excluded_over_band,
+                price_band,
+                currency_symbol,
+            )
             results["errors"].append(f"⚠️ {note}")
             _report(f"– {note}")
 
         # Step 3: Search suppliers
         _open("suppliers")
-        _report("Step 3/5 — Searching 7 suppliers (max ~45s each, 2 at a time)…")
+        bench_count = len(supplier_bench(market))
+        _report(
+            f"Step 3/5 — Searching {bench_count} supplier(s) "
+            "(max ~45s each, 2 at a time)…"
+        )
         try:
-            if marketplace == "EBAY_GB":
+            # The UK keeps the historical two-argument call so existing test
+            # doubles and callers are untouched; a non-UK market names itself.
+            if market_id == "EBAY_GB":
                 supplier_task = search_all_suppliers(
                     ebay_product.title, progress=_report
                 )
@@ -623,7 +674,7 @@ async def run_analysis_pipeline(
                 supplier_task = search_all_suppliers(
                     ebay_product.title,
                     progress=_report,
-                    marketplace=marketplace,
+                    marketplace=market_id,
                 )
             supplier_results = await asyncio.wait_for(
                 supplier_task,
@@ -761,7 +812,7 @@ async def run_analysis_pipeline(
         )
         if llm_result and getattr(llm_result, "brand_name", ""):
             ebay_product.brand = llm_result.brand_name
-        engine = DecisionEngine(filters=filters)
+        engine = DecisionEngine(filters=filters, marketplace=market_id)
         # C11 - the store count reached the verdict as an ADVISORY row. It is
         # reported, never gated (no threshold exists to gate against), and its
         # verified status comes from the provenance block, so a short or failed
@@ -782,7 +833,13 @@ async def run_analysis_pipeline(
             _report(f"✓ Verdict: {verdict.verdict.upper()}")
 
         # Step 6: Scorecard
-        scorecard = format_scorecard(ebay_product, supplier_results, demand, verdict)
+        scorecard = format_scorecard(
+            ebay_product,
+            supplier_results,
+            demand,
+            verdict,
+            marketplace=market_id,
+        )
         results["scorecard"] = scorecard
 
     except Exception as e:
