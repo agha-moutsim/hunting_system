@@ -2,7 +2,7 @@
 
 Phase E3 unlocks Bulk for `EBAY_AU` in AUD. Bulk runs `deep_search_fast()` for
 many queries at once, so it follows the same `analyze_ready` switch as Analyze
-and Deep Search. The standalone fee calculator remains locked until Phase E5.
+and Deep Search. The standalone fee calculator remains unlocked in Phase E5.
 
 ## The gate
 

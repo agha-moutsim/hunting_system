@@ -192,9 +192,9 @@ Pro Starter for a business seller.
   and both fee routes stay 422 until the switch flips. The fee API now takes
   `seller_plan` and defaults `buyer_region` from the marketplace, never from
   the UK-shaped `SELLER_PROFILE`.
-- Phase E5: set `fee_calculator_ready: True` once the calculator UI can show
-  AUD, the AU plan selector and the AU domestic/international region. The
-  public `fee_table` then becomes the AU key and the warning clears.
+- Phase E5: complete. `fee_calculator_ready` is `True`, the public
+  `fee_table` is the AU key, and the calculator renders AUD, the plan
+  selector and the domestic/international region.
 - Phase F: the calculator UI can render `rates_by_plan` and `is_default` from
   `list_categories(table)` and show `label_required(...)` as a rule row, not a
   fee line.

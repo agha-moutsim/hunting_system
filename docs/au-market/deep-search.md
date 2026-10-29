@@ -2,7 +2,7 @@
 
 Phase E2 unlocks Deep Search for `EBAY_AU` in AUD. It uses the same
 `analyze_ready` switch as Analyze, so the standalone fee calculator remains
-locked until Phase E5.
+unlocked in Phase E5.
 
 ## The gate
 

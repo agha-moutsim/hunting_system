@@ -2,7 +2,7 @@
 
 Phase E4 unlocks Category Hunter for `EBAY_AU` in AUD. Scan and lookup follow
 `analyze_ready`, so AU runs with its sourced card and bench while the
-standalone fee calculator stays locked until Phase E5.
+standalone fee calculator stays unlocked in Phase E5.
 
 ## The gate
 

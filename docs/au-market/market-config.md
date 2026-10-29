@@ -35,7 +35,7 @@ registered card as usable, and it never falls back to the UK card.
 | Market    | Currency | Registered card           | Analyze ready | Calculator ready |
 | --------- | -------- | ------------------------- | ------------- | ---------------- |
 | `EBAY_GB` | GBP      | `uk-rate-card-2026-09-30` | yes           | yes              |
-| `EBAY_AU` | AUD      | `au-rate-card-2026-10-09` | yes (E1)      | no (Phase E5)    |
+| `EBAY_AU` | AUD      | `au-rate-card-2026-10-09` | yes (E1)      | yes (E5)         |
 | `EBAY_US` | USD      | none                      | no            | no               |
 | `EBAY_DE` | EUR      | none                      | no            | no               |
 | `EBAY_CA` | CAD      | none                      | no            | no               |
@@ -90,14 +90,12 @@ AU/AUD, passes AUD rows through, tags CJ's USD rows and excludes them from the
 AUD comparison, and disables the unstated-currency browser fallbacks. See
 `analyze.md`. Category Hunter is unlocked in Phase E4.
 
-## 6. Phase E5 flip
+## 6. Phase E5 flip (complete)
 
-When the calculator UI can render AUD, the AU plan selector and the AU
-domestic/international region, set:
-
-```python
-"fee_calculator_ready": True,
-```
+The calculator UI now renders AUD, the AU plan selector and the AU
+domestic/international region. `EBAY_AU.fee_calculator_ready` is `True`, so
+the public `fee_table` is `au-rate-card-2026-10-09` and both fee routes
+return 200. See `docs/au-market/fee-calculator.md`.
 
 for `EBAY_AU`. The public `fee_table` then becomes the AU key, `fee_warning`
 becomes `None`, and both fee routes open. Do not flip it earlier: a correct

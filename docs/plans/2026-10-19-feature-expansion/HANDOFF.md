@@ -1,6 +1,6 @@
 # Handoff - current state
 
-Last updated: 2026-10-29, AU Category Hunter (Phase E4) landed; next is AU Phase E5 Fee Calculator.
+Last updated: 2026-10-29, AU Fee Calculator (Phase E5) landed; next is AU Phase F UI + docs.
 Read this first, then `implementation.md` (phase specs and rules) and `design.md` (surfaces).
 
 ## Where the work stands
@@ -116,9 +116,17 @@ The Australian build is a separate six-phase thread on top of the ten shipped ph
   lookup for unready markets, formats amounts in their own currency, and clears stale
   results on a market switch. Checks: backend **1966 passed, 9 deselected** plus
   `tests/test_au_hunter.py` (6 passed); frontend typecheck clean. Details:
-  `docs/au-market/hunter.md`; pins: `tests/test_au_hunter.py`. **Next:** Phase E5
-  Fee Calculator, then Phase F UI + docs. Three commits per phase, a short report at each
-  phase end.
+  `docs/au-market/hunter.md`; pins: `tests/test_au_hunter.py`.
+- **Phase E5 - complete (three commits).** The standalone fee calculator is enabled for AU
+  in AUD. `EBAY_AU.fee_calculator_ready` is `True`, so the public `fee_table` is
+  `au-rate-card-2026-10-09` and both fee routes return 200. The UI renders AUD, defaults to
+  Individual, shows an eBay plan selector with per-plan rates for business sales, offers
+  domestic vs international buyer delivery, hides category tiers for Individual selling, and
+  shows the GST-included note. Checks: backend **1972 passed, 9 deselected** plus
+  `tests/test_au_fee_calculator.py` (7 passed); frontend typecheck clean, **220 tests
+  passed**, production build clean. Details: `docs/au-market/fee-calculator.md`; pins:
+  `tests/test_au_fee_calculator.py`. **Next:** Phase F UI + docs. Three commits per phase,
+  a short report at each phase end.
 
 Still open from the older thread: the live-browser capture gap, the history migration spec,
 the four redundant `listing_observations` rows on `266923866336`, Deep Search/batch observation

@@ -166,3 +166,69 @@ describe("feeFormFromProfile", () => {
     expect(state.promotedRate).toBe("");
   });
 });
+
+
+describe('feeFormFromProfile - market defaults', () => {
+  it('uses AU individual defaults', () => {
+    const state = feeFormFromProfile(
+      { seller_type: 'business', vat_registered: true, promoted_rate: 0 },
+      {
+        seller_type: 'private',
+        seller_plan: 'starter',
+        buyer_region: 'au',
+        vat_registered: null,
+      }
+    );
+    expect(state.sellerType).toBe('private');
+    expect(state.sellerPlan).toBe('');
+    expect(state.buyerRegion).toBe('au');
+    expect(state.vatRegistered).toBe(true);
+  });
+
+  it('uses an AU business plan', () => {
+    const state = feeFormFromProfile(
+      { seller_type: 'private', vat_registered: false, promoted_rate: 0 },
+      {
+        seller_type: 'business',
+        seller_plan: 'basic',
+        buyer_region: 'rest_of_world',
+        vat_registered: false,
+      }
+    );
+    expect(state.sellerType).toBe('business');
+    expect(state.sellerPlan).toBe('basic');
+    expect(state.buyerRegion).toBe('rest_of_world');
+  });
+});
+
+describe('buildFeeRequest - AU controls', () => {
+  it('sends a selected plan and buyer region', () => {
+    const built = buildFeeRequest(
+      form({
+        salePrice: '20',
+        sellerType: 'business',
+        sellerPlan: 'basic',
+        buyerRegion: 'rest_of_world',
+      })
+    );
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+    expect(built.request.seller_plan).toBe('basic');
+    expect(built.request.buyer_region).toBe('rest_of_world');
+  });
+
+  it('omits seller_plan for a private seller', () => {
+    const built = buildFeeRequest(
+      form({
+        salePrice: '20',
+        sellerType: 'private',
+        sellerPlan: 'basic',
+        buyerRegion: 'au',
+      })
+    );
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+    expect(built.request.seller_plan).toBeUndefined();
+    expect(built.request.buyer_region).toBe('au');
+  });
+});

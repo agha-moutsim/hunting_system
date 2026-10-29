@@ -2,7 +2,7 @@
 
 These pins keep three boundaries apart:
 
-  * Analyze is unlocked for AU while the standalone fee calculator is not;
+  * Analyze and the standalone fee calculator are both unlocked for AU;
   * the AUD band and demand floors are the AU values, never the GBP defaults;
   * a verdict and scorecard use the AU fee card and the A$ symbol, and a
     non-GBP market without a card refuses to price instead of borrowing the
