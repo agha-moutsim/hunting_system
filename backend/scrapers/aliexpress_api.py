@@ -42,16 +42,27 @@ SEARCH_KEYWORD_PARAM = "query"
 
 
 class RapidAPIAliExpress:
-    """AliExpress via AliGate on RapidAPI — free Basic tier, 100 req/month."""
+    """AliExpress via AliGate on RapidAPI — free Basic tier, 100 req/month.
 
-    def __init__(self):
+    The gateway resolves prices in the scope it is asked for. UK callers keep
+    the historical GB/GBP/en_GB defaults (or the ALIGATE_* environment
+    overrides); a market-aware caller passes its own country/currency/locale
+    so an AUD search comes back in AUD rather than being converted later.
+    """
+
+    def __init__(
+        self,
+        country: Optional[str] = None,
+        currency: Optional[str] = None,
+        locale: Optional[str] = None,
+    ):
         self.api_key = os.getenv("RAPIDAPI_KEY", "")
         self.host = os.getenv(
             "RAPIDAPI_HOST", DEFAULT_RAPIDAPI_HOST
         ).strip()
-        self.country = os.getenv("ALIGATE_COUNTRY", "GB")
-        self.currency = os.getenv("ALIGATE_CURRENCY", "GBP")
-        self.locale = os.getenv("ALIGATE_LOCALE", "en_GB")
+        self.country = country or os.getenv("ALIGATE_COUNTRY", "GB")
+        self.currency = currency or os.getenv("ALIGATE_CURRENCY", "GBP")
+        self.locale = locale or os.getenv("ALIGATE_LOCALE", "en_GB")
 
     def _headers(self) -> dict:
         return {

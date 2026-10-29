@@ -25,6 +25,14 @@ DEFAULT_MIN_REVIEW_RATING = 4.0
 _IN_STOCK_STATES = frozenset({"in_stock", "low_stock"})
 _OUT_OF_STOCK_STATES = frozenset({"out_of_stock"})
 
+# A zero shipping figure is only a measurement when the source printed the
+# zero in a currency it names. `A$0.00` and `AUD 0.00` are as real as
+# `£0.00`; an unqualified "0" is still unknown (C1).
+_ZERO_SHIPPING = re.compile(
+    r"(?:£|gbp|pounds?|a\$|aud)\s*0(?:\.0+)?\b"
+    r"|0(?:\.0+)?\s*(?:£|gbp|pounds?|a\$|aud)"
+)
+
 
 @dataclass(frozen=True)
 class SourcingAssessment:
@@ -141,10 +149,7 @@ def _shipping_known(product: Any) -> bool:
         low = raw.lower()
         if "free" in low:
             return True
-        if re.search(
-            r"(?:£|gbp|pounds?)\s*0(?:\.0+)?\b|0(?:\.0+)?\s*(?:£|gbp|pounds?)",
-            low,
-        ):
+        if _ZERO_SHIPPING.search(low):
             return True
     return False
 
@@ -298,10 +303,8 @@ def assess_supplier(product: Any, destination_market: str = "GB") -> SourcingAss
         standard_known = standard_cost > 0 or (
             standard_cost == 0
             and bool(standard_raw)
-            and ("free" in standard_raw.lower() or bool(re.search(
-                r"(?:£|gbp|pounds?)\s*0(?:\.0+)?\b|0(?:\.0+)?\s*(?:£|gbp|pounds?)",
-                standard_raw.lower(),
-            )))
+            and ("free" in standard_raw.lower()
+                 or bool(_ZERO_SHIPPING.search(standard_raw.lower())))
         )
         if standard_known:
             shipping_known = True

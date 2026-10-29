@@ -11,6 +11,7 @@ from bs4 import BeautifulSoup, Tag
 
 from scrapers.base import BaseScraper, ScrapedProduct
 from config import SCRAPE_CONFIG
+from marketplaces import get_marketplace
 from utils.redact import scrub
 
 
@@ -56,10 +57,24 @@ def _sell_price_usd(raw) -> float:
 
 
 class CJDropshippingScraper(BaseScraper):
-    """Scraper for CJ Dropshipping — dropship supplier, 7–20 day delivery."""
+    """Scraper for CJ Dropshipping — dropship supplier, 7–20 day delivery.
+
+    CJ's API quotes `sellPrice` in USD. The UK path keeps the historical
+    fixed USD→GBP conversion. A non-GBP market gets the USD figure tagged
+    `currency="USD"` and is not converted: the analysis layer excludes it
+    from a native-currency comparison rather than inventing an FX rate.
+    """
+
+    #: The parallel supplier fan-out may pass `marketplace=` to this class.
+    accepts_marketplace = True
 
     SUPPLIER_ID = "cj_dropshipping"
     SEARCH_URL = "https://cjdropshipping.com/search.html?keyword={query}"
+
+    def __init__(self, marketplace: str | None = None):
+        super().__init__()
+        self.marketplace = get_marketplace(marketplace)
+        self.currency = self.marketplace["currency"]
 
     async def search(self, query: str) -> list[ScrapedProduct]:
         """Search CJ — try free API first, fallback to scraping."""
@@ -67,6 +82,16 @@ class CJDropshippingScraper(BaseScraper):
         api_products = self._search_via_api(query)
         if api_products:
             return api_products
+
+        if self.currency != "GBP":
+            # The browser page's displayed currency is not stated in the
+            # markup we parse. For a non-GBP market that is not a price we
+            # can carry, so fail closed instead of relabelling USD as AUD.
+            print(
+                f"[WARN] CJ browser fallback disabled for {self.currency} "
+                "— the page does not state its currency"
+            )
+            return []
 
         # Fallback to scraping
         url = self.SEARCH_URL.format(query=query.replace(" ", "+"))
@@ -134,7 +159,7 @@ class CJDropshippingScraper(BaseScraper):
                     "keyWord": query,
                     "page": 1,
                     "size": 10,
-                    "countryCode": "GB",
+                    "countryCode": self.marketplace["country_code"],
                 },
                 timeout=15,
             )
@@ -166,7 +191,7 @@ class CJDropshippingScraper(BaseScraper):
                             "keyWord": query,
                             "page": 1,
                             "size": 10,
-                            "countryCode": "GB",
+                            "countryCode": self.marketplace["country_code"],
                         },
                         timeout=15,
                     )
@@ -188,7 +213,17 @@ class CJDropshippingScraper(BaseScraper):
                             f" ({scrub(p.get('sellPrice'))})"
                         )
                         continue
-                    price_gbp = round(price_usd * 0.79, 2)  # USD to GBP
+                    if self.currency == "GBP":
+                        # Historical UK path: CJ quotes USD, the product
+                        # prices its UK rows in GBP at this fixed rate.
+                        price_out = round(price_usd * 0.79, 2)
+                        row_currency = "GBP"
+                    else:
+                        # No sourced FX rate for this market. Carry the
+                        # source's own USD figure and let the analysis
+                        # layer exclude it from a native-currency verdict.
+                        price_out = round(price_usd, 2)
+                        row_currency = "USD"
 
                     # Extract store details from API response
                     store_name = p.get("storeName", "")
@@ -199,7 +234,8 @@ class CJDropshippingScraper(BaseScraper):
                     products.append(ScrapedProduct(
                         source=self.SUPPLIER_ID,
                         title=p.get("nameEn", ""),
-                        price=price_gbp,
+                        price=price_out,
+                        currency=row_currency,
                         url=f"https://cjdropshipping.com/product-p-{p.get('id', '')}.html",
                         image_url=p.get("bigImage", ""),
                         delivery_days_min=3,
@@ -293,6 +329,7 @@ class CJDropshippingScraper(BaseScraper):
             source=self.SUPPLIER_ID,
             title=title,
             price=price,
+            currency="GBP",
             url=link,
             image_url=image_url,
             delivery_days_min=7,

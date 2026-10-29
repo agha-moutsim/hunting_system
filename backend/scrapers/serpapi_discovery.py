@@ -333,8 +333,19 @@ def _offer_availability(store: dict) -> dict:
     return serpapi_item_availability(source)
 
 
-def _row_for(slug: str, item: dict, store: dict) -> ScrapedProduct | None:
-    """Build the approved-supplier row, or None when the offer is unusable."""
+def _row_for(
+    slug: str,
+    item: dict,
+    store: dict,
+    currency: str = "",
+) -> ScrapedProduct | None:
+    """Build the approved-supplier row, or None when the offer is unusable.
+
+    `currency` is the Google Shopping scope's currency. The request asks
+    Google for one market (`gl=au`), so its `extracted_price` is quoted in
+    that market's currency; carrying the code explicitly keeps a later
+    surface from assuming GBP.
+    """
     cfg = _SUPPLIERS[slug]
     url = str(store.get("link", "") or "").strip()
     title = str(store.get("title", "") or "").strip() or str(item.get("title", "") or "").strip()
@@ -399,6 +410,7 @@ def _row_for(slug: str, item: dict, store: dict) -> ScrapedProduct | None:
         source=cfg["label"],
         title=title,
         price=float(price),
+        currency=currency,
         url=url,
         image_url=item.get("thumbnail") or item.get("serpapi_thumbnail") or None,
         delivery_days_min=cfg["delivery_days_min"],
@@ -507,7 +519,9 @@ def discover(
                 # The offer is real but belongs to another approved supplier;
                 # filing it under this one would mislabel whose listing it is.
                 continue
-            row = _row_for(slug, item, store)
+            row = _row_for(
+                slug, item, store, currency=market["currency"]
+            )
             if row is None:
                 continue
             rows.setdefault(slug, []).append(row)

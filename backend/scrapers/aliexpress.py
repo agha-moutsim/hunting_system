@@ -22,17 +22,33 @@ from scrapers.aliexpress_api import RapidAPIAliExpress
 from scrapers.availability import parse_shipping_text
 from scrapers.base import BaseScraper, DELIVERY_SELECTORS, STOCK_SELECTORS, ScrapedProduct
 from config import SCRAPE_CONFIG
+from marketplaces import get_marketplace
 
 USD_TO_GBP = 0.79
 
 
 class AliExpressScraper(BaseScraper):
-    """Scraper for AliExpress — live scraping, with an optional RapidAPI seam."""
+    """Scraper for AliExpress — live scraping, with an optional RapidAPI seam.
+
+    `marketplace=None` keeps the historical UK behaviour. A market-aware
+    caller gets AliGate scoped to that market's country/currency, so an AU
+    search is quoted in AUD by the gateway itself. The browser fallback is
+    only used for GBP: a scraped page does not state its currency reliably,
+    and converting an unstated number into AUD would be a fabricated price.
+    """
+
+    #: The parallel supplier fan-out may pass `marketplace=` to this class.
+    accepts_marketplace = True
 
     BASE_URL = "https://www.aliexpress.com"
     SEARCH_URL = "https://www.aliexpress.com/wholesale?SearchText={query}"
     DELIVERY_DAYS_MIN = 12
     DELIVERY_DAYS_MAX = 25
+
+    def __init__(self, marketplace: str | None = None):
+        super().__init__()
+        self.marketplace = get_marketplace(marketplace)
+        self.currency = self.marketplace["currency"]
 
     @staticmethod
     def _parse_review_text(text):
@@ -128,6 +144,16 @@ class AliExpressScraper(BaseScraper):
         if api_products:
             return api_products
 
+        if self.currency != "GBP":
+            # The page does not state which currency it rendered. For a
+            # non-GBP market that leaves no honest number to carry, so the
+            # fallback fails closed instead of relabelling the page's price.
+            print(
+                f"[WARN] AliExpress browser fallback disabled for "
+                f"{self.currency} — no API quote and no stated page currency"
+            )
+            return []
+
         # Fallback to scraping
         search_url = self.SEARCH_URL.format(query=quote_plus(query))
         try:
@@ -149,7 +175,16 @@ class AliExpressScraper(BaseScraper):
         refusal — including the gateway's own reason — is logged, no rows
         are invented, and search() scrapes the live page instead.
         """
-        client = RapidAPIAliExpress()
+        if self.currency == "GBP":
+            # Preserve the historical GB/GBP/en_GB defaults and the
+            # ALIGATE_* environment overrides for the UK path.
+            client = RapidAPIAliExpress()
+        else:
+            client = RapidAPIAliExpress(
+                country=self.marketplace["country_code"],
+                currency=self.currency,
+                locale=f"en_{self.marketplace['country_code']}",
+            )
         if not client.api_key:
             print("[WARN] AliExpress RapidAPI search disabled "
                   "(RAPIDAPI_KEY not set) — falling back to scraping")
@@ -193,15 +228,30 @@ class AliExpressScraper(BaseScraper):
             return None
         if not (0.1 <= price <= 10000.0):
             return None
-        # The payload names its own currency when it knows it: USD rows (or
-        # rows that name none — this connector's long-standing assumption)
-        # convert at the fixed scraper rate; GBP rows pass through
-        # untouched; any other stated currency is skipped — ranking a
-        # price in a currency it does not actually carry would fabricate a
-        # landed cost.
-        currency = str(row.get("currency") or "").strip().upper()
-        if currency and currency not in ("USD", "GBP"):
-            return None
+        # The payload names its own currency when it knows it. On the UK
+        # path, USD rows (or rows that name none — the connector's
+        # long-standing assumption) convert at the fixed scraper rate, GBP
+        # rows pass through untouched, and any other stated currency is
+        # skipped. On a market-scoped path the request itself asked AliGate
+        # for that market's currency: a matching row passes through, a
+        # different stated currency is skipped, and an unstated currency is
+        # read as the scope we requested. Never convert one market's price
+        # into another's.
+        stated_currency = str(row.get("currency") or "").strip().upper()
+        if self.currency == "GBP":
+            if stated_currency and stated_currency not in ("USD", "GBP"):
+                return None
+            price_out = (
+                round(price, 2)
+                if stated_currency == "GBP"
+                else round(price * USD_TO_GBP, 2)
+            )
+            out_currency = "GBP"
+        else:
+            if stated_currency and stated_currency != self.currency:
+                return None
+            price_out = round(price, 2)
+            out_currency = self.currency
         url = str(row.get("url") or "").strip()
         if url.startswith("//"):
             url = "https:" + url
@@ -245,7 +295,8 @@ class AliExpressScraper(BaseScraper):
         return ScrapedProduct(
             source="aliexpress",
             title=title,
-            price=round(price, 2) if currency == "GBP" else round(price * USD_TO_GBP, 2),
+            price=price_out,
+            currency=out_currency,
             url=url,
             image_url=(
                 str(row["image_url"]).strip() if row.get("image_url") else None
@@ -446,6 +497,7 @@ class AliExpressScraper(BaseScraper):
             source="aliexpress",
             title=title,
             price=price_gbp,
+            currency="GBP",
             url=url,
             image_url=image_url,
             delivery_days_min=self.DELIVERY_DAYS_MIN,
@@ -569,6 +621,7 @@ class AliExpressScraper(BaseScraper):
             source="aliexpress",
             title=title,
             price=price_gbp,
+            currency="GBP",
             url=url,
             image_url=image_url,
             delivery_days_min=self.DELIVERY_DAYS_MIN,

@@ -339,12 +339,11 @@ class EbayScraper:
         for item in data.get("itemSummaries", []):
             price_info = item.get("price", {})
             price = float(price_info.get("value", 0))
-            if (
-                self.marketplace["currency"] == "GBP"
-                and not unrestricted
-                and not in_band_range(price, lo, hi)
-            ):
-                continue  # defence in depth — PR-2 layer 1 (search time)
+            if not unrestricted and not in_band_range(price, lo, hi):
+                # Defence in depth — PR-2 layer 1 (search time). The band is
+                # in the marketplace's own currency, so the local gate is the
+                # same gate for GBP and AUD; it is not a GBP-only rule.
+                continue
             condition = item.get("condition", "")
             if not is_new(condition):
                 continue  # defence in depth — C10 condition gate
@@ -699,8 +698,10 @@ class EbayScraper:
                 slot[0] += 1
                 slot[1] += price
 
-            if apply_band and not in_band(price):
-                excluded += 1  # demand stats must reflect in-band sales only — PR-1/PR-4
+            if apply_band and not in_band_range(price, lo, hi):
+                # The explicit band is in this marketplace's currency; use
+                # it directly rather than the active GBP range.
+                excluded += 1  # demand stats must reflect in-band rows only — PR-1/PR-4
                 continue
             if not is_new(condition):
                 excluded += 1  # C10 — non-New must not reach demand stats

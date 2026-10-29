@@ -222,6 +222,22 @@ def apply_purchase_history(
             db.close()
 
 
+def _supplier_currency_matches(product: ScrapedProduct, market_currency: str) -> bool:
+    """Whether this supplier row can be compared with the market's prices.
+
+    A stated currency must equal the market's. An unstated currency is only
+    acceptable on the UK path, where the historical scrapers converted to GBP
+    without tagging the row; on every other market an unstated currency is
+    not evidence of the market's currency, so it is excluded rather than
+    relabelled.
+    """
+    stated = str(getattr(product, "currency", "") or "").strip().upper()
+    market_currency = str(market_currency or "").strip().upper()
+    if market_currency == "GBP":
+        return stated in ("", "GBP")
+    return stated == market_currency
+
+
 def _score_supplier(
     product: ScrapedProduct,
     reference_title: str,
@@ -314,7 +330,12 @@ async def search_all_suppliers(
     ]
 
     async def _run_one(name: str, ScraperClass):
-        scraper = ScraperClass()
+        # Market-aware scrapers get the selected market; the UK retailers
+        # keep their zero-argument constructors (they are UK-only by nature).
+        if getattr(ScraperClass, "accepts_marketplace", False):
+            scraper = ScraperClass(marketplace=marketplace)
+        else:
+            scraper = ScraperClass()
         try:
             async with browser_semaphore:
                 results = await asyncio.wait_for(
@@ -614,6 +635,34 @@ async def run_analysis_pipeline(
                 "⚠️ Supplier search timed out (90s) — results may be incomplete (Unverified)."
             )
             supplier_results = []
+        # A supplier price in another currency is not a comparable cost. The
+        # AU bench includes CJ, whose API quotes USD; no FX rate is applied
+        # here, so those rows are counted and dropped with a sentence rather
+        # than being relabelled as AUD or ranked against an AUD listing.
+        foreign_rows = [
+            s for s in supplier_results
+            if not _supplier_currency_matches(s, market["currency"])
+        ]
+        if foreign_rows:
+            currencies = sorted({
+                str(getattr(s, "currency", "") or "unstated").upper()
+                for s in foreign_rows
+            })
+            results["errors"].append(
+                f"⚠️ {len(foreign_rows)} supplier row(s) priced in "
+                f"{', '.join(currencies)} were excluded from the "
+                f"{market['currency']} comparison — no currency conversion "
+                "is applied."
+            )
+            _report(
+                f"– {len(foreign_rows)} supplier row(s) in another currency "
+                "excluded (no FX conversion)"
+            )
+            supplier_results = [
+                s for s in supplier_results
+                if _supplier_currency_matches(s, market["currency"])
+            ]
+
         # Supplier prices are never range-gated (PR-1) — keep usable rows as-is.
         supplier_results = [s for s in supplier_results if s.price and s.price > 0]
         # C14/C12 — retrieved is not the same as matching. Each surviving row
