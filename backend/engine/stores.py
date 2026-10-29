@@ -34,6 +34,8 @@ from typing import Any, Iterable, Optional
 from urllib.parse import urlparse
 
 from config import EBAY_UK_BASE, STORE_COUNT
+from engine.price_gate import band_label
+from marketplaces import get_marketplace
 
 # C11 — how many stores any feature may surface.
 MAX_STORES = STORE_COUNT
@@ -95,14 +97,18 @@ def seller_profile_url(username: str, site_base: str = EBAY_UK_BASE) -> str:
     return f"{base}/usr/{name}" if name else ""
 
 
-def store_url_from_observed_slug(slug: str) -> str:
+def store_url_from_observed_slug(
+    slug: str, site_base: str = EBAY_UK_BASE
+) -> str:
     """Storefront URL for a slug we READ OFF an eBay page.
 
     Call this only with a slug taken from a link eBay itself rendered. A
-    username is not a slug and must never be passed here.
+    username is not a slug and must never be passed here. `site_base` keeps
+    an AU card on ebay.com.au rather than ebay.co.uk.
     """
     clean = normalise_username(slug)
-    return STORE_URL_TEMPLATE.format(slug=clean) if clean else ""
+    base = (site_base or EBAY_UK_BASE).rstrip("/")
+    return f"{base}/str/{clean}" if clean else ""
 
 
 def is_observed_store_url(url: Any, site_base: str = EBAY_UK_BASE) -> bool:
@@ -165,7 +171,8 @@ def derive_store_url(username: str) -> str:
 
 def _row(name: str, sold_count: int, avg_price: float,
          source_name: str = SOURCE_NAME,
-         observed_store_url: str = "") -> dict:
+         observed_store_url: str = "",
+         site_base: str = EBAY_UK_BASE) -> dict:
     """One store row, stamped per C13.
 
     ``verified`` now means something stricter than it used to: the link on
@@ -175,7 +182,11 @@ def _row(name: str, sold_count: int, avg_price: float,
     """
     from engine.provenance import Provenance
 
-    observed = observed_store_url if is_observed_store_url(observed_store_url) else ""
+    observed = (
+        observed_store_url
+        if is_observed_store_url(observed_store_url, site_base)
+        else ""
+    )
     if observed:
         url = observed
         url_kind = "observed"
@@ -183,7 +194,7 @@ def _row(name: str, sold_count: int, avg_price: float,
         prov = Provenance.VERIFIED
         reason = ""
     else:
-        url = seller_profile_url(name)
+        url = seller_profile_url(name, site_base)
         url_kind = "seller_profile"
         derived = True
         prov = Provenance.UNVERIFIED
@@ -211,7 +222,8 @@ def _row(name: str, sold_count: int, avg_price: float,
 
 def build_stores(counts: Iterable[tuple], source_name: str = SOURCE_NAME,
                  limit: int = MAX_STORES,
-                 observed_store_urls: Optional[dict] = None) -> list[dict]:
+                 observed_store_urls: Optional[dict] = None,
+                 site_base: str = EBAY_UK_BASE) -> list[dict]:
     """Turn ``(username, sold_count, avg_price)`` triples into store rows.
 
     Sorts by observed count desc, de-duplicates usernames case-insensitively
@@ -257,7 +269,8 @@ def build_stores(counts: Iterable[tuple], source_name: str = SOURCE_NAME,
             existing["_n"] = merged_n
             continue
         row = _row(name, count_i, avg_f, source_name=source_name,
-                   observed_store_url=observed_store_urls.get(name, ""))
+                   observed_store_url=observed_store_urls.get(name, ""),
+                   site_base=site_base)
         row["_n"] = count_i or 1
         seen[key] = row
 
@@ -273,7 +286,8 @@ def build_stores(counts: Iterable[tuple], source_name: str = SOURCE_NAME,
 # ---------------------------------------------------------------------------
 
 def stores_from_items(items: Iterable[Any], source_name: str = SOURCE_NAME,
-                      limit: int = MAX_STORES) -> list[dict]:
+                      limit: int = MAX_STORES,
+                      site_base: str = EBAY_UK_BASE) -> list[dict]:
     """Aggregate directly from ``EbaySoldItem`` objects.
 
     ``item.store_url`` is the storefront href eBay rendered on the listing we
@@ -291,18 +305,19 @@ def stores_from_items(items: Iterable[Any], source_name: str = SOURCE_NAME,
         slot[0] += 1
         slot[1] += price
         seen_url = getattr(item, "store_url", "") or ""
-        if name not in observed and is_observed_store_url(seen_url):
+        if name not in observed and is_observed_store_url(seen_url, site_base):
             observed[name] = seen_url
     return build_stores(
         ((n, c, t / c if c else 0.0) for n, (c, t) in tally.items()),
         source_name=source_name, limit=limit,
-        observed_store_urls=observed,
+        observed_store_urls=observed, site_base=site_base,
     )
 
 
 def stores_from_top_sellers(top_sellers: Iterable[dict],
                             source_name: str = SOURCE_NAME,
-                            limit: int = MAX_STORES) -> list[dict]:
+                            limit: int = MAX_STORES,
+                            site_base: str = EBAY_UK_BASE) -> list[dict]:
     """Normalise the ``EbaySoldData.top_sellers`` dicts into store rows.
 
     That scraper caps at 5 and emits an internal ``total_price`` accumulator;
@@ -332,16 +347,21 @@ def stores_from_top_sellers(top_sellers: Iterable[dict],
             continue
         clean = normalise_username(name)
         seen_url = s.get("store_url") or ""
-        if clean and clean not in observed and is_observed_store_url(seen_url):
+        if (
+            clean
+            and clean not in observed
+            and is_observed_store_url(seen_url, site_base)
+        ):
             observed[clean] = seen_url
         counts.append((name, count, avg))
     return build_stores(counts, source_name=source_name, limit=limit,
-                        observed_store_urls=observed)
+                        observed_store_urls=observed, site_base=site_base)
 
 
 def stores_from_products(products: Iterable[Any],
                          source_name: str = SOURCE_NAME,
-                         limit: int = MAX_STORES) -> list[dict]:
+                         limit: int = MAX_STORES,
+                         site_base: str = EBAY_UK_BASE) -> list[dict]:
     """Aggregate from ``ScrapedProduct`` objects (search-path fallback).
 
     A plain search response gives us sellers but no sold counts, so every
@@ -360,11 +380,12 @@ def stores_from_products(products: Iterable[Any],
         slot[1] += price
     return build_stores(
         ((n, c, t / c if c else 0.0) for n, (c, t) in tally.items()),
-        source_name=source_name, limit=limit,
+        source_name=source_name, limit=limit, site_base=site_base,
     )
 
 
-def stores_from_demand(demand: Any, limit: int = MAX_STORES) -> list[dict]:
+def stores_from_demand(demand: Any, limit: int = MAX_STORES,
+                       site_base: str = EBAY_UK_BASE) -> list[dict]:
     """Stores carried on a ``DemandData`` — the zero-cost path for Analyze.
 
     ``DemandData.top_sellers`` is populated by the sold query Analyze and
@@ -372,7 +393,7 @@ def stores_from_demand(demand: Any, limit: int = MAX_STORES) -> list[dict]:
     """
     top = getattr(demand, "top_sellers", None)
     if top:
-        return stores_from_top_sellers(top, limit=limit)
+        return stores_from_top_sellers(top, limit=limit, site_base=site_base)
     return []
 
 
@@ -389,7 +410,8 @@ def stores_from_scan(product: Any, limit: int = MAX_STORES) -> list[dict]:
 # Shared discovery entry point
 # ---------------------------------------------------------------------------
 
-def search_stores(query: str, limit: int = MAX_STORES) -> tuple[list[dict], dict]:
+def search_stores(query: str, limit: int = MAX_STORES,
+                  marketplace: str | None = None) -> tuple[list[dict], dict]:
     """Find competitor stores, widening BOTH the price band and the query.
 
     REGRESSION-006: the user saw one competitor store, or none, on every
@@ -443,6 +465,16 @@ def search_stores(query: str, limit: int = MAX_STORES) -> tuple[list[dict], dict
     """
     from engine.provenance import Provenance
 
+    market = get_marketplace(marketplace)
+    site_base = market["site_base"]
+    band = market.get("price_band") or {}
+    market_band = (
+        (float(band["min"]), float(band["max"]))
+        if band.get("min") is not None and band.get("max") is not None
+        else None
+    )
+    symbol = market["currency_symbol"]
+
     original = str(query or "").strip()
     if not original:
         return [], {
@@ -452,7 +484,7 @@ def search_stores(query: str, limit: int = MAX_STORES) -> tuple[list[dict], dict
             "broadened": False,
         }
 
-    rungs = _store_ladder(original)
+    rungs = _store_ladder(original, market_band=market_band)
 
     # Merge across rungs rather than stopping at the first hit. C11 asks for
     # UP TO 4 stores; a rung that yields one seller has not answered the
@@ -477,8 +509,11 @@ def search_stores(query: str, limit: int = MAX_STORES) -> tuple[list[dict], dict
         # step, so it is tried once (on the most precise rung) rather than on
         # every rung - otherwise a 12-rung ladder would spend 24 eBay calls
         # chasing a source that returns the same sellers anyway.
-        rows = _stores_for_single_query(candidate, limit, band=band,
-                                        allow_search_fallback=(index == 0))
+        rows = _stores_for_single_query(
+            candidate, limit, band=band,
+            allow_search_fallback=(index == 0),
+            marketplace=market["id"], site_base=site_base,
+        )
         if not rows:
             continue
         used_queries.append(candidate)
@@ -509,7 +544,7 @@ def search_stores(query: str, limit: int = MAX_STORES) -> tuple[list[dict], dict
     used_band = used_bands[0] if used_bands else None
 
     is_exact = used_query == original
-    in_active_band = _is_active_band(used_band)
+    in_active_band = _is_active_band(used_band, market_band=market_band)
     broadened = not (is_exact and in_active_band)
 
     entry: dict[str, Any] = {
@@ -524,10 +559,15 @@ def search_stores(query: str, limit: int = MAX_STORES) -> tuple[list[dict], dict
 
     if broadened:
         reasons = []
+        active_label = (
+            band_label(market_band, symbol)
+            if market_band is not None
+            else "£5.00–£35.00"
+        )
         if not in_active_band:
             reasons.append(
-                f"found outside the active GBP5-35 buying band "
-                f"(searched GBP{used_band[0]:g}-GBP{used_band[1]:g})"
+                f"found outside the active {active_label} buying band "
+                f"(searched {band_label(used_band, symbol)})"
                 if used_band else "found with no price restriction"
             )
         if not is_exact:
@@ -558,10 +598,21 @@ def search_stores(query: str, limit: int = MAX_STORES) -> tuple[list[dict], dict
     return rows, entry
 
 
-def _is_active_band(band: tuple[float, float] | None) -> bool:
-    """True when `band` is the user's active buying range (or unrestricted)."""
+def _is_active_band(
+    band: tuple[float, float] | None,
+    market_band: tuple[float, float] | None = None,
+) -> bool:
+    """True when `band` is the market's buying range (or unrestricted).
+
+    A market with its own band (AU: A$0.99-A$50) is compared with THAT band,
+    never with the GBP active range; otherwise a store found inside the AUD
+    band would be reported as "outside your buying band".
+    """
     if band is None:
         return False
+    if market_band is not None:
+        lo, hi = market_band
+        return abs(band[0] - lo) < 0.01 and abs(band[1] - hi) < 0.01
     try:
         from engine.price_gate import active_bounds
         lo, hi = active_bounds()
@@ -570,7 +621,10 @@ def _is_active_band(band: tuple[float, float] | None) -> bool:
     return abs(band[0] - lo) < 0.01 and abs(band[1] - hi) < 0.01
 
 
-def _store_ladder(title: str) -> list[tuple[str, tuple[float, float] | None]]:
+def _store_ladder(
+    title: str,
+    market_band: tuple[float, float] | None = None,
+) -> list[tuple[str, tuple[float, float] | None]]:
     """(query, price_band) rungs, most precise first.
 
     Widen the BAND before the QUERY. That order is deliberate and measured:
@@ -587,11 +641,14 @@ def _store_ladder(title: str) -> list[tuple[str, tuple[float, float] | None]]:
     because a rare BRAND is the other way a title matches nothing
     ("pasabahce 2 colorful cups & saucers" -> 0 items; "colorful cups" -> 49).
     """
-    try:
-        from engine.price_gate import active_bounds
-        lo, hi = active_bounds()
-    except Exception:  # noqa: BLE001
-        lo, hi = 5.0, 35.0
+    if market_band is not None:
+        lo, hi = market_band
+    else:
+        try:
+            from engine.price_gate import active_bounds
+            lo, hi = active_bounds()
+        except Exception:  # noqa: BLE001
+            lo, hi = 5.0, 35.0
 
     try:
         from engine.query_extract import (
@@ -642,6 +699,8 @@ def _stores_for_single_query(
     limit: int = MAX_STORES,
     band: tuple[float, float] | None = None,
     allow_search_fallback: bool = True,
+    marketplace: str | None = None,
+    site_base: str = EBAY_UK_BASE,
 ) -> list[dict]:
     """Stores for exactly one query inside one price band.
 
@@ -655,14 +714,24 @@ def _stores_for_single_query(
     """
     if not query:
         return []
+    # The UK keeps its zero-argument scraper so existing test doubles are
+    # untouched; every other market passes its id and follows that record.
+    kwargs = (
+        {} if (marketplace or "EBAY_GB").upper() == "EBAY_GB"
+        else {"marketplace": marketplace}
+    )
     try:
         from scrapers.ebay_sold import EbaySoldScraper
-        sold = EbaySoldScraper().get_sold_data(query, price_band=band)
-        rows = stores_from_items(getattr(sold, "items", []) or [], limit=limit)
+        sold = EbaySoldScraper(**kwargs).get_sold_data(query, price_band=band)
+        rows = stores_from_items(
+            getattr(sold, "items", []) or [], limit=limit, site_base=site_base
+        )
         if rows:
             return rows
-        rows = stores_from_top_sellers(getattr(sold, "top_sellers", []) or [],
-                                       limit=limit)
+        rows = stores_from_top_sellers(
+            getattr(sold, "top_sellers", []) or [], limit=limit,
+            site_base=site_base,
+        )
         if rows:
             return rows
     except Exception as e:  # noqa: BLE001 - discovery must never break analysis
@@ -673,9 +742,12 @@ def _stores_for_single_query(
 
     try:
         from scrapers.ebay import EbayScraper
-        products = EbayScraper().search(query, limit=OBSERVED_WINDOW,
-                                        price_band=band)
-        return stores_from_products(products, limit=limit)
+        products = EbayScraper(**kwargs).search(
+            query, limit=OBSERVED_WINDOW, price_band=band
+        )
+        return stores_from_products(
+            products, limit=limit, site_base=site_base
+        )
     except Exception as e:  # noqa: BLE001
         print(f"[WARN] store discovery (search fallback) failed for '{query}': {e}")
         return []
@@ -744,7 +816,8 @@ def annotate_store_checks(rows: list[dict], *, verify: bool = True) -> list[dict
 
 def resolve_stores(query: str = "", demand: Any = None, products: Iterable[Any] = None,
                    sold_data: Any = None, limit: int = MAX_STORES,
-                   provenance: Optional[dict] = None) -> list[dict]:
+                   provenance: Optional[dict] = None,
+                   marketplace: str | None = None) -> list[dict]:
     """Best-available stores for a caller, preferring data it ALREADY holds.
 
     Order matters — free data first, network last:
@@ -765,26 +838,40 @@ def resolve_stores(query: str = "", demand: Any = None, products: Iterable[Any] 
     if provenance is not None:
         provenance.clear()
 
+    market = get_marketplace(marketplace)
+    site_base = market["site_base"]
+
     if sold_data is not None:
-        rows = stores_from_items(getattr(sold_data, "items", []) or [], limit=limit)
+        rows = stores_from_items(
+            getattr(sold_data, "items", []) or [], limit=limit,
+            site_base=site_base,
+        )
         if not rows:
             rows = stores_from_top_sellers(
-                getattr(sold_data, "top_sellers", []) or [], limit=limit)
+                getattr(sold_data, "top_sellers", []) or [], limit=limit,
+                site_base=site_base,
+            )
         if rows:
             return annotate_store_checks(rows)
 
     if demand is not None:
-        rows = stores_from_demand(demand, limit=limit)
+        rows = stores_from_demand(demand, limit=limit, site_base=site_base)
         if rows:
             return annotate_store_checks(rows)
 
     if products:
-        rows = stores_from_products(products, limit=limit)
+        rows = stores_from_products(
+            products, limit=limit, site_base=site_base
+        )
         if rows:
             return annotate_store_checks(rows)
 
     if query:
-        rows, ladder = search_stores(query, limit=limit)
+        search_kwargs = (
+            {} if market["id"] == "EBAY_GB"
+            else {"marketplace": market["id"]}
+        )
+        rows, ladder = search_stores(query, limit=limit, **search_kwargs)
         if provenance is not None:
             provenance.update(ladder)
         return annotate_store_checks(rows)

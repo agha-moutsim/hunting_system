@@ -633,10 +633,16 @@ async def run_analysis_pipeline(
         # nothing extra. Network failure degrades to [] + UNVERIFIED, never
         # an exception that kills the analysis.
         ladder: dict = {}
+        store_kwargs = (
+            {} if market_id == "EBAY_GB"
+            else {"marketplace": market["id"]}
+        )
         try:
-            stores = resolve_stores(demand=demand, query=search_term,
-                                    provenance=ladder)
-        except Exception as e:  # noqa: BLE001 — stores are additive, not load-bearing
+            stores = resolve_stores(
+                demand=demand, query=search_term, provenance=ladder,
+                **store_kwargs,
+            )
+        except Exception as e:  # noqa: BLE001 - stores are additive, not load-bearing
             logger.warning("Store discovery failed (non-fatal): %s", e)
             stores = []
         results["ebay_stores"] = stores

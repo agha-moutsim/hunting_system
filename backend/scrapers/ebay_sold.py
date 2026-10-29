@@ -1,5 +1,9 @@
 """
-eBay UK sold listings scraper — gets real sold data from completed listings.
+eBay sold listings scraper — gets real sold data from completed listings.
+
+One scraper follows one marketplace record: the Browse API header, delivery
+country, price currency and site host all come from `marketplaces`. The
+default remains EBAY_GB, so existing callers keep the same request.
 """
 
 import re
@@ -7,13 +11,15 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Optional
+from urllib.parse import urlparse
 
 import requests
 from bs4 import BeautifulSoup
 
-from config import EBAY_UK_BASE, EBAY_CLIENT_ID, EBAY_CLIENT_SECRET, EBAY_API_BASE, EBAY_MARKETPLACE, SCRAPE_CONFIG
-from engine.price_gate import active_bounds, in_band, in_band_range
+from config import EBAY_UK_BASE, EBAY_CLIENT_ID, EBAY_CLIENT_SECRET, EBAY_API_BASE, SCRAPE_CONFIG
+from engine.price_gate import active_bounds, in_band_range
 from engine.condition_gate import api_condition_filter, html_condition_param, is_new
+from marketplaces import get_marketplace
 from scrapers.availability import ebay_item_availability
 
 
@@ -31,12 +37,12 @@ class _Unset:
 _UNSET = _Unset()
 
 
-def _absolute_ebay_url(href: str) -> str:
-    """Normalise a scraped href into a canonical ebay.co.uk URL.
+def _absolute_ebay_url(href: str, site_base: str = EBAY_UK_BASE) -> str:
+    """Normalise a scraped href into a URL on the selected eBay host.
 
-    Returns '' unless the href really points at an eBay storefront, so a
-    relative link or some other host can never be mistaken for an observed
-    one.
+    Returns '' unless the href really points at an eBay storefront on THAT
+    host, so a relative link or a link to another marketplace can never be
+    mistaken for an observed storefront for this card.
     """
     raw = str(href or "").strip()
     if not raw:
@@ -44,19 +50,21 @@ def _absolute_ebay_url(href: str) -> str:
     if raw.startswith("//"):
         raw = f"https:{raw}"
     elif raw.startswith("/"):
-        raw = f"{EBAY_UK_BASE}{raw}"
+        raw = f"{site_base.rstrip('/')}{raw}"
     if not raw.startswith(("http://", "https://")):
         return ""
-    if "ebay.co.uk" not in raw.lower() or "/str/" not in raw.lower():
+    host = (urlparse(site_base).hostname or "ebay.co.uk").lower()
+    actual_host = (urlparse(raw).hostname or "").lower()
+    if actual_host != host or "/str/" not in raw.lower():
         return ""
     return raw.split("?")[0].split("#")[0]
 
 
-def _seller_profile_link(username: str) -> str:
+def _seller_profile_link(username: str, site_base: str = EBAY_UK_BASE) -> str:
     """Canonical /usr/ profile for a seller username. Never a /str/ link."""
     from engine.stores import seller_profile_url
 
-    return seller_profile_url(username)
+    return seller_profile_url(username, site_base=site_base)
 
 # The local gate for an unrestricted request needs finite bounds, but must
 # not re-impose the user's buying range. Any real eBay price is inside this.
@@ -128,17 +136,25 @@ class EbaySoldData:
     sold_dates: list[str] = field(default_factory=list)
     category: str = ""
     items: list[EbaySoldItem] = field(default_factory=list)
-    excluded_over_band: int = 0  # PR-4: sold rows dropped by the £5–£35 gate
+    excluded_over_band: int = 0  # PR-4: sold rows dropped by the market band
     excluded_non_new: int = 0     # C10: sold rows dropped by the New-only gate
+    #: Phase E2 — the ISO currency of every price in this result. '' means the
+    #: caller did not state one; a market-aware scraper always fills it.
+    currency: str = ""
 
 
 class EbaySoldScraper:
-    """Scrape eBay UK sold/completed listings for real demand data."""
+    """Scrape one eBay marketplace's sold/completed listings for demand data."""
 
     SOLD_URL = f"{EBAY_UK_BASE}/sch/i.html"
     MAX_PAGES = 3  # Max pages to scrape (180 items per page = 540 max)
 
-    def __init__(self):
+    def __init__(self, marketplace: str | None = None):
+        self.marketplace = get_marketplace(marketplace)
+        self.site_base = self.marketplace["site_base"].rstrip("/")
+        self.currency = self.marketplace["currency"]
+        self.delivery_country = self.marketplace["country_code"]
+        self.sold_url = f"{self.site_base}/sch/i.html"
         self.session = requests.Session()
         self.session.headers.update({
             "User-Agent": SCRAPE_CONFIG["user_agent"],
@@ -150,9 +166,15 @@ class EbaySoldScraper:
         self._band_excluded = 0
         self._condition_excluded = 0  # C10: non-New rows dropped
         # REGRESSION-006: which band this call searches, resolved per call.
-        # Defaults to the active band so a caller that never passes one keeps
-        # the original behaviour exactly.
-        self._band_used = active_bounds()
+        # The market states its own band when it has one (AU: A$0.99-A$50);
+        # otherwise the active GBP range is the historical default.
+        band = self.marketplace.get("price_band") or {}
+        self._default_band = (
+            (float(band["min"]), float(band["max"]))
+            if band.get("min") is not None and band.get("max") is not None
+            else active_bounds()
+        )
+        self._band_used = self._default_band
         self._unrestricted = False
 
     def _get_token(self) -> str:
@@ -184,11 +206,12 @@ class EbaySoldScraper:
     def get_sold_data(self, query: str,
                       price_band: tuple[float, float] | None | _Unset = _UNSET
                       ) -> EbaySoldData:
-        """Get real sold data for a product from eBay UK.
+        """Get real sold data for a product from the selected marketplace.
 
-        `price_band` overrides the ACTIVE band for this call only:
+        `price_band` overrides the market's default band for this call only:
 
-          omitted (the default) -> the active band, unchanged
+          omitted (the default) -> the market band (AU: A$0.99-A$50; UK: the
+                                   active user range), unchanged
           a (lo, hi) tuple       -> that band, used in the query AND locally
           explicit ``None``     -> NO price restriction at all
 
@@ -208,7 +231,7 @@ class EbaySoldScraper:
             None if isinstance(price_band, _Unset) else tuple(price_band)
         )
         if isinstance(price_band, _Unset):
-            self._band_used = active_bounds()
+            self._band_used = self._default_band
             self._unrestricted = False
         elif price_band is None:
             self._band_used = None
@@ -219,6 +242,7 @@ class EbaySoldScraper:
         result = EbaySoldData(
             product_name=query,
             query=query,
+            currency=self.currency,
         )
         self._band_override = price_band
         self._band_excluded = 0
@@ -272,11 +296,16 @@ class EbaySoldScraper:
 
         try:
             lo, hi = self._resolve_band()
-            band_api = f"price:[{lo:.0f}..{hi:.0f}],priceCurrency:GBP"
+            band_api = (
+                f"price:[{lo:.0f}..{hi:.0f}],priceCurrency:{self.currency}"
+            )
             # C10 — condition joins the filter so Used listings never enter
             # the demand set or the top-seller aggregation.
             cond = api_condition_filter()
-            filter_parts = ["buyingOptions:{FIXED_PRICE}", "deliveryCountry:GB"]
+            filter_parts = [
+                "buyingOptions:{FIXED_PRICE}",
+                f"deliveryCountry:{self.delivery_country}",
+            ]
             if cond:
                 filter_parts.append(cond)
             if self._band_used is not None:
@@ -291,7 +320,7 @@ class EbaySoldScraper:
                 },
                 headers={
                     "Authorization": f"Bearer {self._get_token()}",
-                    "X-EBAY-C-MARKETPLACE-ID": EBAY_MARKETPLACE,
+                    "X-EBAY-C-MARKETPLACE-ID": self.marketplace["id"],
                     "Content-Type": "application/json",
                 },
                 timeout=15,
@@ -326,7 +355,7 @@ class EbaySoldScraper:
                     # /usr/ profile is the only link this response supports;
                     # store_url stays '' because no storefront was observed.
                     seller_url=_seller_profile_link(
-                        seller_info.get("username", "")),
+                        seller_info.get("username", ""), self.site_base),
                     store_url="",
                     sold_date="",  # Browse summaries carry no sale date — never fake one
                     condition=condition,
@@ -358,7 +387,7 @@ class EbaySoldScraper:
                     else f"&_udlo={lo:.0f}&_udhi={hi:.0f}"
                 )
                 url = (
-                    f"{self.SOLD_URL}?"
+                    f"{self.sold_url}?"
                     f"_nkw={query.replace(' ', '+')}"
                     f"&LH_Complete=1&LH_Sold=1"
                     f"&_sop=13"  # Sort by most recently sold
@@ -453,7 +482,9 @@ class EbaySoldScraper:
                         if scope is not None:
                             anchor = scope.select_one("a[href*='/str/']")
                     if anchor is not None:
-                        store_url = _absolute_ebay_url(anchor.get("href", ""))
+                        store_url = _absolute_ebay_url(
+                            anchor.get("href", ""), self.site_base
+                        )
                         # The anchor's text is the store's display name.
                         seller_text = anchor.get_text(strip=True)
                     else:
@@ -461,7 +492,9 @@ class EbaySoldScraper:
                     seller_match = re.search(r"(\S+)", seller_text)
                     if seller_match:
                         seller = seller_match.group(1)
-                    seller_url = store_url or _seller_profile_link(seller)
+                    seller_url = store_url or _seller_profile_link(
+                        seller, self.site_base
+                    )
 
                 # Sold date (if available) — "" when the page omits it, never faked
                 date_el = item.select_one("span.POSITIVE")
