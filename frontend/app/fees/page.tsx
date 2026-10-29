@@ -18,7 +18,7 @@ import {
   type FeeMode,
 } from "@/lib/fees";
 import { useMarketplace } from "@/lib/marketplace";
-import { formatGBP, formatPercent } from "@/lib/format";
+import { formatMoney, formatPercent, currencySymbol } from "@/lib/format";
 import type {
   FeeCalculateRequest,
   FeeCalculation,
@@ -99,6 +99,10 @@ export default function FeesPage() {
   const { marketplace } = useMarketplace();
   const marketBlocked = !marketplace.fee_table;
   const [table, setTable] = useState<FeeTableResponse | null>(null);
+  const currency = table?.currency || marketplace.currency || "GBP";
+  const plans = table?.plans ?? [];
+  const taxName = table?.tax?.name || table?.fee_table.tax_name || "VAT";
+  const isAu = marketplace.id === "EBAY_AU" || table?.domestic_region === "au";
   const [tableError, setTableError] = useState<string | null>(null);
   const [form, setForm] = useState<FeeFormState>(DEFAULT_FEE_FORM);
   const [calculating, setCalculating] = useState(false);
@@ -125,7 +129,7 @@ export default function FeesPage() {
         const data = await fetchFeeTable();
         if (cancelled) return;
         setTable(data);
-        setForm(feeFormFromProfile(data.profile));
+        setForm(feeFormFromProfile(data.profile, data.market_defaults));
       } catch (e) {
         if (!cancelled) {
           setTableError(e instanceof Error ? e.message : String(e));
@@ -198,6 +202,16 @@ export default function FeesPage() {
     }
   }
 
+  const defaultCategory = table?.categories.find((c) => c.is_default);
+  const selectedPlan = form.sellerPlan || table?.default_plan || "";
+  const defaultCategoryRate = defaultCategory
+    ? ((selectedPlan ? defaultCategory.rates_by_plan?.[selectedPlan] : null) ??
+      defaultCategory.rate_label)
+    : "";
+  const defaultCategoryHint = defaultCategory
+    ? `No category means ${defaultCategory.name} (${defaultCategoryRate}) applies as the engine's stated default.`
+    : "No category means the card's stated default applies.";
+
   const mode = form.mode;
 
   return (
@@ -205,8 +219,9 @@ export default function FeesPage() {
       <div>
         <h1 className="text-xl font-bold text-text-primary">Fee Calculator</h1>
         <p className="mt-1 text-sm text-text-secondary">
-          One sale priced by the published eBay UK rate card — from the same
-          engine the verdict uses, so the numbers agree by construction.
+          One sale priced by the published {marketplace.label} rate card — from
+          the same engine the verdict uses, so the numbers agree by
+          construction.
         </p>
       </div>
 
@@ -265,7 +280,7 @@ export default function FeesPage() {
         >
           <form onSubmit={run} className="space-y-3">
             {mode === "forward" ? (
-              <Field label="Sale price (£)">
+              <Field label={`Sale price (${currencySymbol(currency)})`}>
                 <Input
                   type="number"
                   step="0.01"
@@ -292,7 +307,7 @@ export default function FeesPage() {
             )}
 
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Postage charged (£)">
+              <Field label={`Postage charged (${currencySymbol(currency)})`}>
                 <Input
                   type="number"
                   step="0.01"
@@ -301,7 +316,7 @@ export default function FeesPage() {
                   onChange={(e) => patch({ postageCharged: e.target.value })}
                 />
               </Field>
-              <Field label="Postage paid (£)">
+              <Field label={`Postage paid (${currencySymbol(currency)})`}>
                 <Input
                   type="number"
                   step="0.01"
@@ -317,7 +332,7 @@ export default function FeesPage() {
               ceiling and the breakdown says so.
             </p>
 
-            <Field label="Supplier cost (£)">
+            <Field label={`Supplier cost (${currencySymbol(currency)})`}>
               <Input
                 type="number"
                 step="0.01"
@@ -328,23 +343,70 @@ export default function FeesPage() {
               />
             </Field>
 
-            <Field
-              label="Category"
-              hint="No category means Everything Else (12.9%) applies as the engine's stated default."
-            >
-              <select
-                className={SELECT_CLASS}
-                value={form.category}
-                onChange={(e) => patch({ category: e.target.value })}
+            {form.sellerType === "business" || !isAu ? (
+              <Field label="Category" hint={defaultCategoryHint}>
+                <select
+                  className={SELECT_CLASS}
+                  value={form.category}
+                  onChange={(e) => patch({ category: e.target.value })}
+                >
+                  <option value="">No category — stated default applies</option>
+                  {table?.categories.map((category) => (
+                    <option key={category.key} value={category.key}>
+                      {category.name} ·{" "}
+                      {category.rates_by_plan?.[
+                        form.sellerPlan || table?.default_plan || ""
+                      ] ?? category.rate_label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            ) : (
+              <p className="text-xs leading-relaxed text-text-dim">
+                Individual selling has no category tiers; the free-selling rate
+                applies.
+              </p>
+            )}
+
+            {form.sellerType === "business" && plans.length > 0 && (
+              <Field
+                label="eBay plan"
+                hint="Pro plan selected at runtime; the rate card carries all four."
               >
-                <option value="">No category — stated default applies</option>
-                {table?.categories.map((category) => (
-                  <option key={category.key} value={category.key}>
-                    {category.name} · {category.rate_label}
+                <select
+                  className={SELECT_CLASS}
+                  value={form.sellerPlan}
+                  onChange={(e) => patch({ sellerPlan: e.target.value })}
+                >
+                  {plans.map((plan) => (
+                    <option key={plan.key} value={plan.key}>
+                      {plan.label} — {currencySymbol(currency)}
+                      {plan.monthly_fee.toFixed(2)}/month,{" "}
+                      {currencySymbol(currency)}
+                      {plan.per_order_fee?.toFixed(2) ?? "—"} per order
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
+
+            {isAu && (
+              <Field
+                label="Buyer delivery"
+                hint="Domestic Australia pays no international fee."
+              >
+                <select
+                  className={SELECT_CLASS}
+                  value={form.buyerRegion}
+                  onChange={(e) => patch({ buyerRegion: e.target.value })}
+                >
+                  <option value="au">Australia (domestic)</option>
+                  <option value="rest_of_world">
+                    Outside Australia (international fee)
                   </option>
-                ))}
-              </select>
-            </Field>
+                </select>
+              </Field>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <Field label="Promoted rate (%)">
@@ -374,15 +436,22 @@ export default function FeesPage() {
               </Field>
             </div>
 
-            <label className="flex items-center gap-2 text-sm text-text-secondary">
-              <input
-                type="checkbox"
-                className="h-4 w-4 rounded-sm border-border bg-bg-surface accent-brand-lime"
-                checked={form.vatRegistered}
-                onChange={(e) => patch({ vatRegistered: e.target.checked })}
-              />
-              VAT registered — VAT on fees is recoverable
-            </label>
+            {taxName === "GST" ? (
+              <p className="text-xs leading-relaxed text-text-dim">
+                GST at 10% is included in eBay's fees on this card; no GST is
+                added.
+              </p>
+            ) : (
+              <label className="flex items-center gap-2 text-sm text-text-secondary">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded-sm border-border bg-bg-surface accent-brand-lime"
+                  checked={form.vatRegistered}
+                  onChange={(e) => patch({ vatRegistered: e.target.checked })}
+                />
+                {taxName} registered — {taxName} on fees is recoverable
+              </label>
+            )}
 
             <div className="pt-1">
               <Button
@@ -420,7 +489,7 @@ export default function FeesPage() {
                         List at
                       </div>
                       <div className="mt-0.5 font-mono text-3xl font-bold tabular-nums text-brand-lime">
-                        {formatGBP(reverse.price)}
+                        {formatMoney(reverse.price, currency)}
                       </div>
                     </div>
                     <Badge tone="pass">
@@ -430,8 +499,9 @@ export default function FeesPage() {
                   {reverse.check && (
                     <p className="mt-2 text-xs leading-relaxed text-text-secondary">
                       At this price the engine recomputes a profit of{" "}
-                      {formatGBP(reverse.check.profit)} on{" "}
-                      {formatGBP(reverse.check.net_after_fees)} net after fees.
+                      {formatMoney(reverse.check.profit, currency)} on{" "}
+                      {formatMoney(reverse.check.net_after_fees, currency)} net
+                      after fees.
                     </p>
                   )}
                 </div>
@@ -455,14 +525,14 @@ export default function FeesPage() {
                   Lowest sale price that does not lose money
                 </span>
                 <span className="font-mono text-lg font-bold tabular-nums text-white">
-                  {formatGBP(breakEven.price)}
+                  {formatMoney(breakEven.price, currency)}
                 </span>
               </div>
               <p className="mt-1 text-[11px] leading-relaxed text-text-dim">
                 Solved by the same engine at a 0% target margin and rounded up
                 to the penny: at this price the engine recomputes a profit of{" "}
-                {formatGBP(breakEven.profit)}. Below it, every sale on these
-                costs loses money.
+                {formatMoney(breakEven.profit, currency)}. Below it, every sale
+                on these costs loses money.
               </p>
             </Card>
           )}

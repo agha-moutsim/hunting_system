@@ -1166,6 +1166,8 @@ export interface FeeCalculationFees {
   fee_table: FeeTableRef;
   seller: {
     type: string;
+    plan?: string | null;
+    plan_label?: string | null;
     uk_resident?: boolean | null;
     vat_registered?: boolean | null;
   };
@@ -1183,7 +1185,9 @@ export interface FeeCalculationFees {
   vat_on_fees: number | null;
   vat_recoverable: boolean;
   vat_note?: string | null;
+  tax?: { name: string; rate: number; included: boolean };
   fees_quoted_total: number;
+  fees_gross_total?: number;
   fees_cost_total: number;
   assumptions: string[];
   notes: string[];
@@ -1218,6 +1222,9 @@ export interface FeeCategory {
   category_ids: number[];
   rate_label: string;
   notes: string[];
+  is_default?: boolean;
+  rates_by_plan?: Record<string, string>;
+  flat_fee?: number | null;
 }
 
 export interface FeeSource {
@@ -1227,11 +1234,25 @@ export interface FeeSource {
   retrieved: string;
 }
 
+export interface FeePlan {
+  key: string;
+  label: string;
+  monthly_fee: number;
+  per_order_fee: number | null;
+  over_4000_percent: number;
+}
+
 export interface FeeTable {
   key: string;
   version: string;
   currency: string;
   vat_rate: number;
+  tax_name?: string;
+  gst_rate?: number;
+  default_seller_type?: string;
+  default_plan?: string | null;
+  plans?: FeePlan[];
+  domestic_region?: string;
   sources: FeeSource[];
   business: Record<string, unknown>;
   private: Record<string, unknown>;
@@ -1246,17 +1267,33 @@ export interface SellerProfile {
   fee_table: string | null;
 }
 
+export interface FeeMarketDefaults {
+  seller_type?: string | null;
+  buyer_region?: string | null;
+  seller_plan?: string | null;
+  uk_resident?: boolean | null;
+  vat_registered?: boolean | null;
+}
+
 export interface FeeTableResponse {
   fee_table: FeeTable;
   categories: FeeCategory[];
   profile: SellerProfile;
+  market_defaults?: FeeMarketDefaults;
   /** Phase J — the table is UK-only; these say which market answered. */
   marketplace?: string;
   currency?: string;
+  currency_symbol?: string;
+  default_seller_type?: string;
+  default_plan?: string | null;
+  plans?: FeePlan[];
+  tax?: { name: string; rate: number; included: boolean | null };
+  domestic_region?: string;
+  buyer_regions?: { key: string; label: string }[];
 }
 
 export type FeeBuyerRegion =
-  "uk" | "eu_northern_europe" | "us_canada" | "rest_of_world";
+  "uk" | "au" | "eu_northern_europe" | "us_canada" | "rest_of_world";
 
 export interface FeeCalculateRequest {
   sale_price?: number | null;
@@ -1266,6 +1303,7 @@ export interface FeeCalculateRequest {
   category?: string | null;
   promoted_rate?: number | null;
   seller_type?: "business" | "private" | null;
+  seller_plan?: string | null;
   uk_resident?: boolean | null;
   vat_registered?: boolean | null;
   listing_fee?: number;

@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 
 import Badge from "@/components/ui/Badge";
 import Card from "@/components/ui/Card";
-import { formatGBP, formatPercent } from "@/lib/format";
+import { formatMoney, formatPercent } from "@/lib/format";
 import type { FeeCalculation } from "@/lib/types";
 
 /**
@@ -53,6 +53,7 @@ export default function FeeBreakdown({
 }) {
   const { fees } = calculation;
   const table = fees.fee_table;
+  const currency = table.currency;
   const category = fees.category;
   const unknownCategory = category !== null && !category.known;
 
@@ -88,7 +89,7 @@ export default function FeeBreakdown({
       <div className="divide-y divide-border/60">
         {calculation.fee_lines.map((line) => (
           <Row key={line.label} label={line.label} rate={line.rate}>
-            {formatGBP(line.amount)}
+            {formatMoney(line.amount, currency)}
           </Row>
         ))}
       </div>
@@ -96,23 +97,29 @@ export default function FeeBreakdown({
       <div className="mt-2 border-t border-border pt-2">
         <Row
           label="Fees total"
-          rate={fees.vat_recoverable ? "VAT excluded" : null}
+          rate={
+            fees.vat_recoverable
+              ? "VAT excluded"
+              : fees.tax?.included
+                ? `${fees.tax.name} included`
+                : null
+          }
         >
-          {formatGBP(fees.fees_cost_total)}
+          {formatMoney(fees.fees_cost_total, currency)}
         </Row>
         <Row label="Net after fees">
-          {formatGBP(calculation.net_after_fees)}
+          {formatMoney(calculation.net_after_fees, currency)}
         </Row>
         <Row label="Supplier cost">
           {calculation.supplier_cost === null ? (
             <span className="text-text-dim">not known</span>
           ) : (
-            formatGBP(calculation.supplier_cost)
+            formatMoney(calculation.supplier_cost, currency)
           )}
         </Row>
         <Row label="Postage paid">
           {calculation.postage_paid_known ? (
-            formatGBP(calculation.postage_paid)
+            formatMoney(calculation.postage_paid, currency)
           ) : (
             <span className="text-text-dim">not known</span>
           )}
@@ -121,7 +128,7 @@ export default function FeeBreakdown({
           label="Returns buffer"
           rate={`${calculation.risk_buffer_percent}%`}
         >
-          {formatGBP(calculation.risk_buffer)}
+          {formatMoney(calculation.risk_buffer, currency)}
         </Row>
       </div>
 
@@ -133,7 +140,7 @@ export default function FeeBreakdown({
           <div
             className={`mt-0.5 font-mono text-lg font-bold tabular-nums ${profitTone}`}
           >
-            {formatGBP(calculation.profit)}
+            {formatMoney(calculation.profit, currency)}
           </div>
         </div>
         <div className="rounded-control border border-border bg-bg-surface/70 px-3 py-2.5">
@@ -159,9 +166,9 @@ export default function FeeBreakdown({
         </p>
       )}
 
-      {fees.vat_recoverable && (
+      {fees.vat_note && (
         <p className="mt-2 text-xs leading-relaxed text-text-secondary">
-          VAT on fees is recoverable and is excluded from the fees total.
+          {fees.vat_note}
         </p>
       )}
 

@@ -12,6 +12,7 @@ import { apiFetch, apiPost } from "./api";
 import type {
   FeeCalculateRequest,
   FeeCalculateResponse,
+  FeeMarketDefaults,
   FeeTableResponse,
 } from "./types";
 
@@ -36,6 +37,8 @@ export interface FeeFormState {
   category: string;
   promotedRate: string;
   sellerType: "business" | "private";
+  sellerPlan: string;
+  buyerRegion: string;
   vatRegistered: boolean;
   supplierCost: string;
 }
@@ -49,20 +52,36 @@ export const DEFAULT_FEE_FORM: FeeFormState = {
   category: "",
   promotedRate: "",
   sellerType: "business",
+  sellerPlan: "",
+  buyerRegion: "",
   vatRegistered: false,
   supplierCost: "",
 };
 
-/** The form the seller's profile implies - the same defaults the verdict uses. */
-export function feeFormFromProfile(profile: {
-  seller_type: string;
-  vat_registered: boolean;
-  promoted_rate: number;
-}): FeeFormState {
+/** The form the market's defaults imply - the same defaults the verdict uses. */
+export function feeFormFromProfile(
+  profile: {
+    seller_type: string;
+    vat_registered: boolean;
+    promoted_rate: number;
+  },
+  marketDefaults?: FeeMarketDefaults | null
+): FeeFormState {
+  const sellerType =
+    marketDefaults?.seller_type === "private"
+      ? "private"
+      : marketDefaults?.seller_type === "business"
+        ? "business"
+        : profile.seller_type === "private"
+          ? "private"
+          : "business";
   return {
     ...DEFAULT_FEE_FORM,
-    sellerType: profile.seller_type === "private" ? "private" : "business",
-    vatRegistered: profile.vat_registered,
+    sellerType,
+    sellerPlan:
+      sellerType === "business" ? (marketDefaults?.seller_plan ?? "") : "",
+    buyerRegion: marketDefaults?.buyer_region ?? "",
+    vatRegistered: marketDefaults?.vat_registered ?? profile.vat_registered,
     promotedRate: profile.promoted_rate > 0 ? `${profile.promoted_rate}` : "",
   };
 }
@@ -127,6 +146,18 @@ export function buildFeeRequest(form: FeeFormState): FeeRequestBuild {
     category: form.category.trim() || null,
     promoted_rate: promotedRate ?? 0,
     seller_type: form.sellerType,
+    ...(form.sellerType === "business" && form.sellerPlan.trim()
+      ? {
+          seller_plan:
+            form.sellerPlan.trim() as FeeCalculateRequest["seller_plan"],
+        }
+      : {}),
+    ...(form.buyerRegion.trim()
+      ? {
+          buyer_region:
+            form.buyerRegion.trim() as FeeCalculateRequest["buyer_region"],
+        }
+      : {}),
     vat_registered: form.vatRegistered,
     supplier_cost: supplierCost,
   };
