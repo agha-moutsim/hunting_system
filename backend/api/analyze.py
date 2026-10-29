@@ -15,7 +15,7 @@ from analysis_pipeline import (
     run_async,
     save_analysis_to_db,
 )
-from marketplaces import fee_warning
+from marketplaces import fee_calculator_ready, fee_warning
 from utils.filters import load_filters
 from engine.price_gate import clamp_band
 
@@ -39,14 +39,15 @@ def _serialize(obj):
 
 
 def _market_only_analysis(query: str, is_url: bool, market: dict) -> dict:
-    """Browse one non-UK marketplace without pretending to price a UK resale.
+    """Browse a marketplace whose calculator is not enabled, without pricing.
 
-    The supplier bench is UK retailers and the only fee table is eBay UK's.
-    Comparing a USD asking price with a GBP supplier cost, or pricing it with
-    a GBP fee card, would be arithmetic across currencies. So for a market
-    with no registered fee table this route returns the real eBay listing and
-    the real active-listing demand picture, and no supplier rows, no profit,
-    no verdict. The returned sentence says exactly that.
+    A registered fee card is not an enabled calculator: EBAY_AU carries its
+    sourced AUD card but stays locked until Phase E5. Comparing a USD/AUD
+    asking price with a GBP supplier cost, or pricing it with a card the
+    market is not ready to use, would be arithmetic across currencies. So this
+    route returns the real eBay listing and the real active-listing demand
+    picture, and no supplier rows, no profit, no verdict. The returned
+    sentence says exactly that.
     """
     from engine.condition_gate import is_new
     from scrapers.ebay import EbayScraper
@@ -92,8 +93,8 @@ def _market_only_analysis(query: str, is_url: bool, market: dict) -> dict:
 
     warning = fee_warning(market)
     errors.append(
-        f"{market['label']} is search-only in this build. Supplier costs are "
-        "GBP and the registered fee table is eBay UK's, so no profit or "
+        f"{market['label']} is search-only in this build: the supplier bench "
+        "and fee calculator are not enabled for it yet, so no profit or "
         "verdict is calculated. " + (warning or "")
     )
     errors.append(
@@ -125,7 +126,7 @@ def _market_only_analysis(query: str, is_url: bool, market: dict) -> dict:
 def analyze(req: AnalyzeRequest, request: Request = None):
     """Run the full pipeline: eBay → demand → 7 suppliers → LLM → verdict → scorecard."""
     market = marketplace_for_optional_request(request)
-    if not market.get("fee_table"):
+    if not fee_calculator_ready(market):
         raw = _market_only_analysis(req.query, req.is_url, market)
         resp = {
             "ebay_product": _serialize(raw.get("ebay_product")),

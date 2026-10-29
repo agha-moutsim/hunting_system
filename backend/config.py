@@ -120,8 +120,13 @@ EBAY_MARKETPLACE = os.getenv("EBAY_MARKETPLACE", "EBAY_GB")
 # nothing else hardcodes EBAY_GB or a £ sign.
 #
 # `fee_table` is the engine/fees.py key that prices a sale in that market.
-# Only the UK has a table. None is deliberate: a UK rate must never be applied
+# The UK card is active; the AU card is registered but its calculator stays
+# locked until Phase E5. None is deliberate: a UK rate must never be applied
 # to a USD/EUR/AUD/CAD sale. The API refuses to price those markets instead.
+#
+# `supplier_bench` is the active source list for that market, not the catalog.
+# The UK keeps its retail bench; AU uses AliExpress and CJ only. A missing
+# bench is empty, never a quiet fallback to the UK list.
 #
 # `deals_url` is marketplace-specific. Each URL below returned HTTP 200 on
 # 2026-10-21, and the cards were read from the returned page (UK 72, US 21,
@@ -151,6 +156,16 @@ MARKETPLACES = {
             "uk_resident": True,
             "vat_registered": False,
         },
+        # Active supplier sources for this market. Disabled catalog entries
+        # (amazon_uk, godropship) are deliberately absent: a bench is what the
+        # product may actually use, not the full historical catalog.
+        "supplier_bench": [
+            "aliexpress",
+            "cj_dropshipping",
+            "bandq",
+            "toolstation",
+            "joybuy",
+        ],
         "deals_url": "https://www.ebay.co.uk/deals",
         "deals_http_status": 200,
         "deals_checked_at": "2026-10-21",
@@ -203,6 +218,9 @@ MARKETPLACES = {
             "uk_resident": None,
             "vat_registered": None,
         },
+        # AU has two dropship sources. B&Q, Toolstation and Joybuy UK are
+        # retail/UK benches and must not be carried into an AUD analysis.
+        "supplier_bench": ["aliexpress", "cj_dropshipping"],
         "deals_url": "https://www.ebay.com.au/deals",
         "deals_http_status": 200,
         "deals_checked_at": "2026-10-21",

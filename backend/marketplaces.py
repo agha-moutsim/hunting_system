@@ -112,6 +112,17 @@ def seller_defaults(market: dict) -> dict:
     return {field: raw.get(field) for field in SELLER_DEFAULT_FIELDS}
 
 
+def supplier_bench(market: dict) -> tuple[str, ...]:
+    """The active supplier slugs this market may use.
+
+    This is market policy, not the supplier catalog: a source can exist in
+    `suppliers.json` and still be absent here because it is a UK retailer or
+    disabled. An absent bench is empty, never the UK bench: carrying B&Q or
+    Toolstation into an AUD analysis would mix currencies and markets.
+    """
+    return tuple(market.get("supplier_bench") or ())
+
+
 def fee_warning(market: dict) -> Optional[str]:
     """Why this market cannot be priced, or None when it can.
 
@@ -154,6 +165,7 @@ def public_marketplace(market: dict) -> dict:
         "fee_table_registered": market.get("fee_table"),
         "fee_calculator_ready": ready,
         "seller_defaults": seller_defaults(market),
+        "supplier_bench": list(supplier_bench(market)),
         "fee_warning": fee_warning(market),
         "deals_url": market.get("deals_url"),
         "deals_http_status": market.get("deals_http_status"),

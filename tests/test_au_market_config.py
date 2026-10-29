@@ -26,6 +26,7 @@ from marketplaces import (
     fee_warning,
     get_marketplace,
     seller_defaults,
+    supplier_bench,
 )
 
 
@@ -46,6 +47,34 @@ class TestTheRegisteredCardIsNotAReadyCalculator:
         assert public["fee_table_registered"] == "au-rate-card-2026-10-09"
         assert public["fee_calculator_ready"] is False
         assert public["seller_defaults"]["seller_type"] == "private"
+
+
+class TestTheSupplierBenchIsPerMarket:
+    def test_au_uses_only_the_two_dropship_sources(self):
+        au = get_marketplace("EBAY_AU")
+        assert supplier_bench(au) == ("aliexpress", "cj_dropshipping")
+        assert "bandq" not in supplier_bench(au)
+        assert "toolstation" not in supplier_bench(au)
+        assert "joybuy" not in supplier_bench(au)
+
+    def test_uk_keeps_its_retail_bench(self):
+        uk = get_marketplace("EBAY_GB")
+        assert supplier_bench(uk) == (
+            "aliexpress",
+            "cj_dropshipping",
+            "bandq",
+            "toolstation",
+            "joybuy",
+        )
+
+    def test_a_market_with_no_bench_is_empty_not_uk(self):
+        assert supplier_bench(get_marketplace("EBAY_US")) == ()
+
+    def test_the_public_record_exposes_the_bench(self):
+        from marketplaces import public_marketplace
+
+        au = public_marketplace(get_marketplace("EBAY_AU"))
+        assert au["supplier_bench"] == ["aliexpress", "cj_dropshipping"]
 
 
 class TestTheSellerSideStartsFromTheMarket:
