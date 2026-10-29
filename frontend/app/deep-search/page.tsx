@@ -29,9 +29,16 @@ import {
   PriceRange,
   ProvenanceInfo,
 } from "@/lib/types";
-import { formatGBP, formatPercent } from "@/lib/format";
+import { currencySymbol, formatMoney, formatPercent } from "@/lib/format";
+import { useMarketplace } from "@/lib/marketplace";
 
 export default function DeepSearchPage() {
+  const { marketplace } = useMarketplace();
+  const marketIsUk = marketplace.id === "EBAY_GB";
+  // Deep Search follows Analyze's readiness switch: AU has a sourced AUD
+  // card and an AUD bench, while a market without either stays locked.
+  const analysisReady = marketplace.analyze_ready ?? marketIsUk;
+  const marketBand = marketplace.price_band;
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<"fast" | "full">("fast");
   const [loading, setLoading] = useState(false);
@@ -53,10 +60,19 @@ export default function DeepSearchPage() {
   const hasSoldPrices = (result?.sold_prices?.length ?? 0) > 0;
 
   useEffect(() => {
+    // A result carries the market it was produced for. Keeping a GBP result
+    // on screen after the selector moves to AUD would relabel old money, so
+    // the previous run is cleared with the market change.
+    setResult(null);
+    setError(null);
+    if (!marketIsUk) {
+      setActiveRange(null);
+      return;
+    }
     apiFetch<FiltersResponse>("/api/filters")
       .then((d) => setActiveRange(d.range))
       .catch(() => setActiveRange(null));
-  }, []);
+  }, [marketIsUk]);
 
   async function run(e?: FormEvent) {
     e?.preventDefault();
@@ -138,19 +154,40 @@ export default function DeepSearchPage() {
   }
 
   const v = (result?.verdict || "").toUpperCase() || "PENDING";
+  const displayRange = marketIsUk ? activeRange : marketBand;
+  const displayCurrency = result?.currency || marketplace.currency;
+  const displaySymbol =
+    result?.currency_symbol ||
+    marketplace.currency_symbol ||
+    currencySymbol(displayCurrency);
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-xl font-bold text-text-primary">Deep Search</h1>
         <Badge tone="info">
-          Active range{" "}
-          {activeRange ? `£${activeRange.min}–£${activeRange.max}` : "…"}
+          {marketIsUk ? "Active range" : `${marketplace.currency} range`}{" "}
+          {displayRange
+            ? `${displaySymbol}${displayRange.min}–${displaySymbol}${displayRange.max}`
+            : "…"}
         </Badge>
+        <Badge tone="info">{marketplace.label}</Badge>
       </div>
       <p className="text-sm text-text-secondary">
-        Deep research: eBay sold history + supplier prices + verdict
+        Deep research: eBay sold history + supplier prices + verdict in{" "}
+        {displayCurrency}
       </p>
+
+      {!analysisReady && (
+        <Card className="border-accent-amber/40">
+          <div className="text-sm text-accent-amber">
+            Deep Search is not enabled for {marketplace.label}. A registered fee
+            card and supplier bench are required before an AUD/USD profit can be
+            calculated. Switch to United Kingdom or use Deals and Titles to
+            browse this market.
+          </div>
+        </Card>
+      )}
 
       <Card>
         <form onSubmit={run} className="space-y-3">
@@ -160,20 +197,23 @@ export default function DeepSearchPage() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Product name or eBay URL…"
-                disabled={loading}
+                disabled={loading || !analysisReady}
               />
             </div>
             <div className="flex gap-2">
               <select
                 value={mode}
                 onChange={(e) => setMode(e.target.value as "fast" | "full")}
-                disabled={loading}
+                disabled={loading || !analysisReady}
                 className="bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-hidden focus:border-accent-blue"
               >
                 <option value="fast">Fast (~15s, no LLM)</option>
                 <option value="full">Full (LLM, minutes)</option>
               </select>
-              <Button type="submit" disabled={loading || !query.trim()}>
+              <Button
+                type="submit"
+                disabled={loading || !query.trim() || !analysisReady}
+              >
                 {loading ? "Searching…" : "Search"}
               </Button>
             </div>
@@ -181,7 +221,9 @@ export default function DeepSearchPage() {
         </form>
       </Card>
 
-      <RangeControl onApplied={(r) => setActiveRange(r)} />
+      {/* The UK band is user-adjustable. AU's band is fixed by the market
+          record (A$0.99–A$50.00), so there is nothing to adjust here. */}
+      {marketIsUk && <RangeControl onApplied={(r) => setActiveRange(r)} />}
 
       {loading && (
         <Card>
@@ -277,17 +319,20 @@ export default function DeepSearchPage() {
                       ? "Avg sold price"
                       : "Avg asking price",
                     prov: stamps.ebay_avg_price,
-                    value: formatGBP(result.ebay_avg_price),
+                    value: formatMoney(result.ebay_avg_price, displayCurrency),
                   },
                   {
                     label: hasSoldPrices ? "Sold price range" : "Asking range",
                     prov: stamps.ebay_price_min,
-                    value: `${formatGBP(result.ebay_price_min)} – ${formatGBP(result.ebay_price_max)}`,
+                    value: `${formatMoney(result.ebay_price_min, displayCurrency)} – ${formatMoney(result.ebay_price_max, displayCurrency)}`,
                   },
                   {
                     label: "Best supplier",
                     prov: stamps.best_supplier_price,
-                    value: formatGBP(result.best_supplier_price),
+                    value: formatMoney(
+                      result.best_supplier_price,
+                      displayCurrency
+                    ),
                   },
                   {
                     label: "Profit / Margin",
@@ -299,7 +344,7 @@ export default function DeepSearchPage() {
                             : "text-accent-red"
                         }
                       >
-                        {formatGBP(result.profit)} /{" "}
+                        {formatMoney(result.profit, displayCurrency)} /{" "}
                         {formatPercent(result.margin)}
                       </span>
                     ),
@@ -351,6 +396,7 @@ export default function DeepSearchPage() {
                   hasSoldPrices ? result.sold_prices : result.active_prices
                 }
                 average={result.ebay_avg_price}
+                currency={displayCurrency}
                 stamps={{
                   count: hasSoldPrices
                     ? stamps.sold_prices
@@ -395,7 +441,7 @@ export default function DeepSearchPage() {
                       </span>
                       <span className="text-text-secondary whitespace-nowrap">
                         {s.sold_count ?? "—"} observed listings ·{" "}
-                        {formatGBP(s.avg_price)}
+                        {formatMoney(s.avg_price, displayCurrency)}
                       </span>
                     </a>
                   ))}
@@ -464,7 +510,10 @@ export default function DeepSearchPage() {
                           Total landed:{" "}
                           {s.total_landed_cost != null ? (
                             <span className="font-mono tabular-nums">
-                              {formatGBP(s.total_landed_cost)}
+                              {formatMoney(
+                                s.total_landed_cost,
+                                s.currency || displayCurrency
+                              )}
                             </span>
                           ) : (
                             "not measured"
@@ -517,7 +566,7 @@ export default function DeepSearchPage() {
                       </div>
                       <div className="text-right">
                         <div className="text-lg font-bold text-text-primary">
-                          {formatGBP(s.price)}
+                          {formatMoney(s.price, s.currency || displayCurrency)}
                         </div>
                       </div>
                     </div>

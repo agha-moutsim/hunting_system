@@ -15,7 +15,7 @@ import {
   CartesianGrid,
   Legend,
 } from "recharts";
-import { formatGBP } from "@/lib/format";
+import { currencySymbol, formatMoney } from "@/lib/format";
 import { bucketPrices, distributionView } from "@/lib/buckets";
 import { infoTitle } from "@/lib/provenance";
 import type { ProvenanceInfo } from "@/lib/types";
@@ -153,6 +153,7 @@ export function SoldPriceDistribution({
   prices,
   average,
   stamps,
+  currency = "GBP",
 }: {
   prices?: number[] | null;
   average?: number | null;
@@ -161,6 +162,7 @@ export function SoldPriceDistribution({
     avg?: ProvenanceInfo;
     range?: ProvenanceInfo;
   };
+  currency?: string;
 }) {
   const view = distributionView(prices);
 
@@ -206,7 +208,9 @@ export function SoldPriceDistribution({
           <Tooltip
             contentStyle={tooltipStyle}
             formatter={(value: number | string) => [String(value), "Sales"]}
-            labelFormatter={(label: string | number) => `£${label}`}
+            labelFormatter={(label: string | number) =>
+              `${currencySymbol(currency)}${label}`
+            }
           />
           <Bar dataKey="count" fill="#0D1CC4" radius={[4, 4, 0, 0]} />
         </BarChart>
@@ -218,12 +222,12 @@ export function SoldPriceDistribution({
         </span>
         <span aria-hidden="true">·</span>
         <span className="inline-flex items-center gap-1">
-          avg {formatGBP(avg)}
+          avg {formatMoney(avg, currency)}
           {badge(stamps?.avg)}
         </span>
         <span aria-hidden="true">·</span>
         <span className="inline-flex items-center gap-1">
-          range {formatGBP(min)}–{formatGBP(max)}
+          range {formatMoney(min, currency)}–{formatMoney(max, currency)}
           {badge(stamps?.range)}
         </span>
         {span === 0 && <span>all sales at one price</span>}

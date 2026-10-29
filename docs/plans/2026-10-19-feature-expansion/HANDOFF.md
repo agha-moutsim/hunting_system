@@ -1,6 +1,6 @@
 # Handoff - current state
 
-Last updated: 2026-10-29, AU Analyze (Phase E1) landed; next is AU Phase E2 Deep Search.
+Last updated: 2026-10-29, AU Deep Search (Phase E2) landed; next is AU Phase E3 Bulk.
 Read this first, then `implementation.md` (phase specs and rules) and `design.md` (surfaces).
 
 ## Where the work stands
@@ -27,7 +27,7 @@ three commits per phase.
 ## Next move
 
 Phase J is implemented and verified; the ten planned phases are complete. The active work is
-the AU market thread below: **Phase E1 (Analyze) just closed**, and **Phase E2 (Deep Search) is
+the AU market thread below: **Phase E2 (Deep Search) just closed**, and **Phase E3 (Bulk) is
 next**. The older user-owned list under "Pending items that need the user's word" and the two
 exposed credentials remain open. There is no Phase K.
 
@@ -79,9 +79,22 @@ The Australian build is a separate six-phase thread on top of the ten shipped ph
   AUD rows pass through, and CJ's USD rows are tagged and excluded with a sentence rather
   than converted. AU results are not written to History. Details:
   `docs/au-market/analyze.md`; pins: `tests/test_au_currency.py`,
-  `tests/test_au_analyze.py`, plus the updated market/route tests. **Next:** Phase E2 Deep
-  Search, then E3 Bulk, E4 Category Hunter, E5 fee calculator; Phase F is UI + docs. Three
-  commits per phase, a short report at each phase end.
+  `tests/test_au_analyze.py`, plus the updated market/route tests.
+- **Phase E2 - complete (three commits).** Deep Search is unlocked through `analyze_ready`,
+  not a UK-only gate. The sold scraper follows `EBAY_AU` (AUD, ebay.com.au,
+  `deliveryCountry:AU`, `priceCurrency:AUD`), the run uses the AUD band and 15/10 floors, the
+  LLM prompt asks for A$, and web/SerpApi queries are scoped to the AU bench (AliExpress + CJ).
+  Supplier rows carry their own currency; a USD row is excluded with a sentence, never
+  converted, and an untagged row is not assumed to be AUD. Job records and every poll payload
+  carry `marketplace`/`currency`/`currency_symbol`. The UI reads the marketplace, hides the AU
+  `RangeControl`, formats every amount in its own currency, clears a stale result on a market
+  switch, and shows a lock notice for a market without `analyze_ready`. Checks: backend
+  **1963 passed, 9 deselected**; frontend **216 tests across 16 files**, typecheck and
+  production build clean. Details: `docs/au-market/deep-search.md`; pins:
+  `tests/test_au_deep_search.py`, updated `tests/test_markets.py`, and the unchanged UK
+  job/provenance/store pins. **Next:** Phase E3
+  Bulk, then E4 Category Hunter, E5 fee calculator; Phase F is UI + docs. Three commits per
+  phase, a short report at each phase end.
 
 Still open from the older thread: the live-browser capture gap, the history migration spec,
 the four redundant `listing_observations` rows on `266923866336`, Deep Search/batch observation

@@ -23,6 +23,11 @@ export function formatMoney(
   return symbol ? `${symbol}${n.toFixed(2)}` : `${n.toFixed(2)} ${code}`;
 }
 
+export function currencySymbol(currency = "GBP"): string {
+  const code = (currency || "GBP").toUpperCase();
+  return CURRENCY_SYMBOLS[code] || code;
+}
+
 export function formatGBP(n: number | null | undefined): string {
   return formatMoney(n, "GBP");
 }

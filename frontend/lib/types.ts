@@ -368,6 +368,8 @@ export interface SupplierInfo extends Omit<
   name: string;
   full_name?: string;
   price: number;
+  /** ISO code for THIS row's price. Absent means the source stated none. */
+  currency?: string;
   url: string;
   supplier_type?: string;
   delivery_days?: string | number;
@@ -450,6 +452,11 @@ export interface DeepSearchResult {
    * single-store result went unnoticed.
    */
   ebay_stores_provenance?: ProvenanceInfo;
+  /** Phase E2 — the market this run belongs to and the currency of every
+   *  figure above. Older stored payloads may omit these. */
+  marketplace?: string;
+  currency?: string;
+  currency_symbol?: string;
 }
 
 export interface BulkResponse {
