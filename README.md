@@ -141,23 +141,34 @@ The frontend is a thin presentation layer — it renders what the API computes a
 
 ---
 
-## Verification and provenance
+## Verification, matching, and provenance
 
-Most sourcing tools show a number and let you assume it is true. This one labels every value with **how it was obtained**, and refuses to fill gaps.
+Most sourcing tools show an unverified number and let the user assume it is true. eBay Hunter labels every factual field with **how it was obtained**, records an audit trail, and refuses to fabricate missing values.
 
-| Label        | Meaning                                                                       |
-| ------------ | ----------------------------------------------------------------------------- |
-| `verified`   | Read from a real API response or a successfully parsed page                   |
-| `estimated`  | Derived by a stated method (e.g. a demand figure inferred from sold listings) |
-| `unverified` | We could not confirm it — _and the reason travels with the value_             |
-| `ai_insight` | Produced by the LLM. Never used for a factual field                           |
+| Label        | Meaning                                                                      |
+| ------------ | ---------------------------------------------------------------------------- |
+| `verified`   | Read directly from a verified API payload, parsed page, or browser capture   |
+| `estimated`  | Derived by a transparent, stated algorithm (e.g., 30d sold listing cadence)  |
+| `unverified` | Data could not be validated — _the underlying reason travels with the field_ |
+| `ai_insight` | Produced by LLM semantic evaluation. Structurally prohibited from numbers    |
 
-Concrete consequences of that rule:
+### Deterministic product matching (C14)
 
-- **Product matching is scored, not guessed.** Every supplier row is scored against the eBay title with a deterministic matcher combining title tokens, price plausibility and perceptual image hashing. Rows below threshold are dropped rather than shown — _fewer suppliers is correct; padding one in is not._
-- **Supplier prices are never range-gated.** Only eBay listing selection respects the price band, so a cheap legitimate source cannot be filtered out of the margin calculation.
-- **A blocked supplier is reported as blocked.** Rows carry their own stock and shipping wording, read from the source. An unread value stays empty — never `0.00`, which would read as free postage.
-- **Store links are checked, not assumed.** eBay storefront URLs are verified before being presented, so a dead shop shows as "store not found" instead of a link to nothing.
+Similar titles are not proof of identical products. Every candidate supplier listing is evaluated through `backend/engine/match.py` against a multi-modal deterministic scoring engine:
+
+1. **Token Overlap & Normalization:** Strips stop words, normalizes technical dimensions, and evaluates title token intersection weighted by term specificity.
+2. **Price Plausibility Bounding:** Rejects accessory, part, or mismatch anomalies where supplier unit pricing falls outside a plausible ratio relative to the target item.
+3. **Perceptual Image Hashing (`pHash`):** Compares perceptual hash Hamming distances when both listing images are accessible, verifying visual packaging and form factor.
+4. **Hard Score Thresholding:** Match scores are computed dynamically (never static constants). Candidates scoring below threshold are discarded or marked `unverified` (_"no confirmed match"_). Padding supplier counts is strictly forbidden.
+
+### Passive browser capture pipeline (`extension/`)
+
+While eBay's public search API yields 30-day sold listings, 7-day high-resolution velocity is verified using the Chrome MV3 passive extension:
+
+- Captures verified Item Purchase History from live authenticated listing pages.
+- Transmits cryptographic session-safe payload to `POST /api/extension/capture`.
+- Upgrades demand provenance from `estimated` to `verified` with an immutable `captured_at` timestamp.
+- Enforces a 24-hour staleness TTL, ensuring expired captures degrade to unverified status rather than serving outdated demand signals.
 
 ---
 
