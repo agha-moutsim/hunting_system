@@ -4,7 +4,7 @@
 
 # eBay Hunter
 
-**Sourcing intelligence for eBay UK resellers.**
+**Sourcing intelligence and multi-marketplace analytics for eBay resellers.**
 
 Turn a product idea into a sourcing decision in about 90 seconds — what it actually sells for, what it costs from approved suppliers, profit after eBay's fees, and a pass/fail verdict against rules you control.
 
@@ -16,7 +16,7 @@ Turn a product idea into a sourcing decision in about 90 seconds — what it act
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind%204-06B6D4?logo=tailwindcss&logoColor=white)
 ![Playwright](https://img.shields.io/badge/Playwright-2EAD33?logo=playwright&logoColor=white)
 
-![Tests](https://img.shields.io/badge/tests-1163%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-1979%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-all%20rights%20reserved-lightgrey)
 
 </div>
@@ -27,7 +27,7 @@ Turn a product idea into a sourcing decision in about 90 seconds — what it act
 
 eBay Hunter answers one question: **should I buy this and where from?**
 
-It is built for resellers working the **£5–£35 generic-product range**, who need to screen dozens of candidates without spending twenty minutes of manual research on each one. A full analysis runs end to end in roughly 90 seconds and returns a decision, not a pile of raw data.
+It is architected for resellers sourcing high-velocity generic products across **eBay UK** (`ebay.co.uk`, default £5–£35 band) and **eBay Australia** (`ebay.com.au`, default A$0.99–A$50.00 band). It eliminates manual cross-referencing by evaluating real sold history, querying market-scoped supplier benches, computing net profit using official transcribed rate cards, and evaluating a deterministic verdict pipeline. A full analysis completes in roughly 90 seconds and surfaces an actionable decision backed by strict provenance tracking.
 
 Two design principles run through every layer:
 
