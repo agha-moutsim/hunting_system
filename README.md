@@ -183,30 +183,26 @@ Each entry in `backend/suppliers.json` records its `enabled` flag, the evidence 
 
 ## Business rules
 
-| Rule           | Threshold                                                                                                          |
-| -------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Buy price      | £5 – £35 default, user-adjustable (supplier prices never gated)                                                    |
-| Minimum margin | ≥ 25% of sale price                                                                                                |
-| Demand         | ≥ 30 sold / 30 days; ≥ 8 sold / 7 days (7d uses purchase-history data when available, otherwise reports `PENDING`) |
-| Condition      | New only — non-New listings are refused before supplier or LLM spend                                               |
-| Delivery       | Advisory — compares eBay estimate against the supplier's stated days; never gates                                  |
-| Brand          | VeRO check — brands on eBay's VeRO list fail; unregistered names pass                                              |
-| Fees           | 13.5% final value + 0.03% listing + 20% VAT on fees + 3% returns buffer                                            |
-| Packaging      | £0.00 — dropship model carries no packaging cost                                                                   |
+| Rule           | Threshold                                                                                                         |
+| -------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Buy price      | UK: £5 – £35 default · AU: A$0.99 – A$50.00 default, user-adjustable (supplier prices never gated)                |
+| Minimum margin | ≥ 25% of sale price (configurable per search filter)                                                              |
+| Demand         | UK: ≥ 30 sold / 30d, ≥ 8 sold / 7d · AU: ≥ 15 sold / 30d, ≥ 10 sold / 7d (7d verified via purchase history)       |
+| Condition      | New only — non-New listings are refused at query time before supplier or LLM spend                                |
+| Delivery       | Advisory — compares marketplace estimate against supplier stated transit; never flips verdict                     |
+| Brand          | Generic products only — registered VeRO brands fail; unbranded/generic pass; ambiguous hold at `PENDING`          |
+| Fees           | Official transcribed rate card (`uk-rate-card-2026-09-30` / `au-rate-card-2026-10-09`) + 3% seller returns buffer |
+| Packaging      | £0.00 / A$0.00 — dropship fulfilment model carries zero unit packaging overhead                                   |
 
-Fees are modelled as they actually accrue, VAT applied to eBay's fees rather than to the sale:
+### Fee engine and rate cards
 
-```python
-ebay_fee       = sale_price * 0.135
-listing_fee    = sale_price * 0.0003
-vat_on_fees    = (ebay_fee + listing_fee) * 0.20
-returns_buffer = sale_price * 0.03
-packaging      = 0.00
+Rather than relying on flat percentage approximations, fee calculations are driven by deterministic rate cards transcribed from verified official schedule snapshots and audited against published worked examples:
 
-total_fees = ebay_fee + listing_fee + vat_on_fees + returns_buffer + packaging
-profit     = sale_price - supplier_price - total_fees - shipping_cost
-margin     = profit / sale_price * 100
-```
+- **eBay UK (`uk-rate-card-2026-09-30`):** Models category-specific Final Value Fees (6.9%–14.9%) with tiered maxima, fixed per-order fees (£0.30 for orders ≤ £10, £0.40 above), 0.35% regulatory operating fee, 20% VAT applied to fees (recoverable for VAT-registered entities), and distinct private seller exemptions.
+- **eBay Australia (`au-rate-card-2026-10-09`):** Implements dual seller branches:
+  - _eBay Pro (Business):_ Four subscription plans (Basic to Enterprise), Tier 1–4 category rates, per-order fee (A$0.33), over-A$4,000 step-down, and 1.1% international transaction fees.
+  - _Free Selling (Individual):_ 0% FVF, 3% international transaction fee, with mandatory label requirements verified as predicates rather than fees. GST is handled as inclusive per ATO requirements and never double-levied.
+- **Unified Mathematical Authority:** All pipeline stages, batch evaluation, and the interactive UI calculator execute through `backend/engine/fees.py` (`sale_outcome()`), guaranteeing identical fee, net profit, and margin figures across every touchpoint by construction.
 
 Default thresholds live in `backend/config.py` — `PROFIT_CONFIG`, `demand_min_30d: 30`, `demand_min_7d: 8` — and margin minimum defaults to 25% per filter set.
 
