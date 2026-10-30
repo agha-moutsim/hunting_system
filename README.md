@@ -161,23 +161,29 @@ Concrete consequences of that rule:
 
 ---
 
-## Suppliers
+## Suppliers and market benches
 
-Five suppliers are live. Each has a recorded access path, and anything disabled carries the evidence for why.
+The supplier bench is a first-class marketplace property. Sourcing queries instantiate only the active bench configured for the target marketplace:
 
-| Supplier            | Status                | Access path                                                                 |
-| ------------------- | --------------------- | --------------------------------------------------------------------------- |
-| **AliExpress**      | ✅ Enabled            | API when keyed, Playwright otherwise                                        |
-| **CJ Dropshipping** | ✅ Enabled            | API when keyed, Playwright otherwise                                        |
-| **B&Q**             | ✅ Enabled            | Playwright + Google Shopping discovery                                      |
-| **Toolstation**     | ✅ Enabled            | Playwright + Google Shopping discovery                                      |
-| **Joybuy UK**       | ⚠️ Enabled — link-out | Read from Google's web index; the site's own bot protection is not bypassed |
-| **Amazon UK**       | ⛔ Disabled           | PA-API 5 deprecated; licence bars aggregating product data for analysis     |
-| **GoDropship**      | ⛔ Disabled           | Domain is a for-sale parking page                                           |
+| Supplier            | UK Bench    | AU Bench    | Access path & implementation                                               |
+| ------------------- | ----------- | ----------- | -------------------------------------------------------------------------- |
+| **AliExpress**      | ✅ Enabled  | ✅ Enabled  | Direct API when keyed; stealth Playwright fallback with localized AliGate  |
+| **CJ Dropshipping** | ✅ Enabled  | ✅ Enabled  | Official API when keyed; Playwright automation fallback                    |
+| **B&Q**             | ✅ Enabled  | ⛔ Disabled | Playwright + Google Shopping discovery (UK domestic retailer)              |
+| **Toolstation**     | ✅ Enabled  | ⛔ Disabled | Playwright + Google Shopping discovery (UK domestic retailer)              |
+| **Joybuy UK**       | ⚠️ Link-out | ⛔ Disabled | Google web index scraper (zero direct bot challenge bypass); UK only       |
+| **Amazon UK**       | ⛔ Disabled | ⛔ Disabled | PA-API 5 deprecated; terms prohibit aggregating catalog data for analytics |
+| **GoDropship**      | ⛔ Disabled | ⛔ Disabled | Domain parked / inactive supplier                                          |
 
-Each entry in `backend/suppliers.json` records its `enabled` flag, the evidence behind that state, and a `revisit_if` condition describing what would change the decision.
+Entries in `backend/suppliers.json` document active status, access rationale, and `revisit_if` triggers.
 
-> **Note on Joybuy:** its own site is defended by a risk-control challenge that survives headless Chromium, stealth and residential proxies. Rather than fake a workaround, the integration reads Google's index of Joybuy and never contacts the supplier. The honest limitation is recorded next to the flag: roughly 20% of its listings come back with a price, so it functions as a link-out source rather than a pricing source.
+### Currency isolation and FX policy
+
+To eliminate phantom margins caused by unhedged FX rate assumptions, pricing enforces strict currency boundary isolation:
+
+- **Targeted AliGate Routing:** AliExpress requests specify market-specific locales (`en_GB`/`GBP` for UK, `en_AU`/`AUD` for Australia).
+- **CJ Dropshipping Policy:** CJ quotes denominated in USD pass through a pinned 0.79 USD→GBP FX path for UK calculations. In the AU pipeline, unhedged USD supplier rows are tagged `USD` and excluded from AUD margin comparison with an explicit explanatory notice rather than silently converted.
+- **Strict Tagging:** Any supplier row without an explicit verified currency tag is rejected from margin gates — currency is never inferred.
 
 ---
 
