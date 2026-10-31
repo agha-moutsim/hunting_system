@@ -103,3 +103,7 @@ bench's scraper tasks, so a narrower bench cannot call an unlisted source.
   missing USD card.
 - `tests/test_deep_search_jobs.py`, `tests/test_provenance.py`,
   `tests/test_store_wiring.py` - UK call shapes and job lifecycle unchanged.
+
+## Observations
+
+Deep Search now saves a reduced observation set from the eBay rows it read, without an extra API call. Bulk inherits this through deep_search_fast().
