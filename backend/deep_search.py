@@ -1056,6 +1056,95 @@ def _stamp_provenance(result: "DeepSearchResult") -> None:
         result.field_provenance.setdefault("ebay_stores", dict(result.ebay_stores_provenance))
 
 
+
+def _save_deep_search_observations(market, query, sold_data):
+    """Best-effort observation wiring for Deep Search.
+
+    Deep Search does not run the full Analyze EbayScraper, so it cannot
+    produce the same Browse field payloads. It still records the real eBay
+    rows it read as a reduced observation set, without an extra API call.
+    """
+    try:
+        from datetime import datetime
+
+        from analysis_pipeline import _save_observations
+        from db.database import SessionLocal
+        from scrapers.browse_fields import query_listing
+
+        items = getattr(sold_data, "items", None) or []
+        readings = []
+        for item in items:
+            url = getattr(item, "url", "") or ""
+            match = re.search(r"/itm/(\d+)", url) or re.search(r"(\d{8,})", url)
+            if not match:
+                continue
+            listing_id = match.group(1)
+            payload = {
+                "itemId": listing_id,
+                "title": getattr(item, "title", None),
+                "itemWebUrl": url,
+                "price": {
+                    "value": getattr(item, "price", None),
+                    "currency": market.get("currency"),
+                },
+                "seller": {"username": getattr(item, "seller", None)},
+                "condition": getattr(item, "condition", None),
+            }
+            source = "ebay_uk" if market["id"] == "EBAY_GB" else "ebay_" + market["country_code"].lower()
+            readings.append((listing_id, payload, source))
+
+        listings = []
+        seen = set()
+        for item in items:
+            url = getattr(item, "url", "") or ""
+            match = re.search(r"/itm/(\d+)", url) or re.search(r"(\d{8,})", url)
+            if not match:
+                continue
+            payload = {
+                "itemId": match.group(1),
+                "title": getattr(item, "title", None),
+                "itemWebUrl": url,
+                "price": {
+                    "value": getattr(item, "price", None),
+                    "currency": market.get("currency"),
+                },
+            }
+            row = query_listing(payload)
+            if row is not None and row["listing_id"] not in seen:
+                seen.add(row["listing_id"])
+                listings.append(row)
+
+        band = getattr(sold_data, "_band_used", None)
+        if band is None:
+            band = market.get("price_band") or {}
+            band = (band.get("min", ""), band.get("max", ""))
+        query_observation = {
+            "query": query,
+            "observed_at": datetime.utcnow(),
+            "source": "browse_search",
+            "filter": "price:[{}..{}]".format(band[0], band[1]),
+            "limit": len(items),
+            "listings": listings,
+        }
+
+        db = SessionLocal()
+        try:
+            _save_observations(
+                db,
+                {
+                    "observations": readings,
+                    "query_observations": [query_observation],
+                },
+            )
+        finally:
+            db.close()
+    except Exception as exc:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).warning(
+            "Deep Search observations not stored: %s", exc
+        )
+
+
 def deep_search_product(
     query: str,
     budget_s: float | None = None,
@@ -1170,6 +1259,8 @@ def deep_search_product(
     result.attach_stores(
         sold_data=sold_for_stores, query=query, marketplace=market["id"]
     )
+    _save_deep_search_observations(market, query, sold_data)
+
     # The eBay query and the stores off it are the floor of any answer: they
     # are published before anything discretionary can go wrong.
     _publish()
@@ -1512,6 +1603,11 @@ def deep_search_fast(
             print(f"[WARN] eBay sold: no items found for '{query}'")
     except Exception as e:
         print(f"[WARN] eBay sold data failed: {e}")
+
+    try:
+        _save_deep_search_observations(market, query, sold_data)
+    except Exception:
+        pass
 
     # C11 — stores for Bulk, from the query we just ran.
     #
