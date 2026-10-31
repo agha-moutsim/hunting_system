@@ -136,8 +136,15 @@ def is_data_fresh(db: Session, product_id: int, max_age_hours: int = 24) -> bool
     return age < timedelta(hours=max_age_hours)
 
 
-def save_product(db: Session, product: ScrapedProduct) -> int:
+def save_product(
+    db: Session,
+    product: ScrapedProduct,
+    marketplace: str | None = None,
+    currency: str | None = None,
+) -> int:
     """Save a scraped product and return its ID."""
+    market = marketplace or getattr(product, "marketplace", None) or "EBAY_GB"
+    money = currency or getattr(product, "currency", None) or "GBP"
     existing = db.query(Product).filter(Product.ebay_url == product.url).first()
     if existing:
         existing.title = product.title
@@ -145,6 +152,8 @@ def save_product(db: Session, product: ScrapedProduct) -> int:
         existing.image_url = product.image_url
         existing.seller = product.seller
         existing.condition = product.condition
+        existing.marketplace = market
+        existing.currency = money
         existing.updated_at = datetime.utcnow()
         db.commit()
         db.refresh(existing)
@@ -157,6 +166,8 @@ def save_product(db: Session, product: ScrapedProduct) -> int:
         image_url=product.image_url,
         seller=product.seller,
         condition=product.condition,
+        marketplace=market,
+        currency=money,
     )
     db.add(new_product)
     db.commit()
@@ -304,6 +315,8 @@ def get_recent_products(db: Session, limit: int = 20) -> list[dict]:
             "id": p.id,
             "title": p.title,
             "price": p.price,
+            "marketplace": p.marketplace or "EBAY_GB",
+            "currency": p.currency or "GBP",
             "url": p.ebay_url,
             "image_url": p.image_url,
             "verdict": v.verdict if v else None,

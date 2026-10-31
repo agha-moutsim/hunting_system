@@ -975,7 +975,12 @@ def save_analysis_to_db(results: dict):
             _save_observations(db, results)
             return
 
-        product_id = save_product(db, ebay_product)
+        product_id = save_product(
+            db,
+            ebay_product,
+            marketplace=results.get("marketplace"),
+            currency=results.get("currency"),
+        )
 
         if demand:
             save_demand_data(db, product_id, demand)

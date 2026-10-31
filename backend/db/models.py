@@ -31,6 +31,11 @@ class Product(Base):
     seller = Column(String(128))
     image_url = Column(Text)
     category = Column(String(128))
+    # Phase F - stored analyses carry their own currency so AU rows can be
+    # written to History without being compared with GBP ones. Existing rows
+    # default to the historical UK market.
+    marketplace = Column(String(16), default="EBAY_GB")
+    currency = Column(String(8), default="GBP")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

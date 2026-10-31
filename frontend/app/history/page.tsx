@@ -21,7 +21,7 @@ import {
   ProductDetail,
   ScrapedProduct,
 } from "@/lib/types";
-import { formatGBP, formatDate, truncate } from "@/lib/format";
+import { formatMoney, formatDate, truncate } from "@/lib/format";
 
 function parseFilters(raw: unknown): FilterCheck[] {
   if (!raw) return [];
@@ -109,7 +109,7 @@ export default function HistoryPage() {
       align: "right",
       render: (r) => (
         <span className="inline-flex items-center justify-end gap-1.5">
-          {formatGBP(r.price)}
+          {formatMoney(r.price, r.currency || "GBP")}
           {r.outside_band && <OutsideBandBadge />}
         </span>
       ),
@@ -124,7 +124,7 @@ export default function HistoryPage() {
           <span
             className={r.profit > 0 ? "text-accent-green" : "text-accent-red"}
           >
-            {formatGBP(r.profit)}
+            {formatMoney(r.profit, r.currency || "GBP")}
           </span>
         ) : (
           <span className="text-text-dim">—</span>

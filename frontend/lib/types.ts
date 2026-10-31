@@ -987,6 +987,8 @@ export interface HistoryItem {
   id: number;
   title: string;
   price?: number | null;
+  currency?: string;
+  marketplace?: string;
   url?: string;
   image_url?: string | null;
   verdict?: string | null;

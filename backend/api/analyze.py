@@ -167,7 +167,9 @@ def analyze(req: AnalyzeRequest, request: Request = None):
         filters.update(req.filters or {})
         filters = clamp_band(filters, market_defaults or None)
 
-    history_allowed = market["id"] == "EBAY_GB"
+    # Stored analyses now carry marketplace and currency, so AU rows can be
+    # written to History without being compared with GBP ones.
+    history_allowed = True
     history_refusal = (
         f"This result is not written to History: stored analyses do not carry "
         f"a currency, and keeping {market['currency']} prices beside GBP ones "

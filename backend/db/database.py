@@ -412,3 +412,27 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+# Phase F - stored analyses now carry their own marketplace and currency.
+_PRODUCT_ADDITIONS = (
+    ("marketplace", "VARCHAR(16) NOT NULL DEFAULT 'EBAY_GB'"),
+    ("currency", "VARCHAR(8) NOT NULL DEFAULT 'GBP'"),
+)
+
+def ensure_product_columns() -> list[str]:
+    from sqlalchemy import inspect, text
+    inspector = inspect(engine)
+    if not inspector.has_table("products"):
+        return []
+    existing = {c["name"] for c in inspector.get_columns("products")}
+    added = []
+    for name, ddl in _PRODUCT_ADDITIONS:
+        if name in existing:
+            continue
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE products ADD COLUMN " + name + " " + ddl))
+        added.append(name)
+    return added
+
+ensure_product_columns()
