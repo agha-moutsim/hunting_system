@@ -65,6 +65,9 @@ class OllamaClient:
             # ~21s, which a call that then has ~55s of budget cannot spare.
             "keep_alive": self.keep_alive,
             "options": {"temperature": self.temperature, "num_predict": OLLAMA_NUM_PREDICT},
+            # qwen3 thinking models spend num_predict on reasoning and can
+            # return an empty response; disable thinking for JSON calls.
+            "think": False,
         }
         if system:
             payload["system"] = system

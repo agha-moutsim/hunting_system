@@ -362,6 +362,9 @@ def _ollama_generate(
         "options": {
             "num_predict": OLLAMA_NUM_PREDICT,
         },
+        # qwen3 thinking models spend num_predict on reasoning and can return
+        # an empty response; disable thinking for the JSON-generating calls.
+        "think": False,
     }
 
     try:
