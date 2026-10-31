@@ -17,8 +17,7 @@ import { AnalyzeResponse, FiltersResponse, PriceRange } from "@/lib/types";
 export default function AnalyzePage() {
   const { marketplace } = useMarketplace();
   const marketIsUk = marketplace.id === "EBAY_GB";
-  // Analyze and the standalone fee calculator are separate switches: AU runs
-  // a full AUD analysis while its calculator stays locked until Phase E5.
+  // AU runs a full AUD analysis with its sourced card and supplier bench.
   const fullAnalysis = marketplace.analyze_ready ?? marketIsUk;
   const supplierCount = marketplace.supplier_bench?.length ?? 0;
   const marketBand = marketplace.price_band;
@@ -154,20 +153,6 @@ export default function AnalyzePage() {
           </p>
         </Card>
       )}
-
-      {fullAnalysis &&
-        !marketplace.fee_calculator_ready &&
-        marketplace.fee_warning && (
-          <Card className="border-accent-amber/40">
-            <div className="text-sm text-accent-amber">
-              {marketplace.fee_warning}
-            </div>
-            <p className="mt-1 text-xs text-text-secondary">
-              Analyze runs in {marketplace.currency} and prices with the
-              registered card; the standalone fee calculator stays locked.
-            </p>
-          </Card>
-        )}
 
       {error && (
         <Card className="border-accent-red/40">

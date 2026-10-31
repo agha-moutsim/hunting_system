@@ -10,7 +10,7 @@ import {
   UNKNOWN_PROFIT,
 } from "@/components/ui/HotBadge";
 import { CategoryProduct, HunterLookupSummary } from "@/lib/types";
-import { formatGBP, formatPercent } from "@/lib/format";
+import { currencySymbol, formatMoney, formatPercent } from "@/lib/format";
 
 /**
  * The empty state.
@@ -25,12 +25,15 @@ export function HunterEmptyState({
   searchText,
   mode,
   summary,
+  currency = "GBP",
 }: {
   searchText?: string;
   mode?: "category" | "keyword";
   summary?: HunterLookupSummary | null;
+  currency?: string;
 }) {
   const looked = searchText ? `'${searchText}'` : "this search";
+  const symbol = currencySymbol(currency);
 
   return (
     <div className="rounded-lg border border-border bg-bg-surface p-6 text-center space-y-3">
@@ -42,8 +45,9 @@ export function HunterEmptyState({
         {summary && summary.scanned > 0 ? (
           <>
             eBay returned {summary.scanned} listing
-            {summary.scanned === 1 ? "" : "s"} for {looked} in £
-            {summary.price_min}–£{summary.price_max}, but{" "}
+            {summary.scanned === 1 ? "" : "s"} for {looked} in {symbol}
+            {summary.price_min}-{symbol}
+            {summary.price_max}, but{" "}
             {summary.with_supplier === 0 ? (
               <>
                 {summary.no_supplier + summary.timed_out} could not be matched
@@ -67,20 +71,20 @@ export function HunterEmptyState({
         {summary && summary.timed_out > 0 && (
           <li>
             {summary.timed_out} supplier lookup
-            {summary.timed_out === 1 ? "" : "s"} timed out — run it again, it is
+            {summary.timed_out === 1 ? "" : "s"} timed out - run it again, it is
             usually faster the second time.
           </li>
         )}
         {summary && summary.out_of_band > 0 && (
           <li>
             {summary.out_of_band} listing
-            {summary.out_of_band === 1 ? " was" : "s were"} outside £
-            {summary.price_min}–£{summary.price_max} — widen the price range to
-            include more.
+            {summary.out_of_band === 1 ? " was" : "s were"} outside {symbol}
+            {summary.price_min}-{symbol}
+            {summary.price_max} - widen the price range to include more.
           </li>
         )}
         <li>
-          Try a broader word — “cordless drill” finds more than an exact model
+          Try a broader word - "cordless drill" finds more than an exact model
           number.
         </li>
         <li>
@@ -99,7 +103,7 @@ export function HunterEmptyState({
  * to render as a confident red GBP0.00 (0.0%). It now renders as a dash with
  * the reason, because that is what a missing value looks like.
  */
-export function ProfitCell({ row }: { row: CategoryProduct }) {
+export function ProfitCell({ row, currency = "GBP" }: { row: CategoryProduct; currency?: string }) {
   if (!hasRealProfit(row)) {
     return (
       <span
@@ -119,7 +123,7 @@ export function ProfitCell({ row }: { row: CategoryProduct }) {
   const value = row.profit as number;
   return (
     <span className={value > 0 ? "text-accent-green" : "text-accent-red"}>
-      {formatGBP(value)}
+      {formatMoney(value, currency)}
       {row.margin != null ? ` (${formatPercent(row.margin)})` : ""}
     </span>
   );
@@ -129,9 +133,11 @@ export function ProfitCell({ row }: { row: CategoryProduct }) {
 export function SupplierCell({
   row,
   report,
+  currency = "GBP",
 }: {
   row: CategoryProduct;
   report: boolean;
+  currency?: string;
 }) {
   if (row.supplier_name) {
     return (
@@ -142,24 +148,24 @@ export function SupplierCell({
           rel="noopener noreferrer"
           className="text-accent-blue hover:underline"
         >
-          {row.supplier_name} {formatGBP(row.supplier_price ?? 0)}
+          {row.supplier_name} {formatMoney(row.supplier_price ?? 0, currency)}
         </a>
         {row.supplier_total_landed_cost != null && (
           <div className="text-[11px] text-text-dim">
-            Landed {formatGBP(row.supplier_total_landed_cost)}
-            {row.supplier_sourcing_preferred ? " · preferred" : ""}
+            Landed {formatMoney(row.supplier_total_landed_cost, currency)}
+            {row.supplier_sourcing_preferred ? " - preferred" : ""}
           </div>
         )}
         {row.supplier_sourcing_reasons &&
           row.supplier_sourcing_reasons.length > 0 && (
             <div className="text-[11px] text-text-dim">
-              {row.supplier_sourcing_reasons.join(" · ")}
+              {row.supplier_sourcing_reasons.join(" - ")}
             </div>
           )}
       </div>
     );
   }
-  if (!report) return <span className="text-text-dim">…</span>;
+  if (!report) return <span className="text-text-dim">-</span>;
 
   const label =
     row.supplier_status === "timeout"
@@ -186,7 +192,7 @@ export function DemandCell({ row }: { row: CategoryProduct }) {
   const base = row.demand_pace_30d_per_week;
   return (
     <span title={row.hot_basis || row.hot_reason || undefined}>
-      {row.sold_30d ?? "—"}
+      {row.sold_30d ?? "-"}
       {d7 != null && base != null && (
         <span className="text-text-dim text-xs">
           {" "}

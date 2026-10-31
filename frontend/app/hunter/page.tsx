@@ -230,7 +230,9 @@ export default function HunterPage() {
     {
       key: "supplier",
       header: "Supplier",
-      render: (r) => <SupplierCell row={r} report={!!report} />,
+      render: (r) => (
+        <SupplierCell row={r} report={!!report} currency={marketplace.currency} />
+      ),
       sortValue: (r) => r.supplier_price ?? -1,
     },
     {
@@ -240,7 +242,7 @@ export default function HunterPage() {
       // REGRESSION-005: a row with no supplier has profit 0 and provenance
       // "unverified" - that is the ABSENCE of a calculation, so it renders as
       // a dash with the reason rather than a confident red GBP0.00.
-      render: (r) => <ProfitCell row={r} />,
+      render: (r) => <ProfitCell row={r} currency={marketplace.currency} />,
       sortValue: (r) => (hasRealProfit(r) ? (r.profit as number) : -1),
     },
     {
@@ -587,6 +589,7 @@ export default function HunterPage() {
             searchText={scan?.search?.text || category.trim() || undefined}
             mode={scan?.search?.mode}
             summary={report?.summary}
+            currency={marketplace.currency}
           />
         )}
 

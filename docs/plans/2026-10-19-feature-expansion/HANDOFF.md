@@ -1,6 +1,6 @@
 # Handoff - current state
 
-Last updated: 2026-10-29, AU Fee Calculator (Phase E5) landed; next is AU Phase F UI + docs.
+Last updated: 2026-10-31, AU UI surfaces (Phase F) landed; AU market thread complete.
 Read this first, then `implementation.md` (phase specs and rules) and `design.md` (surfaces).
 
 ## Where the work stands
@@ -26,10 +26,9 @@ three commits per phase.
 
 ## Next move
 
-Phase J is implemented and verified; the ten planned phases are complete. The active work is
-the AU market thread below: **Phase E2 (Deep Search) just closed**, and **Phase E3 (Bulk) is
-next**. The older user-owned list under "Pending items that need the user's word" and the two
-exposed credentials remain open. There is no Phase K.
+Phase J is implemented and verified; the ten planned phases are complete. The AU market thread is complete through Phase F. The older user-owned list under
+"Pending items that need the user's word" and the two exposed credentials remain open.
+There is no Phase K.
 
 The one live-browser gap from Phase A remains: the extension is loaded and reaches the backend,
 but it has not completed a successful capture. It is a verification gap, not a missing phase.
@@ -125,7 +124,14 @@ The Australian build is a separate six-phase thread on top of the ten shipped ph
   shows the GST-included note. Checks: backend **1972 passed, 9 deselected** plus
   `tests/test_au_fee_calculator.py` (7 passed); frontend typecheck clean, **220 tests
   passed**, production build clean. Details: `docs/au-market/fee-calculator.md`; pins:
-  `tests/test_au_fee_calculator.py`. **Next:** Phase F UI + docs. Three commits per phase,
+  `tests/test_au_fee_calculator.py`.
+- **Phase F - complete (three commits).** Final AU UI polish: Analyze, Deep Search, Bulk,
+  Category Hunter, Fees, Hunter empty states and profit/supplier cells use the market
+  currency; stale AU fee-lock notices and comments are removed; Deals and Titles are
+  checked in AUD; README duplicate feature rows are cleaned. Checks: frontend typecheck
+  clean, **220 tests passed**, production build clean; backend **1972 passed, 9 deselected**
+  plus `tests/test_au_phase_f.py` (4 passed). Details: `docs/au-market/ui.md`; pins:
+  `tests/test_au_phase_f.py`. The AU market thread is complete. Three commits per phase,
   a short report at each phase end.
 
 Still open from the older thread: the live-browser capture gap, the history migration spec,

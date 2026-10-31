@@ -54,6 +54,7 @@ Two design principles run through every layer:
 | <picture><source srcset="icons/readme-dark/noun_DeepDive_7968343.svg" media="(prefers-color-scheme: dark)"><img src="icons/noun_DeepDive_7968343.svg" width="26" alt=""></picture>     | **Market Churn**     | Listing age distribution and velocity tracker measuring active vs sold saturation ratios                                                       |
 | <picture><source srcset="icons/readme-dark/noun_dashboard_8450002.svg" media="(prefers-color-scheme: dark)"><img src="icons/noun_dashboard_8450002.svg" width="26" alt=""></picture>   | **Seller Footprint** | Competitor concentration mapping, identifying dominant store handles and listing clusters                                                      |
 
+
 A Chrome extension (`extension/`) captures eBay purchase-history data from a live listing page, which upgrades the 7-day demand figure from _estimated_ to _verified_.
 
 ---

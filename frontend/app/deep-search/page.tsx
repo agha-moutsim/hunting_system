@@ -182,9 +182,9 @@ export default function DeepSearchPage() {
         <Card className="border-accent-amber/40">
           <div className="text-sm text-accent-amber">
             Deep Search is not enabled for {marketplace.label}. A registered fee
-            card and supplier bench are required before an AUD/USD profit can be
-            calculated. Switch to United Kingdom or use Deals and Titles to
-            browse this market.
+            card and supplier bench are required before a{" "}
+            {marketplace.currency} profit can be calculated. Switch to United
+            Kingdom or use Deals and Titles to browse this market.
           </div>
         </Card>
       )}
