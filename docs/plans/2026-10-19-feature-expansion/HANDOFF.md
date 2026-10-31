@@ -134,10 +134,11 @@ The Australian build is a separate six-phase thread on top of the ten shipped ph
   `tests/test_au_phase_f.py`. The AU market thread is complete. Three commits per phase,
   a short report at each phase end.
 
-Still open from the older thread: the live-browser capture gap, the history migration spec,
-the four redundant `listing_observations` rows on `266923866336`, Deep Search/batch observation
-wiring, the seed button, and rotating the two exposed credentials (GitHub token, ScrapingBee
-key). None is a Phase D blocker.
+Still open from the older thread: the live-browser capture gap, the history migration spec
+(`docs/au-market/history-migration.md`), the deferred seed button, Deep Search/batch
+observation wiring, and rotating the two exposed credentials (GitHub token, ScrapingBee
+key). The four redundant `listing_observations` rows on `266923866336` have been removed,
+leaving one reading. None is a Phase D blocker.
 
 ## Live state — AliExpress supplier discovery, measured 2026-10-23
 
