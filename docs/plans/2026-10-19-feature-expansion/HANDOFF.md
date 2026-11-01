@@ -1,6 +1,6 @@
 # Handoff - current state
 
-Last updated: 2026-10-31, AU UI surfaces (Phase F) landed; AU market thread complete.
+Last updated: 2026-11-01, follow-up tests and operations docs added.
 Read this first, then `implementation.md` (phase specs and rules) and `design.md` (surfaces).
 
 ## Where the work stands
