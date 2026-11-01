@@ -16,6 +16,7 @@ import {
   noteAttempt,
   noteResult,
   noteStored,
+  parseSeedList,
   rollWindows,
 } from "../../extension/logic.js";
 
@@ -262,5 +263,23 @@ describe("EMPTY_STATE", () => {
     expect(EMPTY_STATE.hourCount).toBe(0);
     expect(EMPTY_STATE.dayCount).toBe(0);
     expect(EMPTY_STATE.lastCaptureAt).toBeNull();
+  });
+});
+
+
+describe("parseSeedList", () => {
+  it("reads ids and URLs, dedupes, and caps at 25", () => {
+    const lines = ["1234567890", "https://www.ebay.co.uk/itm/x/9876543210", "1234567890", "not-an-id"];
+    for (let i = 0; i < 30; i++) lines.push(String(1000000000 + i));
+    const ids = parseSeedList(lines.join("\n"));
+    expect(ids.length).toBe(25);
+    expect(ids[0]).toBe("1234567890");
+    expect(ids[1]).toBe("9876543210");
+    expect(new Set(ids).size).toBe(25);
+  });
+
+  it("returns an empty list for blank input", () => {
+    expect(parseSeedList("")).toEqual([]);
+    expect(parseSeedList(null)).toEqual([]);
   });
 });

@@ -173,4 +173,25 @@ captureEl.addEventListener("click", async () => {
   refresh();
 });
 
+const seedEl = document.getElementById("seed");
+const seedListEl = document.getElementById("seedList");
+if (seedEl && seedListEl) {
+  seedEl.addEventListener("click", async () => {
+    seedEl.disabled = true;
+    show("", "Seeding captures...");
+    const response = await send({ type: "seed-captures", text: seedListEl.value });
+    if (!response) {
+      show("err", "No response from the background worker.");
+    } else if (response.body && response.body.error) {
+      show("err", response.body.error);
+    } else if (response.ok) {
+      show("ok", response.message || "Seed complete.");
+    } else {
+      show("warn", response.error || "Seed failed.");
+    }
+    seedEl.disabled = false;
+    refresh();
+  });
+}
+
 refresh();

@@ -142,3 +142,28 @@ export function noteStored(state) {
 export function noteResult(state, { ok, message }) {
   return { ...state, lastResult: { ok: !!ok, message: String(message) } };
 }
+
+
+/** Maximum number of item ids a single seed run may attempt. */
+export const MAX_SEED_ITEMS = 25;
+
+/** Delay between seed captures, so a seed run cannot become a burst. */
+export const SEED_DELAY_MS = 2000;
+
+/**
+ * Parse a pasted seed list into unique item ids, bounded to MAX_SEED_ITEMS.
+ * Accepts raw ids or listing URLs; invalid lines are ignored rather than
+ * guessed.
+ */
+export function parseSeedList(text) {
+  const seen = new Set();
+  const items = [];
+  for (const raw of String(text || "").split(/\r?\n/)) {
+    const value = raw.trim();
+    const id = extractItemId(value) || (/^\d{8,}$/.test(value) ? value : null);
+    if (!id || seen.has(id) || items.length >= MAX_SEED_ITEMS) continue;
+    seen.add(id);
+    items.push(id);
+  }
+  return items;
+}

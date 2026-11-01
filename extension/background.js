@@ -17,12 +17,15 @@
 import {
   EMPTY_STATE,
   MAX_PER_HOUR,
+  MAX_SEED_ITEMS,
+  SEED_DELAY_MS,
   decideCapture,
   describeSkip,
   extractItemId,
   noteAttempt,
   noteResult,
   noteStored,
+  parseSeedList,
   rollWindows,
 } from "./logic.js";
 
@@ -231,6 +234,52 @@ async function statusSnapshot() {
   };
 }
 
+async function seedCaptures(items) {
+  const state0 = rollWindows(await loadState(), Date.now());
+  if (state0.quiet) {
+    return { ok: false, error: "Quiet mode is on - nothing is being captured." };
+  }
+  const ids = parseSeedList(Array.isArray(items) ? items.join("\\n") : items);
+  if (!ids.length) {
+    return { ok: false, error: "No valid item ids to seed." };
+  }
+
+  let stored = 0;
+  let skipped = 0;
+  const errors = [];
+  for (const id of ids) {
+    const state = rollWindows(await loadState(), Date.now());
+    if (state.quiet) {
+      errors.push("Quiet mode turned on; seed stopped.");
+      break;
+    }
+    if ((state.hourCount || 0) >= MAX_PER_HOUR) {
+      errors.push("Hourly cap reached; seed stopped.");
+      break;
+    }
+    const result = await captureItem(id, "https://www.ebay.co.uk/itm/" + id, {
+      force: true,
+    });
+    if (result && result.body && result.body.stored === true) {
+      stored += 1;
+    } else {
+      skipped += 1;
+      if (result && result.body && result.body.error) errors.push(result.body.error);
+    }
+    await new Promise((resolve) => setTimeout(resolve, SEED_DELAY_MS));
+  }
+
+  return {
+    ok: true,
+    attempted: ids.length,
+    stored,
+    skipped,
+    errors,
+    message:
+      "Seeded " + stored + " of " + ids.length + " items.",
+  };
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   const type = message && message.type;
 
@@ -268,6 +317,15 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     setQuiet(message.value)
       .then(() => sendResponse({ ok: true, quiet: !!message.value }))
       .catch((err) => sendResponse({ ok: false, error: String(err) }));
+    return true;
+  }
+
+  if (type === "seed-captures") {
+    seedCaptures(message.items || message.text || "")
+      .then(sendResponse)
+      .catch((err) =>
+        sendResponse({ ok: false, body: { error: String((err && err.message) || err) } })
+      );
     return true;
   }
 
