@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, ReactNode, useEffect, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 
 import Badge from "@/components/ui/Badge";
 import Button from "@/components/ui/Button";
@@ -111,16 +111,33 @@ export default function FeesPage() {
   const [reverse, setReverse] = useState<FeeReverseResult | null>(null);
   const [breakEven, setBreakEven] = useState<FeeSolveCheck | null>(null);
 
+  // The market these figures belong to. A response that lands after the market
+  // changed was priced with the other market's table, so it is dropped rather
+  // than printed under the new heading.
+  const marketIdRef = useRef(marketplace.id);
+
   useEffect(() => {
+    marketIdRef.current = marketplace.id;
+
+    // Every figure below is ONE market's answer: its currency symbol, its fee
+    // table, its tax name. Switching market makes all of it wrong, so the
+    // results are dropped instead of re-labelled — this covers a switch
+    // between two markets that both have a card (UK -> AU), not only a
+    // blocked one. The form is reloaded from the new market's defaults below.
+    setForward(null);
+    setReverse(null);
+    setBreakEven(null);
+    setError(null);
+    setTableError(null);
+    // The card header, the currency symbol and the category list all come from
+    // the table. Holding the previous market's table while the new one loads
+    // would label Australian inputs with "£", so it is dropped too.
+    setTable(null);
+
     if (marketBlocked) {
       // The only fee table is the UK card. Loading it under a US heading and
       // letting a reader apply it would be the exact cross-currency error
       // Phase J forbids, so the page shows the sentence instead.
-      setTable(null);
-      setTableError(null);
-      setForward(null);
-      setReverse(null);
-      setBreakEven(null);
       return;
     }
     let cancelled = false;
@@ -147,8 +164,10 @@ export default function FeesPage() {
 
   /** The 0%-target solve, on the same engine and inputs as the sale. */
   async function loadBreakEven(request: FeeCalculateRequest) {
+    const requestedMarket = marketIdRef.current;
     try {
       const data = await calculateFees(request);
+      if (marketIdRef.current !== requestedMarket) return;
       if (data.mode === "reverse" && data.achievable && data.check) {
         setBreakEven(data.check);
       }
@@ -176,8 +195,12 @@ export default function FeesPage() {
     setCalculating(true);
     setError(null);
     setBreakEven(null);
+    const requestedMarket = marketIdRef.current;
     try {
       const data = await calculateFees(built.request);
+      // The market changed while this was in flight: these numbers were priced
+      // with the old table and would wear the new currency symbol.
+      if (marketIdRef.current !== requestedMarket) return;
       if (data.mode === "forward") {
         setForward(data.calculation);
         setReverse(null);
@@ -194,6 +217,7 @@ export default function FeesPage() {
         setForward(data.calculation ?? null);
       }
     } catch (err) {
+      if (marketIdRef.current !== requestedMarket) return;
       setForward(null);
       setReverse(null);
       setError(err instanceof Error ? err.message : "The calculation failed");
@@ -219,9 +243,9 @@ export default function FeesPage() {
       <div>
         <h1 className="text-xl font-bold text-text-primary">Fee Calculator</h1>
         <p className="mt-1 text-sm text-text-secondary">
-          One sale priced by the published {marketplace.label} rate card — from
-          the same engine the verdict uses, so the numbers agree by
-          construction.
+          {marketBlocked
+            ? `No fee table is registered for ${marketplace.label}, so nothing on this page is priced for it.`
+            : `One sale priced by the published ${marketplace.label} rate card — from the same engine the verdict uses, so the numbers agree by construction.`}
         </p>
       </div>
 
