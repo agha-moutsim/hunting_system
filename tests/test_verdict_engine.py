@@ -318,6 +318,33 @@ class TestDeepSearchAdapter:
         assert r.verdict == "PENDING"
         assert r.filters_passed[0]["name"] == "Data"
 
+    def test_a_null_sold_count_is_not_verified_by_a_seller_list(self):
+        # C13: the "we have eBay data" branch opens on the count OR the seller
+        # list, so a run with a null 30-day count beside four sellers stamped
+        # the count VERIFIED too and the UI read "Sold 30d: - [Verified]".
+        # Both the fast path (`deep_search_fast`) and the full path
+        # (`_stamp_provenance`) go through the same per-field stamp.
+        from deep_search import (
+            DeepSearchResult,
+            _stamp_ebay_facts,
+            _stamp_provenance,
+        )
+
+        for stamp in (_stamp_ebay_facts, _stamp_provenance):
+            r = DeepSearchResult(
+                product_name="Generic widget",
+                ebay_total_sold_30d=None,
+                ebay_top_sellers=[{"name": "shop", "url": "https://ebay.test/1"}],
+            )
+            stamp(r)
+            count = r.field_provenance["ebay_total_sold_30d"]
+            assert count["provenance"] == "unverified", stamp.__name__
+            assert count["reason"], stamp.__name__
+            # The list itself was read, so it keeps its own verified stamp.
+            assert (
+                r.field_provenance["ebay_top_sellers"]["provenance"] == "verified"
+            ), stamp.__name__
+
     def test_caller_filters_are_honoured(self):
         # Regression: deep search used to ignore the caller's filter set.
         from deep_search import _calculate_profit_and_verdict

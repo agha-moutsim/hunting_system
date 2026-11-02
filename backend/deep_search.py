@@ -939,6 +939,37 @@ def _system_prompt(market: dict) -> str:
     )
 
 
+def _stamp_ebay_facts(result: "DeepSearchResult") -> None:
+    """Stamp the four Browse-API fields, each from ITS OWN value.
+
+    C13: the "we have eBay data" branch opens on the count OR the seller list,
+    so a run with a null 30-day count beside four sellers stamped all four
+    fields VERIFIED and the UI printed "Sold 30d: - [Verified]". A badge has
+    to describe the number it sits beside, so the null is stamped UNVERIFIED
+    with its own reason instead of borrowing its neighbour's provenance.
+    """
+    fields = (
+        ("ebay_total_sold_30d", result.ebay_total_sold_30d,
+         "eBay did not report a 30-day sold count"),
+        ("ebay_top_sellers", result.ebay_top_sellers,
+         "no eBay top sellers retrieved"),
+        ("ebay_avg_price", result.ebay_avg_price,
+         "eBay did not report a price"),
+        ("ebay_condition", result.ebay_condition,
+         "eBay did not report a condition"),
+    )
+    for name, value, reason in fields:
+        # 0 is a measurement ("sold 0") and is kept; None / "" / [] are the
+        # absence of one. C10: an empty condition means we did not read it.
+        if value is not None and value != "" and value != []:
+            result.set_fact_provenance(
+                name, Provenance.VERIFIED,
+                source_name="eBay Browse API (conditions:{NEW})",
+            )
+        else:
+            result.set_fact_provenance(name, Provenance.UNVERIFIED, reason=reason)
+
+
 def _stamp_provenance(result: "DeepSearchResult") -> None:
     """Write the C13 per-field stamps onto a DeepSearchResult.
 
@@ -948,16 +979,7 @@ def _stamp_provenance(result: "DeepSearchResult") -> None:
     never stamped, which would be a lie about data we are holding.
     """
     if result.ebay_total_sold_30d or result.ebay_top_sellers:
-        result.set_fact_provenance(
-            "ebay_total_sold_30d", Provenance.VERIFIED,
-            source_name="eBay Browse API (conditions:{NEW})"
-        )
-        result.set_fact_provenance(
-            "ebay_top_sellers", Provenance.VERIFIED,
-            source_name="eBay Browse API (conditions:{NEW})"
-        )
-        result.set_fact_provenance("ebay_avg_price", Provenance.VERIFIED)
-        result.set_fact_provenance("ebay_condition", Provenance.VERIFIED)
+        _stamp_ebay_facts(result)
         # B3 - `ebay_items_sold_month` is `{n} items` built from that same
         # response (deep_search.py:776), not an estimate. It was stamped
         # only on the no-data branch, so build_provenance_block reported
@@ -1775,10 +1797,7 @@ def deep_search_fast(
 
     # â”€â”€ C13 provenance stamp (fast path: no LLM, so nothing is ai_insight) â”€â”€
     if result.ebay_total_sold_30d or result.ebay_top_sellers:
-        for name in ("ebay_total_sold_30d", "ebay_top_sellers", "ebay_avg_price",
-                     "ebay_condition"):
-            result.set_fact_provenance(name, Provenance.VERIFIED,
-                                       source_name="eBay Browse API (conditions:{NEW})")
+        _stamp_ebay_facts(result)
     else:
         for name in ("ebay_total_sold_30d", "ebay_top_sellers", "ebay_avg_price",
                      "ebay_price_range", "ebay_items_sold_month", "ebay_condition"):
