@@ -366,7 +366,7 @@ class TestApiRefusesWhatItCannotPrice:
         assert "EBAY_GB" in resp.json()["detail"]
 
 class TestNonUkAnalyzeIsSearchOnly:
-    def test_au_registered_card_unlocks_analyze_but_not_history(self, monkeypatch):
+    def test_au_registered_card_unlocks_analyze_and_history(self, monkeypatch):
         captured = {}
         saves = []
 
@@ -409,8 +409,10 @@ class TestNonUkAnalyzeIsSearchOnly:
         assert captured["filters"]["price_max"] == 50.0
         assert captured["filters"]["demand_min_30d"] == 15
         assert captured["filters"]["demand_min_7d"] == 10
-        assert saves == []
-        assert any("not written to History" in e for e in body["errors"])
+        # ace4348 enabled AU History writes once stored analyses carried a
+        # market and a currency, so an AU run is persisted rather than refused.
+        assert len(saves) == 1
+        assert not any("not written to History" in e for e in body["errors"])
 
     def test_it_returns_the_listing_and_demand_but_no_profit(self, monkeypatch):
         from scrapers.base import DemandData, ScrapedProduct

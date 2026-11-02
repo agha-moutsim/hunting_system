@@ -288,6 +288,11 @@ def test_the_au_pipeline_searches_ebay_australia_with_the_aud_band(monkeypatch):
     assert captured["sold_band"] == (0.99, 50.0)
     assert captured["supplier_market"] == "EBAY_AU"
     assert results["verdict"] is not None
+    # The run stamps the market it priced in, because the History save reads
+    # these two keys: without them an AUD analysis was written as an
+    # EBAY_GB/GBP row.
+    assert results["marketplace"] == "EBAY_AU"
+    assert results["currency"] == "AUD"
     assert "A$" in results["scorecard"]
     assert "£" not in results["scorecard"]
     assert any(

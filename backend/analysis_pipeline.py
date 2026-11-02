@@ -462,6 +462,12 @@ async def run_analysis_pipeline(
         else EbayScraper(marketplace=market_id)
     )
     results = {
+        # C1 — which market and currency this run priced in. The save reads
+        # these; without them an AUD analysis was written to History as an
+        # EBAY_GB/GBP row, which is the cross-currency comparison the market
+        # work exists to prevent.
+        "marketplace": market["id"],
+        "currency": market["currency"],
         "ebay_product": None,
         "demand": None,
         "supplier_matches": [],
