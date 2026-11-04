@@ -234,9 +234,15 @@ export default function DealsBoard() {
     try {
       const started = await apiFetch<DealsResponse>("/api/deals?refresh=true");
       setMeta(started.meta || null);
+      // A full refresh prices every card and measured about 150 s, so the wait
+      // is three minutes rather than one. "Arrived" is the pool's fetch time
+      // CHANGING: `stale` being false only proves the board was already fresh,
+      // which is exactly the case where this button used to report success
+      // without fetching anything.
+      const before = started.meta?.last_fetched ?? null;
       let arrived = false;
       let failure: string | null = started.meta?.last_refresh_error || null;
-      for (let attempt = 0; attempt < 20; attempt += 1) {
+      for (let attempt = 0; attempt < 60; attempt += 1) {
         await new Promise((r) => setTimeout(r, 3000));
         const d = await apiFetch<DealsResponse>("/api/deals");
         setPool(d.items || []);
@@ -245,7 +251,7 @@ export default function DealsBoard() {
           failure = d.meta.last_refresh_error;
           break;
         }
-        if (!d.meta?.stale && d.count > 0) {
+        if ((d.meta?.last_fetched ?? null) !== before) {
           arrived = true;
           break;
         }
@@ -254,7 +260,7 @@ export default function DealsBoard() {
         setError(failure);
       } else if (!arrived) {
         setError(
-          "No deals arrived within 60 seconds. The board still holds whatever was stored before; this is not a claim that eBay has no deals."
+          "The refresh has not finished after three minutes. The board still holds whatever was stored before; this is not a claim that eBay has no deals. The fetch may still land — reload to see it."
         );
       } else {
         setError(null);

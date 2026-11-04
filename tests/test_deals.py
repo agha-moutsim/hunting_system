@@ -267,6 +267,52 @@ class TestStorage:
         assert row.price == 5.0
         session.close()
 
+    def test_a_partial_run_keeps_the_prices_it_did_not_fetch(self, tmp_path, monkeypatch):
+        """`refresh?limit=1` prices one card. The other 51 were not asked, and
+        writing their None through emptied the board (priced 52 -> 1)."""
+        factory, _ = _session(tmp_path, monkeypatch)
+        session = factory()
+        deals.save_deals(
+            [
+                DealItem("1", "One", item_url="u", price=4.0),
+                DealItem("2", "Two", item_url="u", price=7.0),
+            ],
+            session,
+        )
+
+        deals.save_deals(
+            [
+                DealItem("1", "One", item_url="u", price=4.5),
+                DealItem("2", "Two", item_url="u", price=None),
+            ],
+            session,
+            preserve_unpriced=True,
+        )
+
+        prices = {r.listing_id: r.price for r in session.query(DealItemRow).all()}
+        assert prices == {"1": 4.5, "2": 7.0}
+        session.close()
+
+    def test_force_refreshes_even_a_fresh_board(self, monkeypatch):
+        """`refresh=true` on a fresh board used to reach refresh_if_stale, find
+        nothing stale and return, so the button reported success without
+        fetching anything."""
+        calls = []
+        monkeypatch.setattr(
+            deals, "board_meta",
+            lambda *a, **k: {"total": 5, "stale": False},
+        )
+        monkeypatch.setattr(
+            deals, "refresh",
+            lambda **k: calls.append(k) or {"saved": 0},
+        )
+
+        deals.refresh_if_stale(session=object())
+        assert calls == []
+
+        deals.refresh_if_stale(session=object(), force=True)
+        assert len(calls) == 1
+
     def test_the_board_reports_its_own_age(self, tmp_path, monkeypatch):
         """A stale board that says it is stale is honest; one that implies its
         prices are live is not."""

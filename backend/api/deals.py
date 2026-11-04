@@ -50,7 +50,13 @@ def list_deals(
             deals.auto_refresh_enabled() and (meta["stale"] or not meta["total"])
         )
         if wants_refresh:
-            deals.start_background_refresh(marketplace=market["id"])
+            # `refresh=true` is the viewer asking for a fetch, so the worker is
+            # told to force one: refresh_if_stale would otherwise find a fresh
+            # board and return without doing anything, and the client would
+            # poll a board that never changes.
+            deals.start_background_refresh(
+                marketplace=market["id"], force=refresh
+            )
         meta["refresh_started"] = wants_refresh
 
         items = deals.load_deals(

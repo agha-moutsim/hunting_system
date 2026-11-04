@@ -184,6 +184,7 @@ def load_deals(
 def save_deals(
     items: Iterable[DealItem], session,
     marketplace: Optional[str] = None,
+    preserve_unpriced: bool = False,
 ) -> dict:
     """Replace one market's board contents with one refresh's observations.
 
@@ -224,8 +225,13 @@ def save_deals(
         row.title = item.title
         row.item_url = item.item_url
         row.image_url = item.image_url
-        row.price = item.price
-        row.currency = item.currency
+        # A partial run (`limit=N`) prices only the cards it was asked to
+        # price, so the rest arrive with no price. Writing that through erased
+        # the prices the previous full run had paid for — a one-card smoke test
+        # left the whole board unpriced. Only an explicit price replaces one.
+        if item.price is not None or not preserve_unpriced or row.price is None:
+            row.price = item.price
+            row.currency = item.currency
         row.seller = item.seller
         row.store_name = item.store_name
         row.store_url = item.store_url
@@ -311,7 +317,14 @@ def refresh(
 
     try:
         items = scraper.fetch_deals(limit=limit, enrich=enrich)
-        result = save_deals(items, session, marketplace=market["id"])
+        result = save_deals(
+            items,
+            session,
+            marketplace=market["id"],
+            # `limit` prices a prefix of the page; the rest are NOT "no price
+            # on eBay", they are "not asked this time".
+            preserve_unpriced=limit is not None,
+        )
         # `listing_observations` has no marketplace key. Storing a US reading
         # there would mix it into UK seller footprints and time series, so a
         # non-UK refresh says the evidence store was skipped rather than
@@ -381,16 +394,21 @@ def refresh_if_stale(
             session.close()
 
 
-def start_background_refresh(marketplace: Optional[str] = None) -> threading.Thread:
+def start_background_refresh(
+    marketplace: Optional[str] = None, force: bool = False,
+) -> threading.Thread:
     """Kick off one market's refresh on a worker thread and return it.
 
     Used by the API route so a stale board still answers immediately: the
     response carries whatever is stored plus an honest `stale` flag, and the
     new data is picked up by the client's next poll.
+
+    `force` is for an explicit "refresh now": the caller asked for a fetch, so
+    the worker must not re-check staleness and decide there is nothing to do.
     """
     thread = threading.Thread(
         target=refresh_if_stale,
-        kwargs={"marketplace": marketplace},
+        kwargs={"marketplace": marketplace, "force": force},
         name="deals-refresh",
         daemon=True,
     )
