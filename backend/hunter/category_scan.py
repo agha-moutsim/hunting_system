@@ -16,6 +16,7 @@ from bs4 import BeautifulSoup
 
 from config import EBAY_UK_BASE, EBAY_CLIENT_ID, EBAY_CLIENT_SECRET, EBAY_API_BASE, EBAY_MARKETPLACE, SCRAPE_CONFIG, FILTERS
 from engine.condition_gate import html_condition_param, is_new
+from engine.provenance import Provenance
 from hunter.category_resolver import (  # noqa: F401  (re-exported for hunter/__init__)
     EBAY_CATEGORIES,
     MODE_CATEGORY,
@@ -61,9 +62,17 @@ class CategoryProduct:
     # 0.0 when we have no data, but these say so, so the UI can show "no
     # supplier data" instead of a confident red GBP0.00.
     #   "estimated" (computed from real inputs) | "unverified" (not computable)
-    profit_provenance: str = ""
-    profit_provenance_label: str = ""
-    profit_provenance_reason: str = ""
+    #
+    # The default is "unverified", not "": a row straight off a scan has had no
+    # profit computed, and an empty string failed every consumer that checks
+    # for "unverified" (the Hunter's ProfitCell and the report's provenance
+    # block), so the row rendered as a confident GBP0.00 (0.0%). profit_calc
+    # overwrites this the moment it computes a figure.
+    profit_provenance: str = Provenance.UNVERIFIED.value
+    profit_provenance_label: str = Provenance.UNVERIFIED.label
+    profit_provenance_reason: str = (
+        "no supplier lookup has run for this row, so no profit was calculated"
+    )
     profit_provenance_method: str = ""
     # "found" | "no_supplier" | "out_of_band" | "timeout" | "" - why the
     # profit figure is or is not there.

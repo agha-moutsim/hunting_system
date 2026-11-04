@@ -477,6 +477,18 @@ class TestRegression005ProfitIsHonest:
 
         return TestClient(app)
 
+    def test_a_row_straight_off_a_scan_claims_no_profit(self):
+        """REGRESSION-005: provenance used to default to "" until profit calc
+        ran, so consumers that check for "unverified" drew a confident
+        GBP0.00 (0.0%) for a figure that was never calculated."""
+        from hunter.category_scan import CategoryProduct
+
+        p = CategoryProduct(title="x", price=10.0, url="u", condition="New")
+
+        assert p.profit_provenance == "unverified"
+        assert p.profit_provenance_label
+        assert p.profit_provenance_reason
+
     def test_a_product_with_no_supplier_claims_no_profit(self, monkeypatch):
         from hunter import profit_calc as pc
 
