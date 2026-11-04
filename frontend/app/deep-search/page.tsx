@@ -182,9 +182,9 @@ export default function DeepSearchPage() {
         <Card className="border-accent-amber/40">
           <div className="text-sm text-accent-amber">
             Deep Search is not enabled for {marketplace.label}. A registered fee
-            card and supplier bench are required before a{" "}
-            {marketplace.currency} profit can be calculated. Switch to United
-            Kingdom or use Deals and Titles to browse this market.
+            card and supplier bench are required before a {marketplace.currency}{" "}
+            profit can be calculated. Switch to United Kingdom or use Deals and
+            Titles to browse this market.
           </div>
         </Card>
       )}
@@ -194,6 +194,9 @@ export default function DeepSearchPage() {
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="flex-1">
               <Input
+                id="deep-search-query"
+                name="query"
+                aria-label="Product name or eBay URL"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Product name or eBay URL…"
@@ -202,6 +205,9 @@ export default function DeepSearchPage() {
             </div>
             <div className="flex gap-2">
               <select
+                id="deep-search-mode"
+                name="mode"
+                aria-label="Search mode"
                 value={mode}
                 onChange={(e) => setMode(e.target.value as "fast" | "full")}
                 disabled={loading || !analysisReady}

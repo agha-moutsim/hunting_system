@@ -382,8 +382,10 @@ export default function WatchlistPage() {
         <Card title="Add to watchlist">
           <form onSubmit={addWatch} className="space-y-3">
             <div>
-              <Label>Product name</Label>
+              <Label htmlFor="watch-name">Product name</Label>
               <Input
+                id="watch-name"
+                name="product_name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Product name"
@@ -392,8 +394,10 @@ export default function WatchlistPage() {
             </div>
             <div className="grid grid-cols-3 gap-3">
               <div>
-                <Label>eBay price</Label>
+                <Label htmlFor="watch-ebay-price">eBay price</Label>
                 <Input
+                  id="watch-ebay-price"
+                  name="ebay_price"
                   type="number"
                   step="0.01"
                   value={ebayPrice}
@@ -402,8 +406,10 @@ export default function WatchlistPage() {
                 />
               </div>
               <div>
-                <Label>Target</Label>
+                <Label htmlFor="watch-target">Target</Label>
                 <Input
+                  id="watch-target"
+                  name="target_price"
                   type="number"
                   step="0.01"
                   value={targetPrice}
@@ -412,8 +418,10 @@ export default function WatchlistPage() {
                 />
               </div>
               <div>
-                <Label>eBay URL</Label>
+                <Label htmlFor="watch-url">eBay URL</Label>
                 <Input
+                  id="watch-url"
+                  name="url"
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
                   placeholder="https://…"
@@ -421,8 +429,10 @@ export default function WatchlistPage() {
               </div>
             </div>
             <div>
-              <Label>Notes</Label>
+              <Label htmlFor="watch-notes">Notes</Label>
               <Input
+                id="watch-notes"
+                name="notes"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Optional notes…"
@@ -438,8 +448,10 @@ export default function WatchlistPage() {
           <form onSubmit={addSearch} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label>Search name</Label>
+                <Label htmlFor="watch-search-name">Search name</Label>
                 <Input
+                  id="watch-search-name"
+                  name="search_name"
                   value={sName}
                   onChange={(e) => setSName(e.target.value)}
                   placeholder="My gadgets search"
@@ -447,8 +459,10 @@ export default function WatchlistPage() {
                 />
               </div>
               <div>
-                <Label>Query</Label>
+                <Label htmlFor="watch-search-query">Query</Label>
                 <Input
+                  id="watch-search-query"
+                  name="search_query"
                   value={sQuery}
                   onChange={(e) => setSQuery(e.target.value)}
                   placeholder="wireless earbuds"
@@ -482,8 +496,10 @@ export default function WatchlistPage() {
                 />
               </div>
               <div>
-                <Label>Min margin %</Label>
+                <Label htmlFor="watch-search-margin">Min margin %</Label>
                 <Input
+                  id="watch-search-margin"
+                  name="min_margin"
                   type="number"
                   step="1"
                   value={sMargin}

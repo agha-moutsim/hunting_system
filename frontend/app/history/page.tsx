@@ -237,12 +237,18 @@ export default function HistoryPage() {
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="flex-1">
             <Input
+              id="history-query"
+              name="q"
+              aria-label="Search by product title"
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Search by product title…"
             />
           </div>
           <select
+            id="history-verdict"
+            name="verdict"
+            aria-label="Verdict filter"
             value={verdict}
             onChange={(e) => setVerdict(e.target.value)}
             className="bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-hidden focus:border-accent-blue"

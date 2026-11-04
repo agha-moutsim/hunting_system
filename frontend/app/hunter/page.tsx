@@ -231,7 +231,11 @@ export default function HunterPage() {
       key: "supplier",
       header: "Supplier",
       render: (r) => (
-        <SupplierCell row={r} report={!!report} currency={marketplace.currency} />
+        <SupplierCell
+          row={r}
+          report={!!report}
+          currency={marketplace.currency}
+        />
       ),
       sortValue: (r) => r.supplier_price ?? -1,
     },
@@ -323,10 +327,15 @@ export default function HunterPage() {
         <form onSubmit={runScan} className="space-y-3">
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <div className="sm:col-span-2">
-              <label className="block text-xs text-text-secondary mb-1">
+              <label
+                htmlFor="hunter-category"
+                className="block text-xs text-text-secondary mb-1"
+              >
                 Search a category, or type any product
               </label>
               <Input
+                id="hunter-category"
+                name="category"
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
                 // The old placeholder suggested "Garden Tools, Kitchen",
@@ -347,10 +356,15 @@ export default function HunterPage() {
               </p>
             </div>
             <div>
-              <label className="block text-xs text-text-secondary mb-1">
+              <label
+                htmlFor="hunter-price-min"
+                className="block text-xs text-text-secondary mb-1"
+              >
                 Price min
               </label>
               <Input
+                id="hunter-price-min"
+                name="price_min"
                 type="number"
                 value={priceMin}
                 disabled
@@ -360,10 +374,15 @@ export default function HunterPage() {
               />
             </div>
             <div>
-              <label className="block text-xs text-text-secondary mb-1">
+              <label
+                htmlFor="hunter-price-max"
+                className="block text-xs text-text-secondary mb-1"
+              >
                 Price max
               </label>
               <Input
+                id="hunter-price-max"
+                name="price_max"
                 type="number"
                 value={priceMax}
                 disabled

@@ -579,7 +579,10 @@ export default function SalesPage() {
               quantity and sale date. Imported profit and margin columns are
               ignored and recomputed from those values.
             </p>
+            <Label htmlFor="sales-csv">Sales CSV file</Label>
             <Input
+              id="sales-csv"
+              name="csv"
               type="file"
               accept=".csv,text/csv"
               onChange={(event: ChangeEvent<HTMLInputElement>) => {

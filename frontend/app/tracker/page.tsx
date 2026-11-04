@@ -275,8 +275,10 @@ export default function TrackerPage() {
           className="grid sm:grid-cols-2 lg:grid-cols-5 gap-3"
         >
           <div className="lg:col-span-2">
-            <Label>Product name</Label>
+            <Label htmlFor="track-name">Product name</Label>
             <Input
+              id="track-name"
+              name="product_name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Product name"
@@ -284,16 +286,20 @@ export default function TrackerPage() {
             />
           </div>
           <div>
-            <Label>eBay URL (optional)</Label>
+            <Label htmlFor="track-url">eBay URL (optional)</Label>
             <Input
+              id="track-url"
+              name="url"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               placeholder="https://…"
             />
           </div>
           <div>
-            <Label>eBay price</Label>
+            <Label htmlFor="track-ebay-price">eBay price</Label>
             <Input
+              id="track-ebay-price"
+              name="ebay_price"
               type="number"
               step="0.01"
               value={ebayPrice}
@@ -307,8 +313,10 @@ export default function TrackerPage() {
             </Button>
           </div>
           <div>
-            <Label>Target price</Label>
+            <Label htmlFor="track-target">Target price</Label>
             <Input
+              id="track-target"
+              name="target_price"
               type="number"
               step="0.01"
               value={targetPrice}
@@ -317,8 +325,10 @@ export default function TrackerPage() {
             />
           </div>
           <div>
-            <Label>Supplier price</Label>
+            <Label htmlFor="track-supplier">Supplier price</Label>
             <Input
+              id="track-supplier"
+              name="supplier_price"
               type="number"
               step="0.01"
               value={supplierPrice}

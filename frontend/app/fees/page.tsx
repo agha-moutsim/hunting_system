@@ -1,6 +1,15 @@
 "use client";
 
-import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
+import {
+  FormEvent,
+  ReactNode,
+  cloneElement,
+  isValidElement,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 
 import Badge from "@/components/ui/Badge";
 import Button from "@/components/ui/Button";
@@ -43,6 +52,8 @@ import type {
 const SELECT_CLASS =
   "w-full bg-bg-surface border border-border rounded-control px-3 py-2 text-sm text-text-primary focus:outline-hidden focus:border-accent-blue";
 
+type FieldChildProps = { id?: string; "aria-describedby"?: string };
+
 function Field({
   label,
   hint,
@@ -52,12 +63,38 @@ function Field({
   hint?: string;
   children: ReactNode;
 }) {
+  // A <label> beside a control names nothing unless it points at the control's
+  // id, so every fee input was announced by its placeholder ("spinbutton
+  // 24.99"). The id is generated here and cloned onto the one child, so the
+  // label, the control and the hint stay connected wherever Field is used.
+  const generatedId = useId();
+  const hintId = `${generatedId}-hint`;
+  const childProps = isValidElement<FieldChildProps>(children)
+    ? children.props
+    : null;
+  const controlId = childProps?.id ?? generatedId;
+  const describedBy =
+    hint || childProps?.["aria-describedby"]
+      ? (childProps?.["aria-describedby"] ?? hintId)
+      : undefined;
+  const control = isValidElement<FieldChildProps>(children)
+    ? cloneElement(children, {
+        id: controlId,
+        ...(describedBy ? { "aria-describedby": describedBy } : {}),
+      })
+    : children;
+
   return (
     <div>
-      <Label>{label}</Label>
-      {children}
+      <Label htmlFor={controlId}>{label}</Label>
+      {control}
       {hint && (
-        <p className="mt-1 text-[11px] leading-relaxed text-text-dim">{hint}</p>
+        <p
+          id={hintId}
+          className="mt-1 text-[11px] leading-relaxed text-text-dim"
+        >
+          {hint}
+        </p>
       )}
     </div>
   );

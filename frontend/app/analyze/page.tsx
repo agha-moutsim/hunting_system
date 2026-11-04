@@ -3,7 +3,7 @@
 import { useEffect, useState, FormEvent } from "react";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
-import Input from "@/components/ui/Input";
+import Input, { Label } from "@/components/ui/Input";
 import Spinner from "@/components/Spinner";
 import Scorecard from "@/components/Scorecard";
 import Badge from "@/components/ui/Badge";
@@ -94,7 +94,14 @@ export default function AnalyzePage() {
       <Card className="bg-linear-to-br from-bg-secondary to-bg-primary">
         <form onSubmit={onSubmit} className="flex flex-col sm:flex-row gap-3">
           <div className="flex-1">
+            {/* The placeholder was the only name this field had, so a screen
+                reader announced the whole example sentence as its label. */}
+            <Label htmlFor="analyze-query" className="sr-only">
+              eBay listing URL or search query
+            </Label>
             <Input
+              id="analyze-query"
+              name="query"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Paste an eBay listing URL or type a search query (e.g. wireless earbuds)"
