@@ -228,9 +228,15 @@ export default function BulkPage() {
                         r.currency || marketplace.currency
                       )}{" "}
                       · Best supplier{" "}
-                      {formatMoney(
-                        r.best_supplier_price,
-                        r.currency || marketplace.currency
+                      {(r.best_supplier_price ?? 0) > 0 ? (
+                        formatMoney(
+                          r.best_supplier_price,
+                          r.currency || marketplace.currency
+                        )
+                      ) : (
+                        <span title="No supplier offer cleared the C14 gate, so there is no cost to compute from.">
+                          —
+                        </span>
                       )}{" "}
                       · Sold 30d: {r.ebay_total_sold_30d ?? "⚠️ Unverified"}
                       {(() => {
@@ -259,19 +265,39 @@ export default function BulkPage() {
                     </div>
                   </div>
                   <div className="text-right">
-                    <div
-                      className={`text-lg font-bold ${
-                        r.profit > 0 ? "text-accent-green" : "text-accent-red"
-                      }`}
-                    >
-                      {formatMoney(
-                        r.profit,
-                        r.currency || marketplace.currency
-                      )}
-                    </div>
-                    <div className="text-xs text-text-secondary">
-                      {formatPercent(r.margin)}
-                    </div>
+                    {/* A row with no qualifying supplier carries profit 0 /
+                        margin 0 as the API's "nothing computed" default, so
+                        rendering them printed a confident GBP0.00 (0.0%) for
+                        a figure that was never calculated (C1). */}
+                    {(r.best_supplier_price ?? 0) > 0 ? (
+                      <>
+                        <div
+                          className={`text-lg font-bold ${
+                            r.profit > 0
+                              ? "text-accent-green"
+                              : "text-accent-red"
+                          }`}
+                        >
+                          {formatMoney(
+                            r.profit,
+                            r.currency || marketplace.currency
+                          )}
+                        </div>
+                        <div className="text-xs text-text-secondary">
+                          {formatPercent(r.margin)}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div
+                          className="text-lg font-bold text-text-dim"
+                          title="No supplier offer cleared the C14 gate, so no profit was calculated for this row."
+                        >
+                          —
+                        </div>
+                        <div className="text-xs text-text-dim">no supplier</div>
+                      </>
+                    )}
                   </div>
                 </div>
                 {/* C11: competitor stores. These raws already carry them -
