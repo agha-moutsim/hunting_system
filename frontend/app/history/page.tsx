@@ -224,6 +224,7 @@ export default function HistoryPage() {
           }
         : null,
       scorecard: d.verdict?.scorecard || "",
+      profitComputed: d.profit_computed,
     };
   }
 

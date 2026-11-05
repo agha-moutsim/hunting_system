@@ -167,6 +167,7 @@ export default function Scorecard({
   llmAnalysis,
   verdict,
   scorecard,
+  profitComputed,
   provenance,
   sellerQuery,
   currency = "GBP",
@@ -179,6 +180,13 @@ export default function Scorecard({
   llmAnalysis?: LLMAnalysis | null;
   verdict?: VerdictData | null;
   scorecard?: string;
+  /**
+   * The API's own answer to "was this profit measured?", served beside the
+   * verdict. Only an explicit `false` changes the wording: an older payload
+   * that never stated it keeps the plain dash rather than claiming a reason
+   * it does not know.
+   */
+  profitComputed?: boolean;
   provenance?: ProvenanceBlock;
   /** The search lane this result came from, when it was not a URL analysis. */
   sellerQuery?: string | null;
@@ -230,6 +238,11 @@ export default function Scorecard({
 
   const profit = verdict?.profit ?? null;
   const margin = verdict?.margin ?? null;
+  // C1 — a dash says "no figure", but not why. When the API says the figure
+  // was never computed, the tile says so in words instead of leaving the
+  // reader to guess between "break-even", "missing" and "not measured".
+  const uncomputed = profitComputed === false;
+  const noProfitLabel = uncomputed ? "Not computed" : "—";
 
   return (
     <div className="space-y-8">
@@ -324,7 +337,16 @@ export default function Scorecard({
               prov={provenance?.profit_analysis}
               value={
                 profit == null ? (
-                  <span className="text-text-dim">—</span>
+                  <span
+                    className="text-text-dim"
+                    title={
+                      uncomputed
+                        ? "No supplier price was read, so no profit was calculated."
+                        : undefined
+                    }
+                  >
+                    {noProfitLabel}
+                  </span>
                 ) : (
                   <span
                     className={
@@ -342,7 +364,16 @@ export default function Scorecard({
               prov={provenance?.profit_analysis}
               value={
                 margin == null ? (
-                  <span className="text-text-dim">—</span>
+                  <span
+                    className="text-text-dim"
+                    title={
+                      uncomputed
+                        ? "No supplier price was read, so no margin was calculated."
+                        : undefined
+                    }
+                  >
+                    {noProfitLabel}
+                  </span>
                 ) : (
                   formatPercent(margin)
                 )
