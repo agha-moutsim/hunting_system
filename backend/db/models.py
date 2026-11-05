@@ -181,6 +181,11 @@ class Verdict(Base):
     verdict = Column(String(16))    # pass, fail, pending
     profit_amount = Column(Float)
     profit_margin = Column(Float)
+    # C1 — whether profit_amount came from a supplier price or is the engine's
+    # 0.0 placeholder. NULL on rows saved before this column existed: those
+    # cannot be attributed, so History treats a zero as "not computed" while a
+    # non-zero figure (which must have been calculated) still shows.
+    profit_computed = Column(Boolean)
     filter_results = Column(JSON)   # which filters passed/failed
     scorecard = Column(Text)        # full formatted scorecard
     created_at = Column(DateTime, default=datetime.utcnow)

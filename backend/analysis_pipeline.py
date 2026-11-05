@@ -1079,6 +1079,9 @@ def save_analysis_to_db(results: dict):
                 "verdict": verdict.verdict,
                 "profit_amount": verdict.profit,
                 "profit_margin": verdict.margin,
+                # C1 — record whether the figures were measured, so a replayed
+                # run can tell a real break-even from the engine's 0.0 default.
+                "profit_computed": verdict.profit_computed,
                 "filter_results": [
                     {"name": f.name, "passed": f.passed, "actual": f.actual, "expected": f.expected}
                     for f in verdict.filters

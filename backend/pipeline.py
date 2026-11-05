@@ -538,6 +538,7 @@ class Pipeline:
                 "verdict": verdict.verdict,
                 "profit": verdict.profit,
                 "margin": verdict.margin,
+                "profit_computed": verdict.profit_computed,
                 "filters": [
                     {
                         "name": f.name,
@@ -634,6 +635,7 @@ class Pipeline:
                     "verdict": result.verdict.get("verdict", "pending"),
                     "profit_amount": result.verdict.get("profit", 0),
                     "profit_margin": result.verdict.get("margin", 0),
+                    "profit_computed": result.verdict.get("profit_computed"),
                     "filter_results": result.verdict.get("filters", []),
                     "scorecard": result.scorecard,
                 })

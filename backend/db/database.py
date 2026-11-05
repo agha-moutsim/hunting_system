@@ -436,3 +436,28 @@ def ensure_product_columns() -> list[str]:
     return added
 
 ensure_product_columns()
+
+
+# C1 - the verdict's profit can no longer be trusted from the number alone:
+# the engine writes 0.0 when no supplier price was read. Rows saved before this
+# column existed read NULL, and History treats an unattributable zero as "not
+# computed" rather than printing £0.00.
+_VERDICT_ADDITIONS = (("profit_computed", "BOOLEAN"),)
+
+
+def ensure_verdict_columns() -> list[str]:
+    inspector = inspect(engine)
+    if not inspector.has_table("verdicts"):
+        return []
+    existing = {c["name"] for c in inspector.get_columns("verdicts")}
+    added = []
+    for name, ddl in _VERDICT_ADDITIONS:
+        if name in existing:
+            continue
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE verdicts ADD COLUMN " + name + " " + ddl))
+        added.append(name)
+    return added
+
+
+ensure_verdict_columns()
