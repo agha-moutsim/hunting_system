@@ -43,6 +43,28 @@ def _figure(value, origin, observed_at=None):
     ).model_dump()
 
 
+def _replayed_filters(rows, profit_computed: bool):
+    """Stored filter rows, with the marks this replay can stand behind.
+
+    A row saved before filter provenance was persisted has no ``verified``
+    key at all. The ``Margin`` row is the one this endpoint can check against
+    the verdict itself: when no supplier price was read the engine wrote a
+    0.0 placeholder as the margin and left the row looking verified to any
+    client that defaults the missing mark to true. Serving ``False`` there is
+    a statement about what was measured, not an edit of old evidence — the
+    stored JSON is copied and left alone (C1/C13).
+    """
+    if not rows:
+        return rows
+    replayed = []
+    for row in rows:
+        copy = dict(row)
+        if copy.get("name") == "Margin" and not profit_computed:
+            copy["verified"] = False
+        replayed.append(copy)
+    return replayed
+
+
 def _serialize_observation(row) -> dict:
     """One stored Browse reading, replayed exactly as it was recorded.
 
@@ -299,7 +321,9 @@ def product_detail(product_id: int):
                 "verdict": verdict.verdict,
                 "profit_amount": verdict.profit_amount if profit_computed else None,
                 "profit_margin": verdict.profit_margin if profit_computed else None,
-                "filter_results": verdict.filter_results,
+                "filter_results": _replayed_filters(
+                    verdict.filter_results, profit_computed
+                ),
                 "scorecard": verdict.scorecard,
             } if verdict else None,
         }
