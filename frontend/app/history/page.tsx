@@ -14,28 +14,13 @@ import RangeFilterBar from "@/components/ui/RangeFilterBar";
 import OutsideBandBadge from "@/components/ui/OutsideBandBadge";
 import { apiFetch } from "@/lib/api";
 import {
-  FilterCheck,
   HistoryItem,
   HistoryListResponse,
   PriceRange,
   ProductDetail,
-  ScrapedProduct,
 } from "@/lib/types";
 import { formatMoney, formatDate, truncate } from "@/lib/format";
-
-function parseFilters(raw: unknown): FilterCheck[] {
-  if (!raw) return [];
-  if (Array.isArray(raw)) return raw;
-  if (typeof raw === "string") {
-    try {
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  }
-  return [];
-}
+import { detailAsScorecard } from "@/lib/historyDetail";
 
 export default function HistoryPage() {
   const [items, setItems] = useState<HistoryItem[]>([]);
@@ -166,67 +151,6 @@ export default function HistoryPage() {
       ),
     },
   ];
-
-  // Build a Scorecard-compatible payload from ProductDetail
-  function detailAsScorecard(d: ProductDetail) {
-    const ebay: ScrapedProduct = {
-      source: "eBay UK",
-      title: d.product.title,
-      price: d.product.price,
-      url: d.product.ebay_url,
-      image_url: d.product.image_url,
-      condition: d.product.condition,
-      seller: d.product.seller,
-      outside_band: d.product.outside_band,
-      provenance: d.product.provenance,
-      provenance_label: d.product.provenance_label,
-    };
-    const suppliers: ScrapedProduct[] = (d.suppliers || []).map((s) => ({
-      source: s.supplier_name,
-      title: s.supplier_title || s.supplier_name,
-      price: s.supplier_price || 0,
-      url: s.supplier_url || "",
-      delivery_days_min: s.delivery_days_min,
-      delivery_days_max: s.delivery_days_max,
-      // C13 — replayed rows carry the same markers as live ones. `null` and
-      // absent both mean "the row never stated it", so they collapse to
-      // undefined here: either way SupplierCard renders no badge rather than
-      // a claim that the row was verified.
-      provenance: s.provenance ?? undefined,
-      provenance_label: s.provenance_label ?? undefined,
-      verified: s.verified ?? undefined,
-      fetch_method: s.fetch_method ?? undefined,
-    }));
-    const filters = parseFilters(d.verdict?.filter_results);
-    return {
-      ebayProduct: ebay,
-      demand: d.demand,
-      suppliers,
-      llmAnalysis: d.analysis
-        ? {
-            brand_verdict: d.analysis.brand_verdict,
-            brand_reasoning: d.analysis.brand_reasoning,
-            demand_assessment: d.analysis.demand_assessment,
-            demand_reasoning: d.analysis.demand_reasoning,
-            supplier_type_reasoning: d.analysis.supplier_match_notes,
-            raw_response: d.analysis.llm_raw_response,
-          }
-        : null,
-      verdict: d.verdict
-        ? {
-            verdict: d.verdict.verdict || "pending",
-            // C1 — null means "never computed" (no supplier price), and the
-            // scorecard renders it as a dash. It must never fall back to 0,
-            // which would print a £0.00 nobody measured.
-            profit: d.verdict.profit_amount ?? null,
-            margin: d.verdict.profit_margin ?? null,
-            filters,
-          }
-        : null,
-      scorecard: d.verdict?.scorecard || "",
-      profitComputed: d.profit_computed,
-    };
-  }
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
