@@ -140,6 +140,7 @@ def product_detail(product_id: int):
     """
     from db.database import SessionLocal
     from db.models import Product, DemandData, SupplierMatch, Analysis, Verdict
+    from db.queries import profit_was_computed
 
     db = SessionLocal()
     try:
@@ -154,6 +155,17 @@ def product_detail(product_id: int):
 
         # Supplier prices are never range-gated (PR-1) — show every row.
         kept_suppliers = suppliers
+
+        # C1 — the verdict engine defaults profit/margin to 0.0 when no
+        # supplier price was read, and that default was saved. The detail is a
+        # replay, not a re-run, so the honest thing is to serve null and say
+        # the figure was never computed. For rows saved before the flag
+        # existed, a zero cannot be attributed and is served the same way; a
+        # genuine zero recorded by a newer run stays 0.0.
+        profit_computed = profit_was_computed(
+            verdict.profit_amount if verdict else None,
+            verdict.profit_computed if verdict else None,
+        )
 
         def _stat(v):
             return v if in_band(v) else None
@@ -279,10 +291,14 @@ def product_detail(product_id: int):
                 "supplier_match_notes": analysis.supplier_match_notes,
                 "llm_raw_response": analysis.llm_raw_response,
             } if analysis else None,
+            # True only when the stored profit came from a real supplier price.
+            # The flag is served beside the numbers it qualifies so no client
+            # has to infer it from the supplier list.
+            "profit_computed": profit_computed,
             "verdict": {
                 "verdict": verdict.verdict,
-                "profit_amount": verdict.profit_amount,
-                "profit_margin": verdict.profit_margin,
+                "profit_amount": verdict.profit_amount if profit_computed else None,
+                "profit_margin": verdict.profit_margin if profit_computed else None,
                 "filter_results": verdict.filter_results,
                 "scorecard": verdict.scorecard,
             } if verdict else None,

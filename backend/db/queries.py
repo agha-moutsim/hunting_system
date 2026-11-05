@@ -301,8 +301,32 @@ def save_verdict_data(db: Session, product_id: int, verdict: dict) -> Verdict:
     return row
 
 
+def profit_was_computed(profit, recorded: bool | None) -> bool:
+    """Whether a stored profit is a measurement or an engine default.
+
+    The verdict engine starts from ``{"profit": 0.0, "margin": 0.0}`` and only
+    replaces it when a supplier price was read (engine/decisions.py), so the
+    number alone cannot tell a break-even from "nobody computed this". Newer
+    rows record the answer in ``Verdict.profit_computed``.
+
+    Rows saved before that column existed read None. A non-zero figure among
+    them must have come from a calculation; a zero cannot be attributed, so it
+    is served as absent rather than printed as £0.00 (C1).
+    """
+    if profit is None:
+        return False
+    if recorded is not None:
+        return bool(recorded)
+    return profit != 0
+
+
 def get_recent_products(db: Session, limit: int = 20) -> list[dict]:
-    """Get recent products with their verdicts."""
+    """Get recent products with their verdicts.
+
+    ``profit_computed`` travels with every row so a client can tell a measured
+    zero from the placeholder: when it is false, ``profit``/``margin`` are
+    None rather than 0, and History renders a dash instead of £0.00.
+    """
     results = (
         db.query(Product, Verdict)
         .outerjoin(Verdict, Verdict.product_id == Product.id)
@@ -310,22 +334,29 @@ def get_recent_products(db: Session, limit: int = 20) -> list[dict]:
         .limit(limit)
         .all()
     )
-    return [
-        {
-            "id": p.id,
-            "title": p.title,
-            "price": p.price,
-            "marketplace": p.marketplace or "EBAY_GB",
-            "currency": p.currency or "GBP",
-            "url": p.ebay_url,
-            "image_url": p.image_url,
-            "verdict": v.verdict if v else None,
-            "profit": v.profit_amount if v else None,
-            "margin": v.profit_margin if v else None,
-            "created_at": p.created_at.isoformat(),
-        }
-        for p, v in results
-    ]
+    rows = []
+    for product, verdict in results:
+        computed = profit_was_computed(
+            verdict.profit_amount if verdict else None,
+            verdict.profit_computed if verdict else None,
+        )
+        rows.append(
+            {
+                "id": product.id,
+                "title": product.title,
+                "price": product.price,
+                "marketplace": product.marketplace or "EBAY_GB",
+                "currency": product.currency or "GBP",
+                "url": product.ebay_url,
+                "image_url": product.image_url,
+                "verdict": verdict.verdict if verdict else None,
+                "profit": verdict.profit_amount if computed else None,
+                "margin": verdict.profit_margin if computed else None,
+                "profit_computed": computed,
+                "created_at": product.created_at.isoformat(),
+            }
+        )
+    return rows
 
 
 def get_product_by_url(db: Session, url: str) -> Product | None:
