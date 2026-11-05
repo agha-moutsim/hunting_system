@@ -215,8 +215,11 @@ export default function HistoryPage() {
       verdict: d.verdict
         ? {
             verdict: d.verdict.verdict || "pending",
-            profit: d.verdict.profit_amount ?? 0,
-            margin: d.verdict.profit_margin ?? 0,
+            // C1 — null means "never computed" (no supplier price), and the
+            // scorecard renders it as a dash. It must never fall back to 0,
+            // which would print a £0.00 nobody measured.
+            profit: d.verdict.profit_amount ?? null,
+            margin: d.verdict.profit_margin ?? null,
             filters,
           }
         : null,

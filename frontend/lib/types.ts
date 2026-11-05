@@ -337,8 +337,8 @@ export interface FilterCheck {
 
 export interface VerdictData {
   verdict: string; // pass | fail | pending
-  profit?: number;
-  margin?: number;
+  profit?: number | null;
+  margin?: number | null;
   filters?: FilterCheck[];
 }
 
@@ -994,6 +994,8 @@ export interface HistoryItem {
   verdict?: string | null;
   profit?: number | null;
   margin?: number | null;
+  /** false = the stored zero is the engine's "no supplier price" default. */
+  profit_computed?: boolean;
   created_at: string;
   outside_band?: boolean;
 }
@@ -1042,10 +1044,12 @@ export interface ProductDetail {
     match_basis?: string;
   }[];
   analysis: LLMAnalysis | null;
+  /** false = the verdict's profit/margin are the engine's 0.0 placeholder. */
+  profit_computed?: boolean;
   verdict: {
     verdict: string;
-    profit_amount?: number;
-    profit_margin?: number;
+    profit_amount?: number | null;
+    profit_margin?: number | null;
     filter_results?: FilterCheck[] | string;
     scorecard?: string;
   } | null;
