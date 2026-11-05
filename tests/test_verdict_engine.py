@@ -148,6 +148,19 @@ class TestSupplierNeverGated:
         assert v.verdict == "fail"
 
 
+class TestProfitComputedFlag:
+    """C1 - the 0.0 default is not a break-even and must say so."""
+
+    def test_a_supplier_price_marks_the_profit_as_computed(self):
+        v = DecisionEngine().evaluate(_product(), _demand(), 6.0)
+        assert v.profit_computed is True
+
+    def test_no_supplier_price_leaves_the_zero_uncomputed(self):
+        v = DecisionEngine().evaluate(_product(), _demand(), None)
+        assert v.profit == 0.0
+        assert v.profit_computed is False
+
+
 class TestMoneySingleSource:
     def test_the_default_split_is_the_published_card(self):
         # What runs today: Everything Else at 12.9%, the 40p per-order fee,

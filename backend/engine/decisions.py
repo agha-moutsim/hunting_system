@@ -24,6 +24,9 @@ class Verdict:
     filters: list[FilterResult] = field(default_factory=list)
     profit: float = 0.0
     margin: float = 0.0
+    # C1 - True only when a supplier price was read and the figures below are
+    # measurements. The 0.0 defaults above are placeholders, not break-evens.
+    profit_computed: bool = False
     scorecard: str = ""
 
 
@@ -324,4 +327,5 @@ class DecisionEngine:
             filters=filters,
             profit=profit_info["profit"],
             margin=profit_info["margin"],
+            profit_computed=supplier_price is not None,
         )
