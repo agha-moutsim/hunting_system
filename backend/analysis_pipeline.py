@@ -1083,7 +1083,17 @@ def save_analysis_to_db(results: dict):
                 # run can tell a real break-even from the engine's 0.0 default.
                 "profit_computed": verdict.profit_computed,
                 "filter_results": [
-                    {"name": f.name, "passed": f.passed, "actual": f.actual, "expected": f.expected}
+                    {
+                        "name": f.name,
+                        "passed": f.passed,
+                        "actual": f.actual,
+                        "expected": f.expected,
+                        # C13 — the live screen marks an unverified rule as
+                        # unverified. Drop these two fields and a replayed run
+                        # wears a PASS/FAIL badge it never earned.
+                        "verified": f.verified,
+                        "advisory": f.advisory,
+                    }
                     for f in verdict.filters
                 ],
                 "scorecard": results.get("scorecard", ""),
