@@ -1223,7 +1223,7 @@ def deep_search_product(
     collected_data: List[str] = []
     band_notes: List[str] = []
 
-    # â”€â”€ Get real eBay sold data first â”€â”€
+    # ── Get real eBay sold data first ──
     sold_for_stores = None
     try:
         sold_scraper = _sold_scraper(market)
@@ -1501,10 +1501,10 @@ def deep_search_product(
     result.profit_potential = parsed.get("profit_potential", "")
     result.notes = parsed.get("notes", "")
 
-    # â”€â”€ C13 provenance stamp â”€â”€
+    # ── C13 provenance stamp ──
     _stamp_provenance(result)
 
-    # â”€â”€ Calculate profit & verdict (same logic as Analyze tab) â”€â”€
+    # ── Calculate profit & verdict (same logic as Analyze tab) ──
     _calculate_profit_and_verdict(
         result, filters=filters,
         brand_name=str(parsed.get("brand_name", "") or ""),
@@ -1569,7 +1569,7 @@ def deep_search_fast(
     sources: List[str] = []
     band_notes: List[str] = []
 
-    # â”€â”€ Get real eBay sold data â”€â”€
+    # ── Get real eBay sold data ──
     sold_for_stores = None
     try:
         sold_scraper = _sold_scraper(market)
@@ -1646,7 +1646,7 @@ def deep_search_fast(
     # scrape pool, so a route that gives up during scraping keeps them.
     _publish()
 
-    # â”€â”€ Run supplier scrapes in PARALLEL â”€â”€
+    # ── Run supplier scrapes in PARALLEL ──
     import asyncio
 
     # The market's bench decides which scrapers run. The UK keeps the same
@@ -1795,7 +1795,7 @@ def deep_search_fast(
     result.sources = sources
     result.notes = "Fast analysis (no LLM). For full analysis use Deep Search tab."
 
-    # â”€â”€ C13 provenance stamp (fast path: no LLM, so nothing is ai_insight) â”€â”€
+    # ── C13 provenance stamp (fast path: no LLM, so nothing is ai_insight) ──
     if result.ebay_total_sold_30d or result.ebay_top_sellers:
         _stamp_ebay_facts(result)
     else:
