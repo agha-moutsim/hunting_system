@@ -25,6 +25,7 @@ the author wrote proves the author's imagination, not the parser.
 """
 
 import re
+import threading
 from pathlib import Path
 
 import pytest
@@ -297,6 +298,10 @@ class TestStorage:
         """`refresh=true` on a fresh board used to reach refresh_if_stale, find
         nothing stale and return, so the button reported success without
         fetching anything."""
+        # A background refresh left over from an earlier test may still hold
+        # the module lock. This test is about the force flag, not lock
+        # contention, so give it a lock nobody else can be holding.
+        monkeypatch.setattr(deals, "_refresh_lock", threading.Lock())
         calls = []
         monkeypatch.setattr(
             deals, "board_meta",
