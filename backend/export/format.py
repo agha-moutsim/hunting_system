@@ -207,7 +207,11 @@ def format_to_schema(result: Any) -> dict:
         band_notes.append(
             f"eBay avg price £{result.ebay_avg_price:.2f} removed (not in {band_label()} range)"
         )
-    supplier_cost = result.best_supplier_price or 0.0
+    supplier_cost = result.best_supplier_price
+    # C1 — None/0.0 means no supplier price was read. Passing that into the
+    # fee engine priced the item as free; the engine now receives None and
+    # returns profit/margin as None because the cost is unknown.
+    supplier_known = supplier_cost is not None and supplier_cost > 0
 
     # Money from the single engine source (PROFIT_CONFIG) — C1/C3.
     # With no usable in-band eBay price there is nothing to compute fees
@@ -217,9 +221,13 @@ def format_to_schema(result: Any) -> dict:
     # or unread price raises rather than producing a calculation.
     has_price = bool(ebay_price)
     if has_price:
-        calc = calculate_profit(ebay_price, supplier_cost)
+        calc = calculate_profit(
+            ebay_price, supplier_cost if supplier_known else None
+        )
         ebay_fees = calc["total_fees"]
-        total_cost = supplier_cost + calc["total_fees"]
+        total_cost = (
+            supplier_cost + calc["total_fees"] if supplier_known else None
+        )
         profit = calc["profit"]
         margin = calc["margin"]
     else:

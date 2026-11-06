@@ -262,7 +262,23 @@ class TestExportSchema:
     def test_missing_price_exports_as_null_without_crashing(self):
         out = format_to_schema(_result(ebay_avg_price=None, best_supplier_price=None))
         assert out["eBay_price_range"]["avg"] is None
+        assert out["profit_analysis"]["profit"] is None
+        assert out["profit_analysis"]["margin_percent"] is None
         assert out["suppliers"]
+
+    def test_missing_supplier_price_is_not_priced_as_free(self):
+        # C1 — with an eBay price but no supplier cost, the money columns
+        # are absent. Treating 0.0 as a real cost printed the whole sale as
+        # profit.
+        out = format_to_schema(
+            _result(ebay_avg_price=12.5, best_supplier_price=None)
+        )
+        pa = out["profit_analysis"]
+        assert pa["profit"] is None
+        assert pa["margin_percent"] is None
+        assert pa["total_cost"] is None
+        # eBay's own fees do not need a supplier, so they are still known.
+        assert pa["ebay_fees"] is not None
 
 
 class TestSingleRangeSource:
