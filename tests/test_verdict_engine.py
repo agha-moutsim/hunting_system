@@ -101,6 +101,14 @@ class TestVerdictLadder:
         v = DecisionEngine().evaluate(_product(), _demand(), 11.90)
         assert v.verdict == "fail"
 
+    def test_missing_supplier_price_is_pending_not_fail(self):
+        # C1: no supplier price means no profit was measured, and absence is
+        # not a loss. The Margin row is unverified, so the verdict waits.
+        v = DecisionEngine().evaluate(_product(), _demand(), None)
+        assert v.profit_computed is False
+        assert _filter(v, "Margin").verified is False
+        assert v.verdict == "pending"
+
     def test_out_of_range_ebay_price_fails(self):
         v = DecisionEngine().evaluate(_product(price=35.01), _demand(), 6.0)
         assert _filter(v, "Price").passed is False

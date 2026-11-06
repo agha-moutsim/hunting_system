@@ -302,7 +302,11 @@ class DecisionEngine:
         gating = [f for f in filters if not f.advisory]
         all_passed = all(f.passed for f in gating)
         any_unverified = any(not f.verified for f in gating)
-        profit_positive = profit_info["profit"] > 0
+        # C1: an unmeasured profit is not a loss. When no supplier price came
+        # back the margin row is unverified, and its 0.0 placeholder must not
+        # be promoted into the decisive "fail" — absence belongs in "pending".
+        profit_computed = supplier_price is not None
+        profit_positive = profit_computed and profit_info["profit"] > 0
         # A rule we KNOW is broken always wins: a verified failure can never
         # be downgraded to "pending" by some unrelated unverified row.
         verified_failure = any(not f.passed and f.verified for f in gating)
@@ -311,7 +315,13 @@ class DecisionEngine:
         d7_row = next((f for f in gating if f.name == "Demand (7d)"), None)
         d7_unverified = d7_row is not None and not d7_row.verified
 
-        if verified_failure or not profit_positive:
+        if verified_failure:
+            verdict_str = "fail"
+        elif not profit_computed:
+            # C1: nothing was measured, so nothing can be declared a loss.
+            # The Margin row is unverified and this stays "pending".
+            verdict_str = "pending"
+        elif not profit_positive:
             verdict_str = "fail"
         elif d7_unverified:
             verdict_str = "pending"
