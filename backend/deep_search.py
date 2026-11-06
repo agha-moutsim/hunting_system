@@ -280,6 +280,10 @@ class DeepSearchResult:
     marketplace: str = "EBAY_GB"
     currency: str = "GBP"
     currency_symbol: str = "£"
+    # C1 — whether `profit`/`margin` were actually measured. The two default
+    # to 0.0, so a screen cannot tell a break-even from a run that never had
+    # a supplier price. An explicit False says those zeros are placeholders.
+    profit_computed: bool = False
 
     def attach_stores(self, sold_data: Any = None, demand: Any = None,
                       products: Any = None, query: str = "",
@@ -1926,6 +1930,7 @@ def _calculate_profit_and_verdict(
 
     result.profit = verdict.profit
     result.margin = verdict.margin
+    result.profit_computed = verdict.profit_computed
     result.verdict = verdict.verdict.upper()
     result.filters_passed = [asdict(f) for f in verdict.filters]
 

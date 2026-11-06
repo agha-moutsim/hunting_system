@@ -337,7 +337,16 @@ class TestDeepSearchAdapter:
         r = self._result(best_supplier_price=0.0)
         _calculate_profit_and_verdict(r, filters={})
         assert r.verdict == "PENDING"
+        assert r.profit_computed is False
         assert r.filters_passed[0]["name"] == "Data"
+
+    def test_profit_computed_flag_follows_the_engine(self):
+        # C1 — the flag travels with the result so a caller can tell a real
+        # 0.0 from the placeholder left when no supplier price arrived.
+        from deep_search import _calculate_profit_and_verdict
+        r = self._result()
+        _calculate_profit_and_verdict(r, filters={})
+        assert r.profit_computed is True
 
     def test_a_null_sold_count_is_not_verified_by_a_seller_list(self):
         # C13: the "we have eBay data" branch opens on the count OR the seller
