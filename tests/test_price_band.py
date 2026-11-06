@@ -281,6 +281,38 @@ class TestExportSchema:
         assert pa["ebay_fees"] is not None
 
 
+class TestCsvExportMoney:
+    """C1 — a CSV row may not price a deal the engine refused to price."""
+
+    @staticmethod
+    def _row(**overrides):
+        import csv
+        import io
+
+        from export.csv_export import export_to_csv
+
+        rows = list(csv.reader(io.StringIO(export_to_csv(_result(
+            ebay_total_sold_30d=40,
+            ebay_total_sold_7d=10,
+            **overrides,
+        )))))
+        return rows[0], rows[1]
+
+    def test_missing_supplier_cost_leaves_money_cells_blank(self):
+        header, cells = self._row(best_supplier_price=None)
+        for column in ("Total Cost", "Profit", "Margin %"):
+            assert cells[header.index(column)] == "", column
+        # eBay's fees do not need a supplier cost, so this stays known.
+        assert cells[header.index("eBay Fees")] != ""
+        # The profit stamp may not call an absent figure an estimate.
+        assert cells[header.index("Profit Provenance")] == "Unverified"
+
+    def test_a_read_supplier_cost_is_still_priced(self):
+        header, cells = self._row()
+        assert cells[header.index("Profit")] != ""
+        assert cells[header.index("Profit Provenance")] == "Estimated"
+
+
 class TestSingleRangeSource:
     """Range-store regression tests (amended PR-5/PR-7).
 

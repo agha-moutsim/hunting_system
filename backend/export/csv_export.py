@@ -265,16 +265,20 @@ def export_to_csv(result: Any) -> str:
     # Money from the single engine source (engine/fees.py via profit.py) —
     # C1/C3. No usable eBay price = nothing to compute from (post-gate None
     # or 0): money cells stay blank rather than arithmetic on a fabricated
-    # 0. The fee engine now enforces the same rule at its own door - a zero
-    # or unread price raises instead of producing a calculation - so the
-    # call is skipped, not fed a placeholder.
+    # 0. The same applies to a missing supplier cost: the fee engine now
+    # receives None and returns profit/margin as None, because a 0.0 cost
+    # priced the whole sale as profit.
     avg_ok = bool(result.ebay_avg_price)
+    supplier_cost = result.best_supplier_price
+    supplier_known = supplier_cost is not None and supplier_cost > 0
     if avg_ok:
         calc = calculate_profit(
-            result.ebay_avg_price, result.best_supplier_price or 0
+            result.ebay_avg_price, supplier_cost if supplier_known else None
         )
         ebay_fees = calc["total_fees"]
-        total_cost = (result.best_supplier_price or 0) + calc["total_fees"]
+        total_cost = (
+            supplier_cost + calc["total_fees"] if supplier_known else None
+        )
         profit = calc["profit"]
         margin = calc["margin"]
     else:
@@ -300,17 +304,18 @@ def export_to_csv(result: Any) -> str:
         # (never a shifted row) because the width is the spec's, not the data's.
         *_block_cells(_SINGLE_SUPPLIER_COLS, _supplier_at(suppliers, 0)),
         *_block_cells(_SINGLE_SUPPLIER_COLS, _supplier_at(suppliers, 1)),
-        f"£{ebay_fees:.2f}" if avg_ok else "",
-        f"£{total_cost:.2f}" if avg_ok else "",
-        f"£{profit:.2f}" if avg_ok else "",
-        f"{margin:.1f}%" if avg_ok else "",
+        f"£{ebay_fees:.2f}" if ebay_fees is not None else "",
+        f"£{total_cost:.2f}" if total_cost is not None else "",
+        f"£{profit:.2f}" if profit is not None else "",
+        f"{margin:.1f}%" if margin is not None else "",
         result.verdict or "PENDING",
         # C13 — provenance for each block.
         _prov_of(result, "ebay_total_sold_30d").label,
         _prov_of(result, "ebay_top_sellers").label,
         _prov_of(result, "suppliers").label,
-        # Profit is always computed from PROFIT_CONFIG — an estimate (C13).
-        Provenance.ESTIMATED.label,
+        # Profit is an estimate only when a supplier cost let it be computed.
+        Provenance.ESTIMATED.label if profit is not None
+        else Provenance.UNVERIFIED.label,
         # C11 — the store stamp travels with the store columns beside it.
         _store_prov_cell(result),
         # C11 — stores come pre-built and stamped by engine.stores.
@@ -367,11 +372,16 @@ def export_bulk_to_csv(results: list) -> str:
         # Money from the single engine source (engine/fees.py via profit.py) —
         # C1/C3; skip the call entirely when there is no price to compute from.
         avg_ok = bool(result.ebay_avg_price)
-        supplier_cost = result.best_supplier_price or 0
+        supplier_cost = result.best_supplier_price
+        supplier_known = supplier_cost is not None and supplier_cost > 0
         if avg_ok:
-            calc = calculate_profit(result.ebay_avg_price, supplier_cost)
+            calc = calculate_profit(
+                result.ebay_avg_price, supplier_cost if supplier_known else None
+            )
             ebay_fees = calc["total_fees"]
-            total_cost = supplier_cost + calc["total_fees"]
+            total_cost = (
+                supplier_cost + calc["total_fees"] if supplier_known else None
+            )
             profit = calc["profit"]
             margin = calc["margin"]
         else:
@@ -397,18 +407,19 @@ def export_bulk_to_csv(results: list) -> str:
             result.ebay_total_sold_30d or result.ebay_items_sold_month or "",
             f"£{result.ebay_avg_price:.2f}" if result.ebay_avg_price else "",
             best_supplier,
-            f"£{supplier_cost:.2f}" if supplier_cost else "",
+            f"£{supplier_cost:.2f}" if supplier_known else "",
             # C11 — the supplier tail: blanks (never a shift) when nothing won.
             *_block_cells(_BULK_SUPPLIER_TAIL, best_row),
-            f"£{ebay_fees:.2f}" if avg_ok else "",
-            f"£{profit:.2f}" if avg_ok else "",
-            f"{margin:.1f}%" if avg_ok else "",
+            f"£{ebay_fees:.2f}" if ebay_fees is not None else "",
+            f"£{profit:.2f}" if profit is not None else "",
+            f"{margin:.1f}%" if margin is not None else "",
             result.verdict or "PENDING",
             _prov_of(result, "ebay_total_sold_30d").label,
             _prov_of(result, "suppliers").label,
-            # Profit is always computed from PROFIT_CONFIG — an estimate (C13),
-            # same wording as the single export.
-            Provenance.ESTIMATED.label,
+            # Profit is an estimate only when a supplier cost let it be
+            # computed; otherwise the cells are blank and the stamp says so.
+            Provenance.ESTIMATED.label if profit is not None
+            else Provenance.UNVERIFIED.label,
             # C11 — the store stamp travels with the store columns beside it.
             _store_prov_cell(result),
             *_store_count_cells(result),
