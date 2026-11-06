@@ -236,12 +236,14 @@ export default function Scorecard({
   const demandField = (name: string, ...aliases: string[]) =>
     fieldProvenance(provenance?.fields, name, ...aliases);
 
-  const profit = verdict?.profit ?? null;
-  const margin = verdict?.margin ?? null;
   // C1 — a dash says "no figure", but not why. When the API says the figure
   // was never computed, the tile says so in words instead of leaving the
   // reader to guess between "break-even", "missing" and "not measured".
   const uncomputed = profitComputed === false;
+  // An explicit `false` beats the 0.0 placeholder on the wire: if the API
+  // says nothing was measured, there is no number to show.
+  const profit = uncomputed ? null : verdict?.profit ?? null;
+  const margin = uncomputed ? null : verdict?.margin ?? null;
   const noProfitLabel = uncomputed ? "Not computed" : "—";
 
   return (

@@ -339,6 +339,11 @@ export interface VerdictData {
   verdict: string; // pass | fail | pending
   profit?: number | null;
   margin?: number | null;
+  /**
+   * C1 — whether the money above was actually measured. An explicit `false`
+   * means the 0.0 wire values are placeholders, not a result.
+   */
+  profit_computed?: boolean;
   filters?: FilterCheck[];
 }
 

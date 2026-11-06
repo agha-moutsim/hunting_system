@@ -187,6 +187,7 @@ export default function AnalyzePage() {
             llmAnalysis={result.llm_analysis}
             verdict={result.verdict}
             scorecard={result.scorecard}
+            profitComputed={result.verdict?.profit_computed}
             provenance={result.provenance}
             sellerQuery={submittedQuery}
           />
