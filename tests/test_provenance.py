@@ -370,7 +370,7 @@ class TestLLMIsNotASourceOfSupplierPrices:
 
     def test_invented_price_cannot_reach_best_supplier_price(self, offline_deep_search):
         # The regression: 1.01 fed profit and could manufacture a PASS.
-        assert offline_deep_search.best_supplier_price == 0.0
+        assert offline_deep_search.best_supplier_price is None
 
     def test_supplier_stamp_reads_unverified_when_nothing_confirmed(
             self, offline_deep_search):

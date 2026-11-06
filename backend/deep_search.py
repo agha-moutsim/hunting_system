@@ -257,7 +257,10 @@ class DeepSearchResult:
     # '' = unknown, so the Condition row reports Unverified, never "New".
     ebay_condition: str = ""
     suppliers: List[dict] = field(default_factory=list)  # [{name, price, url, type, delivery}]
-    best_supplier_price: float = 0.0
+    # None = no usable supplier price was read. It used to default to 0.0,
+    # which is indistinguishable from "free" once it reaches a profit
+    # formula, an export row or a £0.00 tile (C1).
+    best_supplier_price: Optional[float] = None
     profit: float = 0.0
     margin: float = 0.0
     verdict: str = ""  # PASS / FAIL / PENDING
@@ -336,8 +339,18 @@ class DeepSearchResult:
         for s in self.suppliers:
             symbol = self.currency_symbol
             lines.append(f"  - {s.get('name', 'N/A')} | {symbol}{s.get('price', 0):.2f} | {s.get('supplier_type', '')} | {s.get('url', '')}")
-        lines.append(f"Best supplier cost: {self.currency_symbol}{self.best_supplier_price:.2f}")
-        lines.append(f"Profit: {self.currency_symbol}{self.profit:.2f} | Margin: {self.margin:.1f}%")
+        if self.best_supplier_price is None:
+            lines.append("Best supplier cost: Not computed")
+        else:
+            lines.append(
+                f"Best supplier cost: {self.currency_symbol}{self.best_supplier_price:.2f}"
+            )
+        if self.profit_computed:
+            lines.append(
+                f"Profit: {self.currency_symbol}{self.profit:.2f} | Margin: {self.margin:.1f}%"
+            )
+        else:
+            lines.append("Profit: Not computed | Margin: Not computed")
         lines.append(f"Verdict: {self.verdict}")
         lines.append(f"Competition: {self.competition_level}")
         lines.append(f"Profit potential: {self.profit_potential}")
@@ -1060,16 +1073,20 @@ def _stamp_provenance(result: "DeepSearchResult") -> None:
     if result.suppliers:
         result.set_fact_provenance("suppliers", Provenance.VERIFIED,
                                    source_name="live product pages (fetched)")
-        # B3 - the best-supplier tile shows a price pulled off one of those
-        # verified rows (deep_search.py:975), so it carries their stamp
-        # rather than reaching the screen with none at all.
-        result.set_fact_provenance("best_supplier_price", Provenance.VERIFIED,
-                                   source_name="live product pages (fetched)")
     else:
         result.set_fact_provenance("suppliers", Provenance.UNVERIFIED,
                                    reason="no supplier page could be confirmed")
+    if result.best_supplier_price is not None:
+        # B3 - the best-supplier tile shows a price pulled off one of those
+        # verified rows, so it carries their stamp rather than reaching the
+        # screen with none at all.
+        result.set_fact_provenance("best_supplier_price", Provenance.VERIFIED,
+                                   source_name="live product pages (fetched)")
+    else:
+        # C1 - a row can survive without a usable price; the tile then has
+        # nothing to stamp as read, and must not borrow the block's badge.
         result.set_fact_provenance("best_supplier_price", Provenance.UNVERIFIED,
-                                   reason="no supplier page could be confirmed")
+                                   reason="no supplier price was read")
     for name in ("competition_level", "profit_potential", "delivery_info",
                  "notes", "product_category"):
         result.set_fact_provenance(name, Provenance.AI_INSIGHT,
@@ -1861,7 +1878,7 @@ def _calculate_profit_and_verdict(
     missing = []
     if ebay_price <= 0:
         missing.append("eBay price (no sold data found)")
-    if supplier_cost <= 0:
+    if supplier_cost is None or supplier_cost <= 0:
         missing.append("Supplier cost (no suppliers found)")
 
     if missing:

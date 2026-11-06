@@ -334,11 +334,26 @@ class TestDeepSearchAdapter:
 
     def test_missing_supplier_is_pending_with_data_row(self):
         from deep_search import _calculate_profit_and_verdict
-        r = self._result(best_supplier_price=0.0)
+        r = self._result(best_supplier_price=None)
         _calculate_profit_and_verdict(r, filters={})
         assert r.verdict == "PENDING"
         assert r.profit_computed is False
+        assert r.best_supplier_price is None
         assert r.filters_passed[0]["name"] == "Data"
+
+    def test_a_new_result_has_no_supplier_price_until_one_is_read(self):
+        # C1 — absence is None, not 0.0. A zero here used to price the deal
+        # as free in exports and render as a confident £0.00 tile.
+        from deep_search import DeepSearchResult, _calculate_profit_and_verdict
+        r = DeepSearchResult(
+            product_name="Generic widget",
+            ebay_avg_price=12.5,
+            ebay_total_sold_30d=40,
+        )
+        assert r.best_supplier_price is None
+        _calculate_profit_and_verdict(r, filters={})
+        assert r.profit_computed is False
+        assert r.best_supplier_price is None
 
     def test_profit_computed_flag_follows_the_engine(self):
         # C1 — the flag travels with the result so a caller can tell a real

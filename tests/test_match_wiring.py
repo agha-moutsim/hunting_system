@@ -552,7 +552,7 @@ class TestDeepSearchFastGate:
         result = ds.deep_search_fast(REF_TITLE)
 
         assert result.suppliers == []
-        assert result.best_supplier_price == 0.0
+        assert result.best_supplier_price is None
         # C13 — no rows means the block reads unverified, and says why.
         stamp = result.field_provenance["suppliers"]
         assert stamp["provenance"] == "unverified"
