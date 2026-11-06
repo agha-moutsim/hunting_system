@@ -265,11 +265,12 @@ export default function BulkPage() {
                     </div>
                   </div>
                   <div className="text-right">
-                    {/* A row with no qualifying supplier carries profit 0 /
-                        margin 0 as the API's "nothing computed" default, so
-                        rendering them printed a confident GBP0.00 (0.0%) for
-                        a figure that was never calculated (C1). */}
-                    {(r.best_supplier_price ?? 0) > 0 ? (
+                    {/* A row whose profit was not measured carries zeros as
+                        the API's default, so rendering them printed a
+                        confident GBP0.00 (0.0%) for a figure that was never
+                        calculated (C1). */}
+                    {(r.best_supplier_price ?? 0) > 0 &&
+                    r.profit_computed !== false ? (
                       <>
                         <div
                           className={`text-lg font-bold ${
@@ -291,11 +292,19 @@ export default function BulkPage() {
                       <>
                         <div
                           className="text-lg font-bold text-text-dim"
-                          title="No supplier offer cleared the C14 gate, so no profit was calculated for this row."
+                          title={
+                            (r.best_supplier_price ?? 0) > 0
+                              ? "A supplier price was read, but there was no eBay price to measure the deal against."
+                              : "No supplier offer cleared the C14 gate, so no profit was calculated for this row."
+                          }
                         >
                           —
                         </div>
-                        <div className="text-xs text-text-dim">no supplier</div>
+                        <div className="text-xs text-text-dim">
+                          {(r.best_supplier_price ?? 0) > 0
+                            ? "not computed"
+                            : "no supplier"}
+                        </div>
                       </>
                     )}
                   </div>

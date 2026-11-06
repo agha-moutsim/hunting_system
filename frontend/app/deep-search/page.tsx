@@ -342,18 +342,26 @@ export default function DeepSearchPage() {
                   },
                   {
                     label: "Profit / Margin",
-                    value: (
-                      <span
-                        className={
-                          result.profit > 0
-                            ? "text-accent-green"
-                            : "text-accent-red"
-                        }
-                      >
-                        {formatMoney(result.profit, displayCurrency)} /{" "}
-                        {formatPercent(result.margin)}
-                      </span>
-                    ),
+                    value:
+                      result.profit_computed === false ? (
+                        <span
+                          className="text-text-dim"
+                          title="No supplier price was read, so no profit was calculated."
+                        >
+                          Not computed
+                        </span>
+                      ) : (
+                        <span
+                          className={
+                            result.profit > 0
+                              ? "text-accent-green"
+                              : "text-accent-red"
+                          }
+                        >
+                          {formatMoney(result.profit, displayCurrency)} /{" "}
+                          {formatPercent(result.margin)}
+                        </span>
+                      ),
                     prov: result.provenance?.profit_analysis,
                   },
                 ] as {

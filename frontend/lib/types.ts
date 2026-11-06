@@ -436,9 +436,12 @@ export interface DeepSearchResult {
   ebay_total_sold_30d: number;
   ebay_total_sold_7d: number | null; // null = unknown (never estimated)
   suppliers: SupplierInfo[];
-  best_supplier_price: number;
+  /** null = no supplier price was read; never 0.0 standing in for absence. */
+  best_supplier_price: number | null;
   profit: number;
   margin: number;
+  /** C1 — false means the profit/margin zeros are placeholders. */
+  profit_computed?: boolean;
   verdict: string; // PASS | FAIL | PENDING
   filters_passed: FilterCheck[];
   competition_level: string;
