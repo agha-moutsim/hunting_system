@@ -148,7 +148,7 @@ export function SupplierCell({
           rel="noopener noreferrer"
           className="text-accent-blue hover:underline"
         >
-          {row.supplier_name} {formatMoney(row.supplier_price ?? 0, currency)}
+          {row.supplier_name} {formatMoney(row.supplier_price, currency)}
         </a>
         {row.supplier_total_landed_cost != null && (
           <div className="text-[11px] text-text-dim">
