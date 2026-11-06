@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { detailAsScorecard, parseFilters } from "./historyDetail";
+import { detailAsScorecard, legacyPlaceholderWarning, parseFilters } from "./historyDetail";
 import type { ProductDetail } from "./types";
 
 /**
@@ -130,6 +130,45 @@ describe("detailAsScorecard", () => {
     expect(props.verdict).toBeNull();
     expect(props.scorecard).toBe("");
     expect(props.profitComputed).toBeUndefined();
+    expect(props.scorecardWarning).toBeNull();
+  });
+
+  it("flags a legacy scorecard that still prints placeholder money", () => {
+    const props = detailAsScorecard(
+      detail({
+        verdict: {
+          verdict: "fail",
+          profit_amount: null,
+          profit_margin: null,
+          filter_results: [],
+          scorecard: "  Profit:         £0.00\n  Margin:         0.0%",
+        },
+      })
+    );
+
+    expect(props.scorecardWarning).toContain("placeholders");
+  });
+
+  it("does not flag a scorecard that already says not computed", () => {
+    const props = detailAsScorecard(detail());
+
+    expect(props.scorecardWarning).toBeNull();
+  });
+});
+
+describe("legacyPlaceholderWarning", () => {
+  const legacy = "  Profit:         £0.00\n  Margin:         0.0%";
+
+  it("warns for an uncomputed verdict whose stored text prints zeros", () => {
+    expect(legacyPlaceholderWarning(legacy, false)).toContain("placeholders");
+  });
+
+  it("stays quiet for a computed break-even", () => {
+    expect(legacyPlaceholderWarning(legacy, true)).toBeNull();
+  });
+
+  it("stays quiet when the flag was never recorded", () => {
+    expect(legacyPlaceholderWarning(legacy, undefined)).toBeNull();
   });
 });
 

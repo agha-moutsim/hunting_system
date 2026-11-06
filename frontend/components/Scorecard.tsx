@@ -168,6 +168,7 @@ export default function Scorecard({
   verdict,
   scorecard,
   profitComputed,
+  scorecardWarning,
   provenance,
   sellerQuery,
   currency = "GBP",
@@ -187,6 +188,8 @@ export default function Scorecard({
    * it does not know.
    */
   profitComputed?: boolean;
+  /** C1 — what a stored scorecard's legacy placeholders mean, when it has them. */
+  scorecardWarning?: string | null;
   provenance?: ProvenanceBlock;
   /** The search lane this result came from, when it was not a URL analysis. */
   sellerQuery?: string | null;
@@ -683,19 +686,26 @@ export default function Scorecard({
       )}
 
       {scorecard && (
-        <details className="group">
-          <summary className="cursor-pointer list-none rounded-card border border-border/40 px-4 py-3 text-sm text-text-secondary transition-colors duration-200 hover:border-border/70 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand-lime">
-            <span className="group-open:hidden">
-              Show full written scorecard
-            </span>
-            <span className="hidden group-open:inline">
-              Hide written scorecard
-            </span>
-          </summary>
-          <pre className="mt-2 overflow-x-auto rounded-card border border-border/50 bg-bg-primary p-4 font-mono text-xs leading-relaxed text-text-secondary">
-            {scorecard}
-          </pre>
-        </details>
+        <>
+          {scorecardWarning && (
+            <div className="mb-2 rounded-card border border-accent-amber/40 bg-bg-surface px-4 py-3 text-xs text-accent-amber">
+              {scorecardWarning}
+            </div>
+          )}
+          <details className="group">
+            <summary className="cursor-pointer list-none rounded-card border border-border/40 px-4 py-3 text-sm text-text-secondary transition-colors duration-200 hover:border-border/70 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand-lime">
+              <span className="group-open:hidden">
+                Show full written scorecard
+              </span>
+              <span className="hidden group-open:inline">
+                Hide written scorecard
+              </span>
+            </summary>
+            <pre className="mt-2 overflow-x-auto rounded-card border border-border/50 bg-bg-primary p-4 font-mono text-xs leading-relaxed text-text-secondary">
+              {scorecard}
+            </pre>
+          </details>
+        </>
       )}
     </div>
   );

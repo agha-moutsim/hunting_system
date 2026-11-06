@@ -23,6 +23,28 @@ export interface HistoryScorecardProps {
   verdict: VerdictData | null;
   scorecard: string;
   profitComputed?: boolean;
+  /** A stored scorecard's own legacy placeholders, called out before it is read. */
+  scorecardWarning?: string | null;
+}
+
+/**
+ * C1 — a scorecard written before `profit_computed` existed may still say
+ * "Profit: £0.00 | Margin: 0.0%" for a run that never had a supplier price.
+ * Replaying it beside an honest "Not computed" tile would contradict itself,
+ * so the stored text gets a warning instead of a silent contradiction.
+ */
+export function legacyPlaceholderWarning(
+  scorecard: string,
+  profitComputed?: boolean
+): string | null {
+  if (profitComputed !== false || !scorecard) return null;
+  const claimsProfit = /profit:[^\n]*\b0\.00\b/i.test(scorecard);
+  const claimsMargin = /margin:[^\n]*\b0\.0\s*%/i.test(scorecard);
+  if (!claimsProfit && !claimsMargin) return null;
+  return (
+    "This scorecard was saved before profit flags existed. The £0.00 and " +
+    "0.0% it shows are placeholders, not a measured result."
+  );
 }
 
 export function parseFilters(raw: unknown): FilterCheck[] {
@@ -95,5 +117,9 @@ export function detailAsScorecard(d: ProductDetail): HistoryScorecardProps {
       : null,
     scorecard: d.verdict?.scorecard || "",
     profitComputed: d.profit_computed,
+    scorecardWarning: legacyPlaceholderWarning(
+      d.verdict?.scorecard || "",
+      d.profit_computed
+    ),
   };
 }
