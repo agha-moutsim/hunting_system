@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+import math
 from typing import Optional
 
 from scrapers.base import ScrapedProduct, DemandData
@@ -78,6 +79,18 @@ class DecisionEngine:
         competitor_stores_verified: bool = True,
     ) -> Verdict:
         filters: list[FilterResult] = []
+
+        # C1 — a non-positive supplier price is the scrapers' "not read"
+        # placeholder, not a free item. Left as a number it would compute a
+        # full profit and mark the margin row verified, so it is treated as
+        # absent here, at the one place every caller goes through.
+        if supplier_price is not None and (
+            isinstance(supplier_price, bool)
+            or not isinstance(supplier_price, (int, float))
+            or not math.isfinite(supplier_price)
+            or supplier_price <= 0
+        ):
+            supplier_price = None
 
         # --- Marketplace filter ---
         # Phase J — EBAY_GB keeps its historical `ebay_uk` source token, and
