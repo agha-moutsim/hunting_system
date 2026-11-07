@@ -8,7 +8,13 @@ import Spinner from "@/components/Spinner";
 import EbayStoresCard from "@/components/EbayStoresCard";
 import { apiPost } from "@/lib/api";
 import { BulkResponse, DeepSearchResult } from "@/lib/types";
-import { formatMoney, formatPercent, truncate } from "@/lib/format";
+import {
+  formatMoney,
+  formatPercent,
+  formatPrice,
+  formatSoldCount,
+  truncate,
+} from "@/lib/format";
 import { useMarketplace } from "@/lib/marketplace";
 
 export default function BulkPage() {
@@ -223,7 +229,7 @@ export default function BulkPage() {
                     </div>
                     <div className="text-xs text-text-secondary mt-1">
                       eBay avg{" "}
-                      {formatMoney(
+                      {formatPrice(
                         r.ebay_avg_price,
                         r.currency || marketplace.currency
                       )}{" "}
@@ -238,7 +244,7 @@ export default function BulkPage() {
                           —
                         </span>
                       )}{" "}
-                      · Sold 30d: {r.ebay_total_sold_30d ?? "⚠️ Unverified"}
+                      · Sold 30d: {formatSoldCount(r.ebay_total_sold_30d)}
                       {(() => {
                         const preferred =
                           r.suppliers?.filter((s) => s.sourcing_preferred)
