@@ -55,3 +55,40 @@ class TestSoldCountsStayAbsentWhenUnread:
         card = _card(None)
 
         assert "No sold data available" in card
+
+
+class TestUnreadSupplierPriceIsNotFree:
+    def _supplier(self, price):
+        return _product(
+            title="Greenhouse supplier",
+            price=price,
+            url="https://www.aliexpress.com/item/1",
+        )
+
+    def _card_with(self, price):
+        return format_scorecard(
+            _product(), [self._supplier(price)], DemandData(), Verdict(verdict="pending")
+        )
+
+    def test_a_zero_supplier_price_is_not_printed_as_money(self):
+        card = self._card_with(0.0)
+
+        assert "(price not read)" in _line(card, "Greenhouse supplier")
+        assert "not read" in _line(card, "Supplier price:")
+        assert "not computed" in _line(card, "Profit:")
+
+    def test_a_negative_supplier_price_is_not_a_cost(self):
+        card = self._card_with(-5.0)
+
+        assert "not computed" in _line(card, "Profit:")
+
+    def test_a_real_supplier_price_still_computes(self):
+        card = format_scorecard(
+            _product(),
+            [self._supplier(6.0)],
+            DemandData(),
+            Verdict(verdict="pass", profit=4.0, margin=15.0, profit_computed=True),
+        )
+
+        assert "£6.00" in _line(card, "Supplier price:")
+        assert "£4.00" in _line(card, "Profit:")

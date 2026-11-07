@@ -89,13 +89,15 @@ def format_scorecard(
     if supplier_matches:
         for s in supplier_matches[:3]:
             title = getattr(s, "title", str(s))[:40]
-            price = getattr(s, "price", "?")
+            price = getattr(s, "price", None)
+            # C1 — a zero supplier price is the scrapers' "not read"
+            # placeholder, not a free item; printing it as money invents one.
             price_text = (
-                f"{price:.2f}"
-                if isinstance(price, (int, float))
-                else str(price)
+                f"{symbol}{price:.2f}"
+                if isinstance(price, (int, float)) and price > 0
+                else "(price not read)"
             )
-            lines.append(f"  \u2022 {title}  {symbol}{price_text}")
+            lines.append(f"  \u2022 {title}  {price_text}")
     else:
         lines.append("  No supplier matches found")
     lines.append("")
@@ -114,9 +116,11 @@ def format_scorecard(
     supplier_price = None
     if supplier_matches:
         candidate = getattr(supplier_matches[0], "price", None)
-        if isinstance(candidate, (int, float)):
+        if isinstance(candidate, (int, float)) and candidate > 0:
             supplier_price = candidate
             lines.append(f"  Supplier price:   {symbol}{supplier_price:.2f}")
+        else:
+            lines.append("  Supplier price:   (not read)")
 
     money = None
     try:
