@@ -10,6 +10,25 @@ from engine.stores import MAX_STORES
 from export.format import store_block_for
 
 
+def _symbol_of(result: Any) -> str:
+    """C1 — the marketplace's own currency mark, never an assumed £.
+
+    Deep Search and Bulk run against AU/AUD as well as GB/GBP; a figure
+    stamped £ in an AUD export is a wrong number, not a formatting quirk.
+    """
+    return getattr(result, "currency_symbol", "") or "£"
+
+
+def _money(symbol: str, value: Any) -> str:
+    """One money cell: symbol + 2 dp, or blank when nothing was measured."""
+    if value is None:
+        return ""
+    try:
+        return f"{symbol}{float(value):.2f}"
+    except (TypeError, ValueError):
+        return ""
+
+
 def _prov_of(result: Any, name: str) -> Provenance:
     """C13 — provenance of one field; a missing stamp reads as unverified."""
     fp = getattr(result, "field_provenance", None) or {}
@@ -65,35 +84,35 @@ def _store_prov_cell(result: Any) -> str:
 # is not (C1). Match cells only ever repeat what engine/match.py
 # computed (C14): a score prints at 3 dp or not at all.
 
-def _cell_name(supplier: Any):
+def _cell_name(supplier: Any, _symbol: str = "£"):
     if supplier is None:
         return ""
     return supplier.get("name") or ""
 
 
-def _cell_price(supplier: Any):
+def _cell_price(supplier: Any, symbol: str = "£"):
     if supplier is None:
         return ""
     try:
-        return f"£{float(supplier.get('price') or 0):.2f}"
+        return f"{symbol}{float(supplier.get('price') or 0):.2f}"
     except (TypeError, ValueError):
         # C1 — an unparseable price is blank, never a fabricated £0.00.
         return ""
 
 
-def _cell_url(supplier: Any):
+def _cell_url(supplier: Any, _symbol: str = "£"):
     if supplier is None:
         return ""
     return supplier.get("url") or ""
 
 
-def _cell_type(supplier: Any):
+def _cell_type(supplier: Any, _symbol: str = "£"):
     if supplier is None:
         return ""
     return supplier.get("supplier_type") or ""
 
 
-def _cell_delivery(supplier: Any):
+def _cell_delivery(supplier: Any, _symbol: str = "£"):
     if supplier is None:
         return ""
     value = supplier.get("delivery_days", "")
@@ -101,21 +120,21 @@ def _cell_delivery(supplier: Any):
     return "" if value is None else value
 
 
-def _cell_stock(supplier: Any):
+def _cell_stock(supplier: Any, _symbol: str = "£"):
     """C1 — the state as captured; unknown prints blank, never a guess."""
     if supplier is None:
         return ""
     return supplier.get("in_stock") or ""
 
 
-def _cell_stock_raw(supplier: Any):
+def _cell_stock_raw(supplier: Any, _symbol: str = "£"):
     """C13 — the exact source text the stock state was read from."""
     if supplier is None:
         return ""
     return supplier.get("stock_raw") or ""
 
 
-def _cell_shipping_cost(supplier: Any):
+def _cell_shipping_cost(supplier: Any, symbol: str = "£"):
     """C1 — 0.0 means unknown, so it prints blank, never £0.00; the
     source-text column beside it is what tells free from unread."""
     if supplier is None:
@@ -124,10 +143,10 @@ def _cell_shipping_cost(supplier: Any):
         cost = float(supplier.get("shipping_cost") or 0)
     except (TypeError, ValueError):
         return ""
-    return f"£{cost:.2f}" if cost else ""
+    return _money(symbol, cost) if cost else ""
 
 
-def _cell_shipping_days(supplier: Any):
+def _cell_shipping_days(supplier: Any, _symbol: str = "£"):
     """C1 — 0 days means unknown: blank, never a fabricated lead time."""
     if supplier is None:
         return ""
@@ -138,14 +157,14 @@ def _cell_shipping_days(supplier: Any):
     return str(days) if days else ""
 
 
-def _cell_shipping_raw(supplier: Any):
+def _cell_shipping_raw(supplier: Any, _symbol: str = "£"):
     """C13 — the exact source text; free vs unread is told apart HERE."""
     if supplier is None:
         return ""
     return supplier.get("shipping_raw") or ""
 
 
-def _cell_match_score(supplier: Any):
+def _cell_match_score(supplier: Any, _symbol: str = "£"):
     """C14 — the computed score at 3 dp; blank only when the row carries
     none. A real 0.000 prints: it is a score, not an absence."""
     if supplier is None:
@@ -159,14 +178,14 @@ def _cell_match_score(supplier: Any):
         return ""
 
 
-def _cell_match_tier(supplier: Any):
+def _cell_match_tier(supplier: Any, _symbol: str = "£"):
     """C14 — the tier the matcher assigned; no match row means blank."""
     if supplier is None:
         return ""
     return supplier.get("match_tier") or ""
 
 
-def _cell_match_label(supplier: Any):
+def _cell_match_label(supplier: Any, _symbol: str = "£"):
     """C14 — the fixed display label ("verified match" / …); blank if absent."""
     if supplier is None:
         return ""
@@ -204,9 +223,13 @@ def _block_headers(cols, prefix: str) -> list:
     return [f"{prefix}{suffix}" for suffix, _ in cols]
 
 
-def _block_cells(cols, supplier: Any) -> list:
-    """Data cells for one supplier block, from the block's own spec."""
-    return [read(supplier) for _, read in cols]
+def _block_cells(cols, supplier: Any, symbol: str = "£") -> list:
+    """Data cells for one supplier block, from the block's own spec.
+
+    The marketplace symbol is passed to every reader so a supplier cost in
+    an AUD export is stamped A$, not £.
+    """
+    return [read(supplier, symbol) for _, read in cols]
 
 
 def _supplier_at(suppliers: list, index: int) -> Any:
@@ -261,6 +284,7 @@ def export_to_csv(result: Any) -> str:
     # Data row
     top_sellers = result.ebay_top_sellers or []
     suppliers = result.suppliers or []
+    symbol = _symbol_of(result)
 
     # Money from the single engine source (engine/fees.py via profit.py) —
     # C1/C3. No usable eBay price = nothing to compute from (post-gate None
@@ -292,21 +316,21 @@ def export_to_csv(result: Any) -> str:
         result.product_category or "Unknown",
         result.ebay_total_sold_30d or result.ebay_items_sold_month or "",
         result.ebay_total_sold_7d or "",
-        f"£{result.ebay_price_min:.2f}" if result.ebay_price_min else "",
-        f"£{result.ebay_price_max:.2f}" if result.ebay_price_max else "",
-        f"£{result.ebay_avg_price:.2f}" if result.ebay_avg_price else "",
-        f"£{result.ebay_price_median:.2f}" if result.ebay_price_median else "",
+        _money(symbol, result.ebay_price_min) if result.ebay_price_min else "",
+        _money(symbol, result.ebay_price_max) if result.ebay_price_max else "",
+        _money(symbol, result.ebay_avg_price) if result.ebay_avg_price else "",
+        _money(symbol, result.ebay_price_median) if result.ebay_price_median else "",
         top_sellers[0].get("name", "") if len(top_sellers) > 0 else "",
         top_sellers[0].get("url", "") if len(top_sellers) > 0 else "",
         top_sellers[1].get("name", "") if len(top_sellers) > 1 else "",
         top_sellers[1].get("url", "") if len(top_sellers) > 1 else "",
         # C11 — one block per supplier; a short list yields blank cells
         # (never a shifted row) because the width is the spec's, not the data's.
-        *_block_cells(_SINGLE_SUPPLIER_COLS, _supplier_at(suppliers, 0)),
-        *_block_cells(_SINGLE_SUPPLIER_COLS, _supplier_at(suppliers, 1)),
-        f"£{ebay_fees:.2f}" if ebay_fees is not None else "",
-        f"£{total_cost:.2f}" if total_cost is not None else "",
-        f"£{profit:.2f}" if profit is not None else "",
+        *_block_cells(_SINGLE_SUPPLIER_COLS, _supplier_at(suppliers, 0), symbol),
+        *_block_cells(_SINGLE_SUPPLIER_COLS, _supplier_at(suppliers, 1), symbol),
+        _money(symbol, ebay_fees) if ebay_fees is not None else "",
+        _money(symbol, total_cost) if total_cost is not None else "",
+        _money(symbol, profit) if profit is not None else "",
         f"{margin:.1f}%" if margin is not None else "",
         result.verdict or "PENDING",
         # C13 — provenance for each block.
@@ -369,6 +393,7 @@ def export_bulk_to_csv(results: list) -> str:
 
     # Data rows
     for result in results:
+        symbol = _symbol_of(result)
         # Money from the single engine source (engine/fees.py via profit.py) —
         # C1/C3; skip the call entirely when there is no price to compute from.
         avg_ok = bool(result.ebay_avg_price)
@@ -405,13 +430,13 @@ def export_bulk_to_csv(results: list) -> str:
             result.product_name,
             result.product_category or "Unknown",
             result.ebay_total_sold_30d or result.ebay_items_sold_month or "",
-            f"£{result.ebay_avg_price:.2f}" if result.ebay_avg_price else "",
+            _money(symbol, result.ebay_avg_price) if result.ebay_avg_price else "",
             best_supplier,
-            f"£{supplier_cost:.2f}" if supplier_known else "",
+            _money(symbol, supplier_cost) if supplier_known else "",
             # C11 — the supplier tail: blanks (never a shift) when nothing won.
-            *_block_cells(_BULK_SUPPLIER_TAIL, best_row),
-            f"£{ebay_fees:.2f}" if ebay_fees is not None else "",
-            f"£{profit:.2f}" if profit is not None else "",
+            *_block_cells(_BULK_SUPPLIER_TAIL, best_row, symbol),
+            _money(symbol, ebay_fees) if ebay_fees is not None else "",
+            _money(symbol, profit) if profit is not None else "",
             f"{margin:.1f}%" if margin is not None else "",
             result.verdict or "PENDING",
             _prov_of(result, "ebay_total_sold_30d").label,

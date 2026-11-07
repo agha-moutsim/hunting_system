@@ -312,6 +312,30 @@ class TestCsvExportMoney:
         assert cells[header.index("Profit")] != ""
         assert cells[header.index("Profit Provenance")] == "Estimated"
 
+    def test_export_uses_the_results_currency_symbol(self):
+        # Deep Search and Bulk also run on AU/AUD; a £ stamp there is a
+        # wrong figure, not a formatting quirk.
+        header, cells = self._row(currency_symbol="A$")
+        for column in (
+            "Price Min", "Price Max", "Price Avg", "Price Median",
+            "Supplier 1 Cost", "eBay Fees", "Total Cost", "Profit",
+        ):
+            assert cells[header.index(column)].startswith("A$"), column
+        assert "£" not in cells[header.index("Profit")]
+
+    def test_bulk_export_uses_each_results_currency_symbol(self):
+        import csv
+        import io
+
+        from export.csv_export import export_bulk_to_csv
+
+        rows = list(csv.reader(io.StringIO(export_bulk_to_csv([
+            _result(currency_symbol="A$", ebay_total_sold_30d=40),
+        ]))))
+        header, cells = rows[0], rows[1]
+        for column in ("Price Avg", "Supplier Cost", "eBay Fees", "Profit"):
+            assert cells[header.index(column)].startswith("A$"), column
+
 
 class TestSingleRangeSource:
     """Range-store regression tests (amended PR-5/PR-7).
