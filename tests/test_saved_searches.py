@@ -194,6 +194,48 @@ class TestARunStoresOnlyRealNumbers:
         assert "42.50" in report["reason"]
         assert "30.00" in report["reason"]
 
+    def test_the_refusal_speaks_the_results_currency(
+        self, session_factory, monkeypatch
+    ):
+        search_id = _search(session_factory, price_min=10.0, price_max=30.0)
+        _stub_analysis(
+            monkeypatch,
+            result=_result(ebay_avg_price=42.50, currency_symbol="A$"),
+        )
+
+        report = run_saved_search(search_id)
+
+        assert "A$42.50" in report["reason"]
+        assert "A$30.00" in report["reason"]
+        assert "£" not in report["reason"]
+
+    def test_an_uncomputed_profit_is_not_reported_as_zero(
+        self, session_factory, monkeypatch
+    ):
+        search_id = _search(session_factory)
+        _stub_analysis(
+            monkeypatch,
+            result=_result(profit=0.0, profit_computed=False),
+        )
+
+        report = run_saved_search(search_id)
+
+        assert report["found"] == 0
+        assert "did not compute a profit" in report["reason"]
+        assert "£0.00" not in report["reason"]
+
+    def test_a_null_profit_is_an_absence_not_a_zero(
+        self, session_factory, monkeypatch
+    ):
+        search_id = _search(session_factory)
+        _stub_analysis(monkeypatch, result=_result(profit=None))
+
+        report = run_saved_search(search_id)
+
+        assert report["found"] == 0
+        assert "did not compute a profit" in report["reason"]
+        assert "£0.00" not in report["reason"]
+
     def test_a_negative_profit_is_not_a_find(self, session_factory, monkeypatch):
         search_id = _search(session_factory)
         _stub_analysis(monkeypatch, result=_result(profit=-2.00))

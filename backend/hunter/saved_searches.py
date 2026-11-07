@@ -47,6 +47,7 @@ def _why_no_row(search, result) -> Optional[str]:
     if not url:
         return "the analysis named no specific listing, and a match nobody can open is not a match"
 
+    symbol = getattr(result, "currency_symbol", "") or "£"
     avg_price = result.ebay_avg_price or 0.0
     supplier_price = result.best_supplier_price or 0.0
     if avg_price <= 0:
@@ -61,17 +62,25 @@ def _why_no_row(search, result) -> Optional[str]:
     )
     if not price_in_range(avg_price, view):
         return (
-            f"the eBay price £{avg_price:.2f} is outside this search's band "
-            f"£{view['min']:.2f}-£{view['max']:.2f}"
+            f"the eBay price {symbol}{avg_price:.2f} is outside this search's band "
+            f"{symbol}{view['min']:.2f}-{symbol}{view['max']:.2f}"
         )
 
-    if (result.profit or 0.0) <= 0:
+    profit = getattr(result, "profit", None)
+    if profit is None or getattr(result, "profit_computed", None) is False:
         return (
-            f"the profit at the supplier price found is £{(result.profit or 0.0):.2f}, "
+            "the analysis did not compute a profit at the supplier price found, "
+            "so there is no find"
+        )
+    if profit <= 0:
+        return (
+            f"the profit at the supplier price found is {symbol}{profit:.2f}, "
             f"which is not a find"
         )
 
-    margin = result.margin or 0.0
+    margin = getattr(result, "margin", None)
+    if margin is None:
+        return "the analysis returned no margin to compare with this search's minimum"
     minimum = search.min_margin if search.min_margin is not None else 0.0
     if margin < minimum:
         return (
