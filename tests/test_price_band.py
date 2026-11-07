@@ -336,6 +336,16 @@ class TestCsvExportMoney:
         for column in ("Price Avg", "Supplier Cost", "eBay Fees", "Profit"):
             assert cells[header.index(column)].startswith("A$"), column
 
+    def test_unread_supplier_price_is_blank_not_zero(self):
+        # A supplier row with no read price is not a free item.
+        for price in (None, 0.0, ""):
+            header, cells = self._row(
+                best_supplier_price=None,
+                suppliers=[{"name": "unread", "price": price, "url": "a"}],
+            )
+            assert cells[header.index("Supplier 1 Cost")] == "", price
+            assert cells[header.index("Supplier 1")] == "unread"
+
 
 class TestSingleRangeSource:
     """Range-store regression tests (amended PR-5/PR-7).

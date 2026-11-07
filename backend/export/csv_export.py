@@ -91,14 +91,22 @@ def _cell_name(supplier: Any, _symbol: str = "£"):
 
 
 def _cell_price(supplier: Any, symbol: str = "£"):
+    """C1 — a missing or zero supplier price prints blank, not £0.00.
+
+    A zero here is an unread price, not a free item; the row's name and
+    URL still print so the absence is visible rather than silently priced.
+    """
     if supplier is None:
         return ""
+    value = supplier.get("price")
     try:
-        return f"{symbol}{float(supplier.get('price') or 0):.2f}"
+        price = float(value)
     except (TypeError, ValueError):
         # C1 — an unparseable price is blank, never a fabricated £0.00.
         return ""
-
+    if price <= 0:
+        return ""
+    return f"{symbol}{price:.2f}"
 
 def _cell_url(supplier: Any, _symbol: str = "£"):
     if supplier is None:
