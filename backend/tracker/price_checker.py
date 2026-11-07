@@ -14,7 +14,7 @@ def check_all_prices(progress_callback=None) -> dict:
     db = SessionLocal()
     try:
         products = db.query(TrackedProduct).filter(TrackedProduct.alert_enabled == True).all()
-        results = {"checked": 0, "alerts": 0, "errors": 0}
+        results = {"checked": 0, "unread": 0, "alerts": 0, "errors": 0}
         recorded: list[int] = []
 
         for i, product in enumerate(products):
@@ -29,9 +29,13 @@ def check_all_prices(progress_callback=None) -> dict:
                     product.ebay_price = new_ebay_price
 
                 product.supplier_price = new_supplier_price
-                product.last_checked = datetime.utcnow()
 
                 if new_ebay_price > 0:
+                    # Only a real reading is a check: it earns a history row,
+                    # moves `last_checked`, and counts as checked. A page that
+                    # parsed no price is reported as unread instead of being
+                    # stamped as a successful look at the old price.
+                    product.last_checked = datetime.utcnow()
                     history = PriceHistory(
                         tracked_product_id=product.id,
                         ebay_price=new_ebay_price,
@@ -39,8 +43,9 @@ def check_all_prices(progress_callback=None) -> dict:
                     )
                     db.add(history)
                     recorded.append(product.id)
-
-                results["checked"] += 1
+                    results["checked"] += 1
+                else:
+                    results["unread"] += 1
 
             except Exception as e:
                 print(f"[WARN] Price check failed for '{product.product_name}': {e}")
@@ -61,7 +66,7 @@ def check_all_prices(progress_callback=None) -> dict:
     except Exception as e:
         print(f"[ERROR] Batch price check failed: {e}")
         db.rollback()
-        return {"checked": 0, "alerts": 0, "errors": 0}
+        return {"checked": 0, "unread": 0, "alerts": 0, "errors": 0}
     finally:
         db.close()
 

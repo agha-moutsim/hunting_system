@@ -653,5 +653,28 @@ class TestTheTrackerCheckUsesTheSameRule:
 
         result = price_checker.check_all_prices()
 
-        assert result == {"checked": 1, "alerts": 1, "errors": 0}
+        assert result == {"checked": 1, "unread": 0, "alerts": 1, "errors": 0}
         assert len(_alerts(session_factory)) == 1
+
+    def test_a_batch_check_that_reads_nothing_is_not_a_check(
+        self, session_factory, monkeypatch
+    ):
+        """C1 — an unread page is not a successful look at the old price."""
+        product_id = _product(session_factory)
+        price_checker = self._wire(monkeypatch, session_factory, 0.0)
+
+        result = price_checker.check_all_prices()
+
+        assert result == {"checked": 0, "unread": 1, "alerts": 0, "errors": 0}
+        db = session_factory()
+        try:
+            row = db.query(TrackedProduct).filter(TrackedProduct.id == product_id).one()
+            assert row.last_checked is None
+            assert (
+                db.query(PriceHistory)
+                .filter(PriceHistory.tracked_product_id == product_id)
+                .count()
+                == 0
+            )
+        finally:
+            db.close()
