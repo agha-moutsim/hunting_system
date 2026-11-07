@@ -4,6 +4,7 @@ import {
   bucketPrices,
   cleanPrices,
   distributionView,
+  observedAverage,
   priceBucketCount,
 } from "./buckets";
 
@@ -159,5 +160,24 @@ describe("distributionView", () => {
   it("treats two observations as plottable", () => {
     // The threshold is deliberate: two points define a range worth showing.
     expect(distributionView([8, 15]).kind).toBe("chart");
+  });
+});
+
+describe("observedAverage", () => {
+  it("averages the same observations the chart counts", () => {
+    expect(observedAverage([10, 20, 30])).toBe(20);
+  });
+
+  it("ignores the zero and junk entries that are not observations", () => {
+    // A passed-in 0.0 average once made the caption say the market was
+    // free while every bar stood at £10+.
+    expect(observedAverage([10, 0, 20])).toBe(15);
+    expect(observedAverage([10, Number.NaN, -5, 20])).toBe(15);
+  });
+
+  it("is null when nothing was observed, never zero", () => {
+    expect(observedAverage([])).toBeNull();
+    expect(observedAverage(null)).toBeNull();
+    expect(observedAverage([0, Number.NaN])).toBeNull();
   });
 });

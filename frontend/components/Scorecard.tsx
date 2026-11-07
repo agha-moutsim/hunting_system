@@ -545,7 +545,6 @@ export default function Scorecard({
                     </figcaption>
                     <SoldPriceDistribution
                       prices={demand.sold_prices}
-                      average={demand.avg_sold_price}
                     />
                   </figure>
                 )}
@@ -605,7 +604,6 @@ export default function Scorecard({
                     </figcaption>
                     <SoldPriceDistribution
                       prices={demand.active_prices}
-                      average={demand.avg_active_price}
                     />
                   </figure>
                 )}

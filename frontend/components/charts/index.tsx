@@ -16,7 +16,7 @@ import {
   Legend,
 } from "recharts";
 import { currencySymbol, formatMoney } from "@/lib/format";
-import { bucketPrices, distributionView } from "@/lib/buckets";
+import { bucketPrices, distributionView, observedAverage } from "@/lib/buckets";
 import { infoTitle } from "@/lib/provenance";
 import type { ProvenanceInfo } from "@/lib/types";
 import ProvenanceBadge from "@/components/ui/ProvenanceBadge";
@@ -124,17 +124,6 @@ export function RevenueProfitChart({
 }
 
 /**
- * A3 — the distribution of real sold prices for ONE product.
- *
- * Every bar is counted from `prices`, the exact list the eBay sold query
- * returned, which is also what produced the min/avg/max tiles above it. The
- * caption recomputes the average from that same list rather than taking a
- * second number from elsewhere, so the chart and the metric cannot disagree.
- *
- * Fewer than two observations means there is nothing to distribute: the
- * component says so instead of drawing a single bar that reads as a market.
- */
-/**
  * The distribution of real sold prices for ONE product.
  *
  * Every bar is counted from `prices`, the exact list the eBay sold query
@@ -151,12 +140,10 @@ export function RevenueProfitChart({
  */
 export function SoldPriceDistribution({
   prices,
-  average,
   stamps,
   currency = "GBP",
 }: {
   prices?: number[] | null;
-  average?: number | null;
   stamps?: {
     count?: ProvenanceInfo;
     avg?: ProvenanceInfo;
@@ -175,7 +162,10 @@ export function SoldPriceDistribution({
   }
 
   const { observed, min, max, span } = view;
-  const avg = average ?? observed.reduce((a, b) => a + b, 0) / observed.length;
+  // C1 — the caption's average is arithmetic on the SAME observations the
+  // bars count. A separately supplied average (0.0 when unread, or a value
+  // from another list) could disagree with the chart it sits under.
+  const avg = observedAverage(observed);
 
   const data = bucketPrices(observed).map(({ range, count }) => ({
     range,

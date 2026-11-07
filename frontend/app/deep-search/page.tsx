@@ -415,7 +415,6 @@ export default function DeepSearchPage() {
                 prices={
                   hasSoldPrices ? result.sold_prices : result.active_prices
                 }
-                average={result.ebay_avg_price}
                 currency={displayCurrency}
                 stamps={{
                   count: hasSoldPrices

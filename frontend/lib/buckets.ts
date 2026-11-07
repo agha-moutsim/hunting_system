@@ -72,6 +72,18 @@ export function bucketPrices(prices?: number[] | null): PriceBucket[] {
 }
 
 /**
+ * The average of the prices actually observed. Kept beside the binning so the
+ * chart caption and the bars are arithmetic on the SAME list: a separately
+ * supplied average (0.0 when unread, or a figure from another list) could
+ * disagree with the chart it sits under. Null when nothing was observed.
+ */
+export function observedAverage(prices?: number[] | null): number | null {
+  const observed = cleanPrices(prices);
+  if (!observed.length) return null;
+  return observed.reduce((a, b) => a + b, 0) / observed.length;
+}
+
+/**
  * What the distribution chart should draw for one run's observations.
  *
  * Kept out of the component so the decision between plotting and saying
