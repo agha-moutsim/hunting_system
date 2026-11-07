@@ -356,6 +356,24 @@ class TestCsvExportMoney:
         for column in ("Price Avg", "Supplier Cost", "eBay Fees", "Profit"):
             assert cells[header.index(column)].startswith("A$"), column
 
+    def test_the_sold_column_never_takes_the_llm_estimate(self):
+        import csv
+        import io
+
+        from export.csv_export import export_to_csv
+
+        rows = list(csv.reader(io.StringIO(export_to_csv(_result(
+            ebay_total_sold_30d=0,
+            ebay_total_sold_7d=None,
+            ebay_items_sold_month="40",
+            best_supplier_price=None,
+        )))))
+        header, cells = rows[0], rows[1]
+
+        # The count column says what the scrape counted; an LLM estimate
+        # from another source must not stand in for it.
+        assert cells[header.index("eBay Sold (30d)")] == ""
+
     def test_unread_supplier_price_is_blank_not_zero(self):
         # A supplier row with no read price is not a free item.
         for price in (None, 0.0, ""):

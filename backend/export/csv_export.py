@@ -329,7 +329,10 @@ def export_to_csv(result: Any) -> str:
     writer.writerow([
         result.product_name,
         result.product_category or "Unknown",
-        result.ebay_total_sold_30d or result.ebay_items_sold_month or "",
+        # C1 — a sold COLUMN carries the observed count only. The LLM's
+        # "items sold this month" string is an estimate from a different
+        # source; folding it in made an estimate read as the count.
+        result.ebay_total_sold_30d or "",
         result.ebay_total_sold_7d or "",
         _money(symbol, result.ebay_price_min) if result.ebay_price_min else "",
         _money(symbol, result.ebay_price_max) if result.ebay_price_max else "",
@@ -444,7 +447,8 @@ def export_bulk_to_csv(results: list) -> str:
         writer.writerow([
             result.product_name,
             result.product_category or "Unknown",
-            result.ebay_total_sold_30d or result.ebay_items_sold_month or "",
+            # C1 — observed count only, never the LLM's monthly estimate.
+            result.ebay_total_sold_30d or "",
             _money(symbol, result.ebay_avg_price) if result.ebay_avg_price else "",
             best_supplier,
             _money(symbol, supplier_cost) if supplier_known else "",
