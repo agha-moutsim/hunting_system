@@ -1,6 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { asUtc, formatMoney, formatObservedAt, formatPrice, timeAgo } from "./format";
+import {
+  asUtc,
+  formatMoney,
+  formatObservedAt,
+  formatPrice,
+  formatSoldCount,
+  timeAgo,
+} from "./format";
 
 /**
  * The naive-UTC rule, in one place.
@@ -118,5 +125,21 @@ describe("formatPrice", () => {
     expect(formatPrice(undefined, "GBP")).toBe("\u2014");
     expect(formatPrice(Number.NaN, "GBP")).toBe("\u2014");
     expect(formatPrice(-5, "GBP")).toBe("\u2014");
+  });
+});
+
+describe("formatSoldCount", () => {
+  it("prints a count that was actually observed", () => {
+    expect(formatSoldCount(30)).toBe("30");
+    expect(formatSoldCount(1)).toBe("1");
+  });
+
+  it("prints a dash for the unread zero default", () => {
+    // The payload cannot tell a measured zero from the default, so it must
+    // not claim "Sold 30d: 0" as a reading.
+    expect(formatSoldCount(0)).toBe("\u2014");
+    expect(formatSoldCount(null)).toBe("\u2014");
+    expect(formatSoldCount(undefined)).toBe("\u2014");
+    expect(formatSoldCount(Number.NaN)).toBe("\u2014");
   });
 });

@@ -36,6 +36,15 @@ export function formatPrice(
   return formatMoney(n, currency);
 }
 
+/**
+ * A sold/observed count. The analysis payload defaults an unread count to 0,
+ * so 0 prints a dash: a zero would otherwise read as a measured "no sales".
+ */
+export function formatSoldCount(n: number | null | undefined): string {
+  if (n === null || n === undefined || Number.isNaN(n) || n <= 0) return "—";
+  return String(n);
+}
+
 export function currencySymbol(currency = "GBP"): string {
   const code = (currency || "GBP").toUpperCase();
   return CURRENCY_SYMBOLS[code] || code;

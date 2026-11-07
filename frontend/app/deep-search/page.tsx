@@ -34,6 +34,7 @@ import {
   formatMoney,
   formatPercent,
   formatPrice,
+  formatSoldCount,
 } from "@/lib/format";
 import { useMarketplace } from "@/lib/marketplace";
 
@@ -280,7 +281,7 @@ export default function DeepSearchPage() {
                 <p className="text-sm text-text-secondary mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
                   <span>{result.product_category}</span>
                   <span className="inline-flex items-center gap-1">
-                    {result.ebay_items_sold_month}
+                    {result.ebay_items_sold_month || "—"}
                     <ProvenanceBadge
                       provenance={stamps.ebay_items_sold_month.provenance}
                       label={stamps.ebay_items_sold_month.label}
@@ -288,7 +289,7 @@ export default function DeepSearchPage() {
                     />
                   </span>
                   <span className="inline-flex items-center gap-1">
-                    Sold 30d: {result.ebay_total_sold_30d ?? "-"}
+                    Sold 30d: {formatSoldCount(result.ebay_total_sold_30d)}
                     <ProvenanceBadge
                       provenance={stamps.ebay_total_sold_30d.provenance}
                       label={stamps.ebay_total_sold_30d.label}
@@ -296,7 +297,7 @@ export default function DeepSearchPage() {
                     />
                   </span>
                   <span className="inline-flex items-center gap-1">
-                    Sold 7d: {result.ebay_total_sold_7d ?? "-"}
+                    Sold 7d: {formatSoldCount(result.ebay_total_sold_7d)}
                     <ProvenanceBadge
                       provenance={stamps.ebay_total_sold_7d.provenance}
                       label={stamps.ebay_total_sold_7d.label}
