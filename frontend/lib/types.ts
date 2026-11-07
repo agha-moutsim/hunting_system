@@ -675,9 +675,10 @@ export interface TrackerHistoryResponse {
 }
 
 export interface PriceTrend {
-  trend: "up" | "down" | "stable";
-  change: number;
-  change_percent: number;
+  /** "unknown" = fewer than two readable points; change is null, not 0. */
+  trend: "up" | "down" | "stable" | "unknown";
+  change: number | null;
+  change_percent: number | null;
 }
 
 // ── Watchlist ───────────────────────────────────────────────────

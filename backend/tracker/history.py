@@ -1,10 +1,21 @@
 """Price history queries and trend analysis."""
 
+import math
 from datetime import datetime, timedelta
 from typing import Optional
 
 from db.database import SessionLocal
 from db.models import PriceHistory, TrackedProduct
+
+
+def _read_price(value) -> Optional[float]:
+    """A positive price, or None. Zero is the tracker's "not read" writer."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    if not math.isfinite(number) or number <= 0:
+        return None
+    return number
 
 
 def get_price_history(tracked_id: int, days: int = 30) -> list[dict]:
@@ -39,20 +50,29 @@ def get_price_history(tracked_id: int, days: int = 30) -> list[dict]:
 
 
 def get_price_trend(tracked_id: int, days: int = 7) -> dict:
-    """Get price trend (up/down/stable) over time."""
+    """Get price trend (up/down/stable) over time.
+
+    A trend is a comparison of two real readings. With fewer than two of them
+    there is nothing to compare, so the answer is `unknown` with a null
+    change - the old "stable, 0.0%" claimed a measured flat market from no
+    evidence. Unread points (0.0, None, NaN) are skipped rather than allowed
+    to become an endpoint.
+    """
     history = get_price_history(tracked_id, days)
+    prices = [
+        price
+        for price in (_read_price(point.get("ebay_price")) for point in history)
+        if price is not None
+    ]
 
-    if len(history) < 2:
-        return {"trend": "stable", "change": 0.0, "change_percent": 0.0}
+    if len(prices) < 2:
+        return {"trend": "unknown", "change": None, "change_percent": None}
 
-    oldest_price = history[0]["ebay_price"]
-    newest_price = history[-1]["ebay_price"]
-
-    if oldest_price <= 0 or newest_price <= 0:
-        return {"trend": "stable", "change": 0.0, "change_percent": 0.0}
+    oldest_price = prices[0]
+    newest_price = prices[-1]
 
     change = newest_price - oldest_price
-    change_percent = (change / oldest_price) * 100 if oldest_price > 0 else 0
+    change_percent = (change / oldest_price) * 100
 
     if change < -0.50:
         trend = "down"

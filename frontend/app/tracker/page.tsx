@@ -361,8 +361,11 @@ export default function TrackerPage() {
                       : "neutral"
                 }
               >
-                {history.trend.trend} (
-                {formatSigned(history.trend.change_percent)})
+                {history.trend.trend === "unknown"
+                  ? "not measured"
+                  : `${history.trend.trend} (${formatSigned(
+                      history.trend.change_percent
+                    )})`}
               </Badge>
             </span>
           </div>
