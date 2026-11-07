@@ -90,7 +90,31 @@ def analyze(query: str):
 )
 def profit(ebay_price: float, supplier_price: float, shipping_cost: float):
     """Calculate profit for a product."""
+    import math
+
     from engine.profit import calculate_profit
+
+    # C1 — the command line has no "unread" channel, but a non-positive
+    # price means exactly that in this app: a zero supplier price is not a
+    # free item, and a negative one would invent profit beyond the sale.
+    if not math.isfinite(ebay_price) or ebay_price <= 0:
+        click.echo(
+            "\nNo calculation: eBay price must be a positive number "
+            "(0 is the 'not read' placeholder)."
+        )
+        return
+    if not math.isfinite(supplier_price) or supplier_price <= 0:
+        click.echo(
+            "\nNo calculation: supplier price must be a positive number "
+            "(0 is the 'not read' placeholder, not a free item)."
+        )
+        return
+    if not math.isfinite(shipping_cost) or shipping_cost < 0:
+        click.echo(
+            "\nNo calculation: shipping cost must be 0 (unknown) or a "
+            "positive number."
+        )
+        return
 
     try:
         result = calculate_profit(
