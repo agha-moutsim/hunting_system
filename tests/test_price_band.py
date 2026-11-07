@@ -246,6 +246,13 @@ class TestExportSchema:
         assert out["band_notes"]
         assert "83.90" in out["band_notes"]
 
+    def test_band_notes_use_the_results_currency(self):
+        out = format_to_schema(_result(ebay_avg_price=83.90,
+                                      currency_symbol="A$"))
+        assert "eBay avg price A$83.90 removed" in out["band_notes"]
+        assert "A$" in out["band_notes"]
+        assert "£" not in out["band_notes"]
+
     def test_supplier_prices_are_never_dropped_or_nulled(self):
         # PR-1 amended: supplier rows pass through in full.
         out = format_to_schema(_result(

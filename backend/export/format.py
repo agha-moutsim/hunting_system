@@ -200,12 +200,14 @@ def format_to_schema(result: Any) -> dict:
     # Preserve any exclusion notes an earlier gate layer already recorded.
     prior = getattr(result, "band_notes", None)
     band_notes: list[str] = [prior] if prior else []
+    symbol = getattr(result, "currency_symbol", "") or "£"
 
     # Calculate eBay fees
     ebay_price = result.ebay_avg_price if in_band(result.ebay_avg_price) else 0.0
     if result.ebay_avg_price and not in_band(result.ebay_avg_price):
         band_notes.append(
-            f"eBay avg price £{result.ebay_avg_price:.2f} removed (not in {band_label()} range)"
+            f"eBay avg price {symbol}{result.ebay_avg_price:.2f} removed "
+            f"(not in {band_label(currency_symbol=symbol)} range)"
         )
     supplier_cost = result.best_supplier_price
     # C1 — None/0.0 means no supplier price was read. Passing that into the
@@ -305,7 +307,7 @@ def format_to_schema(result: Any) -> dict:
             return None
         if in_band(v):
             return v
-        band_notes.append(f"eBay sold statistic £{v:.2f} removed (not in band)")
+        band_notes.append(f"eBay sold statistic {symbol}{v:.2f} removed (not in band)")
         return None
 
     # Build output — C13: every section carries its own stamp with the
