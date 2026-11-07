@@ -20,7 +20,7 @@ import {
   FiltersResponse,
   PriceRange,
 } from "@/lib/types";
-import { formatGBP, formatPercent, formatDate } from "@/lib/format";
+import { formatPrice, formatPercent, formatDate } from "@/lib/format";
 
 export default function WatchlistPage() {
   const [items, setItems] = useState<WatchlistItem[]>([]);
@@ -231,7 +231,7 @@ export default function WatchlistPage() {
       align: "right",
       render: (r) => (
         <span className="inline-flex items-center justify-end gap-1.5">
-          {formatGBP(r.ebay_price)}
+          {formatPrice(r.ebay_price)}
           {r.outside_band && <OutsideBandBadge />}
         </span>
       ),
@@ -241,7 +241,7 @@ export default function WatchlistPage() {
       key: "target",
       header: "Target",
       align: "right",
-      render: (r) => formatGBP(r.target_price),
+      render: (r) => formatPrice(r.target_price),
       sortValue: (r) => r.target_price,
     },
     {
@@ -298,14 +298,14 @@ export default function WatchlistPage() {
       key: "ebay",
       header: "eBay",
       align: "right",
-      render: (r) => formatGBP(r.ebay_price),
+      render: (r) => formatPrice(r.ebay_price),
       sortValue: (r) => r.ebay_price,
     },
     {
       key: "supplier",
       header: "Supplier",
       align: "right",
-      render: (r) => formatGBP(r.supplier_price),
+      render: (r) => formatPrice(r.supplier_price),
       sortValue: (r) => r.supplier_price,
     },
     {
