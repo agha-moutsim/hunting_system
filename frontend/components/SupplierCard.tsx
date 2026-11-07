@@ -7,7 +7,7 @@ import MatchBadge, {
   STOCK_NOT_STATED,
 } from "@/components/ui/MatchBadge";
 import ProvenanceBadge from "@/components/ui/ProvenanceBadge";
-import { formatMoney } from "@/lib/format";
+import { formatMoney, formatPrice } from "@/lib/format";
 
 export interface AvailabilityLine {
   /** Dim subject word, e.g. "Stock". Empty when `value` carries its own. */
@@ -102,8 +102,14 @@ export default function SupplierCard({
     ebayCurrency == null ||
     supplier.currency == null ||
     supplier.currency.toUpperCase() === ebayCurrency.toUpperCase();
+  // C1 — a zero price is the scraper's "not read" placeholder. It is neither
+  // money to display nor a cost the listing can be compared against.
+  const supplierPrice = positive(supplier.price);
+  const ebayListingPrice = positive(ebayPrice);
   const delta =
-    ebayPrice != null && comparable ? ebayPrice - supplier.price : null;
+    ebayListingPrice != null && supplierPrice != null && comparable
+      ? ebayListingPrice - supplierPrice
+      : null;
   const deliveryKnown =
     supplier.delivery_days_min != null && supplier.delivery_days_max != null;
   const stock = describeStock(supplier);
@@ -230,7 +236,7 @@ export default function SupplierCard({
         </div>
         <div className="text-right">
           <div className="text-lg font-bold text-white font-mono tabular-nums">
-            {formatMoney(supplier.price, rowCurrency)}
+            {formatPrice(supplier.price, rowCurrency)}
           </div>
           {delta != null && (
             <div
