@@ -346,6 +346,23 @@ class TestCsvExportMoney:
             assert cells[header.index("Supplier 1 Cost")] == "", price
             assert cells[header.index("Supplier 1")] == "unread"
 
+    def test_unread_shipping_cost_is_blank_not_zero(self):
+        for cost in (None, 0.0, -1.0, float("nan"), ""):
+            header, cells = self._row(suppliers=[{
+                "name": "unread", "price": 4.0, "url": "a",
+                "shipping_cost": cost, "shipping_raw": "Shipping not read",
+            }])
+            assert cells[header.index("Supplier 1 Shipping Cost")] == "", cost
+            assert cells[header.index("Supplier 1 Shipping (source text)")] == (
+                "Shipping not read"
+            )
+
+    def test_read_shipping_cost_uses_the_marketplace_symbol(self):
+        header, cells = self._row(currency_symbol="A$", suppliers=[{
+            "name": "read", "price": 4.0, "url": "a", "shipping_cost": 2.5,
+        }])
+        assert cells[header.index("Supplier 1 Shipping Cost")] == "A$2.50"
+
 
 class TestSingleRangeSource:
     """Range-store regression tests (amended PR-5/PR-7).

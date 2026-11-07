@@ -2,6 +2,7 @@
 
 import csv
 import io
+import math
 from typing import Any
 
 from engine.profit import calculate_profit
@@ -143,15 +144,21 @@ def _cell_stock_raw(supplier: Any, _symbol: str = "£"):
 
 
 def _cell_shipping_cost(supplier: Any, symbol: str = "£"):
-    """C1 — 0.0 means unknown, so it prints blank, never £0.00; the
-    source-text column beside it is what tells free from unread."""
+    """C1 — a missing, non-positive or unreadable shipping cost is blank.
+
+    0.0 means unknown here, never a measured zero; the source-text column
+    beside it is what tells free from unread. A negative or non-finite
+    value is not a price either, so it cannot print as money.
+    """
     if supplier is None:
         return ""
     try:
-        cost = float(supplier.get("shipping_cost") or 0)
+        cost = float(supplier.get("shipping_cost"))
     except (TypeError, ValueError):
         return ""
-    return _money(symbol, cost) if cost else ""
+    if not math.isfinite(cost) or cost <= 0:
+        return ""
+    return _money(symbol, cost)
 
 
 def _cell_shipping_days(supplier: Any, _symbol: str = "£"):
