@@ -23,6 +23,19 @@ export function formatMoney(
   return symbol ? `${symbol}${n.toFixed(2)}` : `${n.toFixed(2)} ${code}`;
 }
 
+/**
+ * A listing or supplier PRICE. Prices are positive by nature, so a zero is
+ * the backend's "not read" placeholder, not a free item; it prints a dash.
+ * Profit and other signed amounts must use `formatMoney`, where 0 is real.
+ */
+export function formatPrice(
+  n: number | null | undefined,
+  currency = "GBP"
+): string {
+  if (n === null || n === undefined || Number.isNaN(n) || n <= 0) return "—";
+  return formatMoney(n, currency);
+}
+
 export function currencySymbol(currency = "GBP"): string {
   const code = (currency || "GBP").toUpperCase();
   return CURRENCY_SYMBOLS[code] || code;

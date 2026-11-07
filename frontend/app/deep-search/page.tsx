@@ -29,7 +29,12 @@ import {
   PriceRange,
   ProvenanceInfo,
 } from "@/lib/types";
-import { currencySymbol, formatMoney, formatPercent } from "@/lib/format";
+import {
+  currencySymbol,
+  formatMoney,
+  formatPercent,
+  formatPrice,
+} from "@/lib/format";
 import { useMarketplace } from "@/lib/marketplace";
 
 export default function DeepSearchPage() {
@@ -325,17 +330,17 @@ export default function DeepSearchPage() {
                       ? "Avg sold price"
                       : "Avg asking price",
                     prov: stamps.ebay_avg_price,
-                    value: formatMoney(result.ebay_avg_price, displayCurrency),
+                    value: formatPrice(result.ebay_avg_price, displayCurrency),
                   },
                   {
                     label: hasSoldPrices ? "Sold price range" : "Asking range",
                     prov: stamps.ebay_price_min,
-                    value: `${formatMoney(result.ebay_price_min, displayCurrency)} – ${formatMoney(result.ebay_price_max, displayCurrency)}`,
+                    value: `${formatPrice(result.ebay_price_min, displayCurrency)} – ${formatPrice(result.ebay_price_max, displayCurrency)}`,
                   },
                   {
                     label: "Best supplier",
                     prov: stamps.best_supplier_price,
-                    value: formatMoney(
+                    value: formatPrice(
                       result.best_supplier_price,
                       displayCurrency
                     ),

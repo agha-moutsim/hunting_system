@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { asUtc, formatMoney, formatObservedAt, timeAgo } from "./format";
+import { asUtc, formatMoney, formatObservedAt, formatPrice, timeAgo } from "./format";
 
 /**
  * The naive-UTC rule, in one place.
@@ -97,5 +97,26 @@ describe("formatMoney", () => {
   it("never turns an unread amount into zero", () => {
     expect(formatMoney(null, "USD")).toBe("\u2014");
     expect(formatMoney(undefined, "USD")).toBe("\u2014");
+  });
+});
+
+describe("formatPrice", () => {
+  it("prints a real price in its own currency", () => {
+    expect(formatPrice(12.5, "GBP")).toBe("£12.50");
+    expect(formatPrice(30, "AUD")).toBe("A$30.00");
+  });
+
+  it("treats a zero price as unread, not as free", () => {
+    // 0 is what the backend sends when a price was never read; printing
+    // £0.00 would make an unread listing look like a free one.
+    expect(formatPrice(0, "GBP")).toBe("\u2014");
+    expect(formatPrice(0, "AUD")).toBe("\u2014");
+  });
+
+  it("never invents a price for an absent or impossible value", () => {
+    expect(formatPrice(null, "GBP")).toBe("\u2014");
+    expect(formatPrice(undefined, "GBP")).toBe("\u2014");
+    expect(formatPrice(Number.NaN, "GBP")).toBe("\u2014");
+    expect(formatPrice(-5, "GBP")).toBe("\u2014");
   });
 });
