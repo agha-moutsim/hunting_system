@@ -1166,10 +1166,32 @@ class TestAvailabilityFieldsSurvive:
         assert out["in_stock"] == "in_stock"
         assert out["stock_raw"] == "In stock"
         assert out["availability_url"] == "https://supplier.example/p/1"
-        assert out["shipping_cost"] == 0.0
+        # C1 — 0.0 is UNKNOWN; JSON says null, and shipping_raw keeps the
+        # "Free delivery" evidence that tells free from unread.
+        assert out["shipping_cost"] is None
         assert out["shipping_days"] == 2
         assert out["shipping_raw"] == "Free delivery"
         assert out["match_tier"] == TIER_VERIFIED
+
+    def test_unread_supplier_money_exports_null_not_zero(self):
+        from export.format import format_to_schema
+
+        row = _row(TITLE_MATCH)
+        ds._gate_suppliers([row], REF_TITLE, ebay_price=REF_PRICE)
+        row.update({
+            "price": 0,
+            "shipping_cost": 0.0,
+            "shipping_days": 0,
+            "shipping_raw": "Free delivery",
+        })
+
+        out = format_to_schema(_ExportResult([row]))["suppliers"][0]
+
+        # A zero supplier cost is unread, not a free item.
+        assert out["item_cost"] is None
+        assert out["shipping_cost"] is None
+        assert out["shipping_days"] is None
+        assert out["shipping_raw"] == "Free delivery"
 
     def test_zero_shipping_cost_stays_zero_and_prints_blank(self):
         # C1 — a 0.0 shipping cost is UNKNOWN (or an explicitly stated

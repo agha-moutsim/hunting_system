@@ -120,6 +120,26 @@ def store_block_for(result: Any) -> dict:
     return block
 
 
+def _positive(value: Any) -> float | None:
+    """C1 — a supplier figure exports only when it was actually read.
+
+    The scraped supplier row uses 0/0.0 for "not read"; carrying that into
+    JSON would let a consumer price the item as free or same-day. Absent
+    stays null; shipping_raw is what tells a real free delivery apart.
+    """
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
+def _positive_days(value: Any) -> int | None:
+    """C1 — a lead time exports only when it was read and positive."""
+    number = _positive(value)
+    return int(number) if number is not None else None
+
+
 def _score_of(supplier: dict) -> float | None:
     """C14 — the computed score, or null when the row was never scored.
 
@@ -269,7 +289,9 @@ def format_to_schema(result: Any) -> dict:
         export_suppliers.append({
             "name": supplier.get("name", ""),
             "full_name": supplier.get("full_name", ""),
-            "item_cost": supplier.get("price", 0),
+            # C1 — an unread price is null, never a fabricated zero that
+            # would read as a free item.
+            "item_cost": _positive(supplier.get("price")),
             "link": supplier.get("url", ""),
             "type": supplier.get("supplier_type", "unknown"),
             "delivery_days": supplier.get("delivery_days", "unknown"),
@@ -291,8 +313,8 @@ def format_to_schema(result: Any) -> dict:
             "in_stock": supplier.get("in_stock") or "",
             "stock_raw": supplier.get("stock_raw") or "",
             "availability_url": supplier.get("availability_url") or "",
-            "shipping_cost": supplier.get("shipping_cost") or 0.0,
-            "shipping_days": supplier.get("shipping_days") or 0,
+            "shipping_cost": _positive(supplier.get("shipping_cost")),
+            "shipping_days": _positive_days(supplier.get("shipping_days")),
             "shipping_raw": supplier.get("shipping_raw") or "",
             # C14 — the computed match, absent (null/blank) when unscored.
             "match_score": _score_of(supplier),
