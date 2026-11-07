@@ -27,16 +27,21 @@ def _band_gate_result(payload: dict) -> dict:
     and the exclusion note is attached (PR-4) — null, never a fabricated 0
     (C1: a zeroed price reads as a real figure). Supplier rows and supplier
     prices pass through untouched — they are never range-gated (PR-1).
+
+    The note speaks in the payload's own currency: a client exporting an
+    AUD result must not read a GBP figure beside an AUD one.
     """
     if not isinstance(payload, dict):
         return payload
     out = dict(payload)
     notes = []
+    symbol = out.get("currency_symbol") or "£"
+    active_band = band_label(currency_symbol=symbol)
 
     for key in _EXPORT_NUMERIC_PRICE_KEYS:
         val = out.get(key)
         if isinstance(val, (int, float)) and val and not in_band(val):
-            notes.append(f"{key} \u00a3{val:.2f} removed (outside {band_label()} range)")
+            notes.append(f"{key} {symbol}{val:.2f} removed (outside {active_band} range)")
             out[key] = None
 
     # Nested price range statistics (eBay-side)
@@ -45,7 +50,10 @@ def _band_gate_result(payload: dict) -> dict:
         for stat in ("min", "max", "avg", "median"):
             v = rng.get(stat)
             if isinstance(v, (int, float)) and v and not in_band(v):
-                notes.append(f"eBay_price_range.{stat} £{v:.2f} removed (outside {band_label()} range)")
+                notes.append(
+                    f"eBay_price_range.{stat} {symbol}{v:.2f} removed "
+                    f"(outside {active_band} range)"
+                )
                 rng[stat] = None
 
     if notes:

@@ -253,6 +253,19 @@ class TestExportSchema:
         assert "A$" in out["band_notes"]
         assert "£" not in out["band_notes"]
 
+    def test_api_band_gate_uses_the_payloads_currency(self):
+        from api.export_api import _band_gate_result
+
+        out = _band_gate_result({
+            "currency_symbol": "A$",
+            "ebay_avg_price": 83.90,
+            "ebay_price_range": {"min": 83.90, "max": 90.0},
+        })
+        assert out["ebay_avg_price"] is None
+        assert out["ebay_price_range"]["min"] is None
+        assert "A$83.90" in out["band_notes"]
+        assert "£" not in out["band_notes"]
+
     def test_supplier_prices_are_never_dropped_or_nulled(self):
         # PR-1 amended: supplier rows pass through in full.
         out = format_to_schema(_result(
