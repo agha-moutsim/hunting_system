@@ -8,6 +8,7 @@ import Spinner from "@/components/Spinner";
 import EbayStoresCard from "@/components/EbayStoresCard";
 import { apiPost } from "@/lib/api";
 import { BulkResponse, DeepSearchResult } from "@/lib/types";
+import { bulkCsv } from "@/lib/bulkCsv";
 import {
   formatMoney,
   formatPercent,
@@ -60,33 +61,8 @@ export default function BulkPage() {
       });
       download(blob, "bulk_results.json");
     } else {
-      const headers = [
-        "Product",
-        "Category",
-        "Verdict",
-        "eBay Avg",
-        "Best Supplier",
-        "Profit",
-        "Margin %",
-        "Sold 30d",
-      ];
-      const lines = [
-        headers.join(","),
-        ...rows.map((r) =>
-          [
-            csv(r.product_name),
-            csv(r.product_category),
-            r.verdict,
-            r.ebay_avg_price,
-            r.best_supplier_price,
-            r.profit,
-            r.margin,
-            r.ebay_total_sold_30d,
-          ].join(",")
-        ),
-      ];
       download(
-        new Blob([lines.join("\n")], { type: "text/csv" }),
+        new Blob([bulkCsv(rows)], { type: "text/csv" }),
         "bulk_results.csv"
       );
     }
@@ -100,11 +76,6 @@ export default function BulkPage() {
     a.click();
     a.remove();
     URL.revokeObjectURL(a.href);
-  }
-
-  function csv(s: unknown) {
-    const str = String(s ?? "");
-    return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
   }
 
   return (
