@@ -758,3 +758,73 @@ class TestRegression005ProfitIsHonest:
         # overstate what any of this system actually knows.
         assert block["provenance"] == "estimated"
         assert block["rows_unverified"] == 0
+
+    def test_the_csv_leaves_unread_money_blank(self):
+        """C1 — a row with no supplier must not export £0.00 profit."""
+        import csv
+        import io
+
+        from hunter import profit_calc as pc
+        from hunter import report as rp
+
+        p = _product(price=24.99)
+        p.supplier_status = "no_supplier"
+        p.sold_30d = 0
+        pc._calc_single(p, {"margin_min": 25.0})
+
+        text = rp.export_report_csv(rp.generate_report(
+            [p], "Electronics", 5.0, 35.0, total_scanned=1
+        ))
+        header, cells = list(csv.reader(io.StringIO(text)))[:2]
+
+        assert cells[header.index("eBay Price")] == "£24.99"
+        assert cells[header.index("Sold (30d)")] == ""
+        assert cells[header.index("Supplier Price")] == ""
+        assert cells[header.index("Profit")] == ""
+        assert cells[header.index("Margin %")] == ""
+
+    def test_the_csv_prices_a_sourced_row_and_honours_the_currency(self):
+        import csv
+        import io
+
+        from hunter import profit_calc as pc
+        from hunter import report as rp
+
+        p = _product(price=24.99)
+        p.supplier_price = 9.99
+        p.supplier_status = "found"
+        p.sold_30d, p.sold_7d = 40, 10
+        pc._calc_single(p, {"margin_min": 25.0})
+
+        rep = rp.generate_report([p], "Electronics", 5.0, 35.0, total_scanned=1)
+        rep.currency_symbol = "A$"
+        text = rp.export_report_csv(rep)
+        header, cells = list(csv.reader(io.StringIO(text)))[:2]
+
+        assert cells[header.index("eBay Price")].startswith("A$")
+        assert cells[header.index("Supplier Price")] == "A$9.99"
+        assert cells[header.index("Profit")].startswith("A$")
+        assert cells[header.index("Margin %")].endswith("%")
+        assert cells[header.index("Sold (30d)")] == "40"
+        assert "£" not in text
+
+    def test_the_csv_survives_a_null_profit(self):
+        """A None profit is an absence, not an AttributeError."""
+        import csv
+        import io
+
+        from hunter import profit_calc as pc
+        from hunter import report as rp
+
+        p = _product(price=24.99)
+        p.supplier_price = 9.99
+        p.supplier_status = "found"
+        pc._calc_single(p, {"margin_min": 25.0})
+        p.profit = None
+
+        text = rp.export_report_csv(rp.generate_report(
+            [p], "Electronics", 5.0, 35.0, total_scanned=1
+        ))
+        header, cells = list(csv.reader(io.StringIO(text)))[:2]
+        assert cells[header.index("Profit")] == ""
+        assert cells[header.index("Margin %")].endswith("%")

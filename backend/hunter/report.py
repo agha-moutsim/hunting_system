@@ -27,6 +27,9 @@ class HunterResult:
     # REGRESSION-005 - the C13 stamp for the money columns. The Hunter was
     # the only analysis endpoint that returned none.
     provenance: dict = field(default_factory=dict)
+    # C1 — the marketplace symbol for the CSV's money columns. Defaults to the
+    # historical UK figure; an AU/AUD caller sets A$.
+    currency_symbol: str = "£"
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -199,10 +202,51 @@ def _profit_provenance_block(products) -> dict:
     return block
 
 
+def _csv_price(symbol: str, value) -> str:
+    """C1 — a listing/supplier price prints only when it is positive."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return ""
+    return f"{symbol}{number:.2f}" if number > 0 else ""
+
+
+def _csv_money(symbol: str, value, *, measured: bool = True) -> str:
+    """C1 — a measured amount (a real 0 included), or blank if unmeasured."""
+    if not measured or value is None:
+        return ""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return ""
+    return f"{symbol}{number:.2f}"
+
+
+def _csv_percent(value, *, measured: bool = True) -> str:
+    """C1 — a measured margin (a real 0.0% included), or blank."""
+    if not measured or value is None:
+        return ""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return ""
+    return f"{number:.1f}%"
+
+
+def _csv_count(value) -> str:
+    """C1 — the Hunter stores 0 for an unread sold count; print it blank."""
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return ""
+    return str(number) if number > 0 else ""
+
+
 def export_report_csv(result: HunterResult) -> str:
     """Export report to CSV."""
     output = io.StringIO()
     writer = csv.writer(output)
+    symbol = result.currency_symbol or "£"
 
     # Header
     writer.writerow([
@@ -222,16 +266,19 @@ def export_report_csv(result: HunterResult) -> str:
 
     # Data rows
     for i, p in enumerate(result.products, 1):
+        # C1 — only a stamped profit is a measurement. A row whose supplier
+        # was never read carries profit=0 as a placeholder, not a break-even.
+        profit_measured = p.get("profit_provenance") in ("estimated", "verified")
         writer.writerow([
             i,
             p.get("title", ""),
             p.get("category", ""),
-            f"£{p.get('price', 0):.2f}",
-            p.get("sold_30d", 0),
+            _csv_price(symbol, p.get("price")),
+            _csv_count(p.get("sold_30d")),
             p.get("supplier_name", ""),
-            f"£{p.get('supplier_price', 0):.2f}",
-            f"£{p.get('profit', 0):.2f}",
-            f"{p.get('margin', 0):.1f}%",
+            _csv_price(symbol, p.get("supplier_price")),
+            _csv_money(symbol, p.get("profit"), measured=profit_measured),
+            _csv_percent(p.get("margin"), measured=profit_measured),
             p.get("verdict", ""),
             p.get("url", ""),
             p.get("supplier_url", ""),
