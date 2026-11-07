@@ -99,7 +99,10 @@ def format_scorecard(
     # is stated because a money figure without its model is not defensible.
     lines.append("PROFIT CALCULATION")
     lines.append("-" * 55)
-    lines.append(f"  eBay price:       {symbol}{ebay_product.price:.2f}")
+    if ebay_product.price and ebay_product.price > 0:
+        lines.append(f"  eBay price:       {symbol}{ebay_product.price:.2f}")
+    else:
+        lines.append("  eBay price:       (not read)")
     supplier_price = None
     if supplier_matches:
         candidate = getattr(supplier_matches[0], "price", None)
@@ -146,8 +149,11 @@ def format_scorecard(
                     "assumed); the profit above is a ceiling (C1)."
                 )
     else:
-        lines.append(f"  Profit:           {symbol}{verdict.profit:.2f}")
-        lines.append(f"  Margin:           {verdict.margin:.1f}%")
+        # C1 — the fee engine refused to price this sale (zero/unread eBay
+        # price). verdict.profit/margin are placeholder 0.0 in that case, so
+        # printing them would claim a computed break-even.
+        lines.append("  Profit:           (not computed - fee engine refused)")
+        lines.append("  Margin:           (not computed - fee engine refused)")
 
     # The fee card's assumptions are part of the money: when one of them
     # holds, the card says so rather than leaving the reader to trust a

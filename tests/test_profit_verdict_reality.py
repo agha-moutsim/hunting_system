@@ -226,3 +226,35 @@ class TestScorecardNeverBrandsAnAdvisoryRowAsAFailure:
             line for line in card.splitlines() if "Condition" in line
         )
         assert "[PASS]" in condition_line
+
+    def test_a_refused_fee_engine_does_not_print_zero_money(self):
+        """C1 — a 0.0 placeholder is not a computed break-even.
+
+        The fee engine raises on a zero/unread eBay price and the caller
+        carries a Verdict with profit/margin still at their 0.0 defaults.
+        The card used to print those as £0.00 and 0.0%.
+        """
+        from engine.decisions import Verdict
+        from engine.scorecard import format_scorecard
+
+        card = format_scorecard(
+            _product(price=0),
+            [],
+            _demand(),
+            Verdict(verdict="pending"),
+        )
+
+        profit_line = next(
+            line for line in card.splitlines() if line.strip().startswith("Profit:")
+        )
+        margin_line = next(
+            line for line in card.splitlines() if line.strip().startswith("Margin:")
+        )
+        price_line = next(
+            line for line in card.splitlines() if line.strip().startswith("eBay price:")
+        )
+        assert "not computed" in profit_line
+        assert "not computed" in margin_line
+        assert "not read" in price_line
+        assert "£0.00" not in card
+        assert "0.0%" not in margin_line
