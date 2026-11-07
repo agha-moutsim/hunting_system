@@ -70,30 +70,44 @@ class BatchAnalyzer:
         return asyncio.run(self.analyze_batch(queries, progress_callback))
 
     def get_summary(self, results: list[BatchResult]) -> dict:
-        """Get batch analysis summary."""
+        """Get batch analysis summary.
+
+        The pipeline returns its verdict as a DICT, so the old `getattr(...,
+        "profit", 0)` read a default on every row: profit was always 0 and the
+        verdict always "N/A". A figure is reported only when the pipeline
+        stamped it computed; `profit_computed: False` is authoritative even if
+        a stale number sits beside it.
+        """
         successful = [r for r in results if r.status == "success"]
         failed = [r for r in results if r.status == "error"]
 
         profitable = []
+        products = []
         for r in successful:
-            if r.result and r.result.get("verdict"):
-                verdict = r.result["verdict"]
-                if hasattr(verdict, "profit") and verdict.profit > 0:
-                    profitable.append(r)
+            verdict = (r.result or {}).get("verdict")
+            if not isinstance(verdict, dict):
+                verdict = {}
+            computed = verdict.get("profit_computed")
+            profit = verdict.get("profit")
+            if computed is None:
+                # A result shaped before the flag existed: a non-zero figure
+                # can only have come from a calculation.
+                computed = isinstance(profit, (int, float)) and profit != 0
+            measured = profit if computed and isinstance(profit, (int, float)) else None
+            if measured is not None and measured > 0:
+                profitable.append(r)
+            products.append({
+                "query": r.query,
+                "verdict": verdict.get("verdict") or "N/A",
+                "profit": measured,
+            })
 
         return {
             "total": len(results),
             "successful": len(successful),
             "failed": len(failed),
             "profitable": len(profitable),
-            "products": [
-                {
-                    "query": r.query,
-                    "verdict": getattr(r.result.get("verdict"), "verdict", "N/A") if r.result else "N/A",
-                    "profit": getattr(r.result.get("verdict"), "profit", 0) if r.result else 0,
-                }
-                for r in successful
-            ],
+            "products": products,
         }
 
     def format_summary(self, results: list[BatchResult]) -> str:
@@ -112,8 +126,13 @@ class BatchAnalyzer:
         for p in summary["products"]:
             verdict = p["verdict"]
             profit = p["profit"]
-            icon = "✓" if profit > 0 else "✗"
-            lines.append(f"  {icon} {p['query'][:40]} — {verdict} (£{profit:.2f})")
+            if profit is None:
+                icon = "·"
+                money = " (profit not computed)"
+            else:
+                icon = "✓" if profit > 0 else "✗"
+                money = f" (£{profit:.2f})"
+            lines.append(f"  {icon} {p['query'][:40]} — {verdict}{money}")
 
         lines.append("")
         return "\n".join(lines)
