@@ -52,15 +52,23 @@ def format_scorecard(
     # --- Demand ---
     lines.append("DEMAND")
     lines.append("-" * 55)
-    if demand_data and demand_data.sold_count_30d is not None:
-        lines.append(f"  Sold (30d): {demand_data.sold_count_30d}")
-        lines.append(f"  Sold (7d):  {demand_data.sold_count_7d or 0}")
+    if demand_data is None:
+        lines.append("  No sold data available")
+    else:
+        # C1 — a count is printed only when it was read. The old `or 0` turned
+        # an unread 7-day figure into a measured zero, and the 30-day gate
+        # hid a real 7-day count whenever the 30-day one was missing. The two
+        # windows are independent readings, so they are reported apart.
+        for label, count in (
+            ("Sold (30d):", demand_data.sold_count_30d),
+            ("Sold (7d): ", demand_data.sold_count_7d),
+        ):
+            shown = count if count is not None else "(not read)"
+            lines.append(f"  {label} {shown}")
         if demand_data.avg_sold_price is not None:
             lines.append(f"  Avg sold:   {symbol}{demand_data.avg_sold_price:.2f}")
         if demand_data.last_sale_date:
             lines.append(f"  Last sale:  {demand_data.last_sale_date}")
-    else:
-        lines.append("  No sold data available")
 
     # Supply-side evidence under its OWN heading. These are real prices read
     # from eBay, but they are ASKING prices on live listings — a useful picture
