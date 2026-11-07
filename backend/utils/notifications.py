@@ -9,12 +9,23 @@ Usage:
 """
 
 import json
+import math
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 
 NOTIFICATIONS_FILE = Path(__file__).parent.parent / "data" / "notifications.json"
+
+
+def _read_price(value) -> Optional[float]:
+    """A positive price, or None. Zero and non-numbers mean "not read"."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    if not math.isfinite(number) or number <= 0:
+        return None
+    return number
 
 
 class Notifier:
@@ -102,15 +113,22 @@ class Notifier:
         new_price: float,
         threshold: float = 0.1,
     ) -> Optional[int]:
-        """Check if price dropped and create notification."""
-        if old_price <= 0:
+        """Check if price dropped and create notification.
+
+        C1 — a price is compared only when both readings are real. A missing
+        or zero `new_price` is "not read", not a 100% collapse, and a missing
+        `old_price` cannot be a baseline.
+        """
+        old = _read_price(old_price)
+        new = _read_price(new_price)
+        if old is None or new is None:
             return None
 
-        drop_pct = (old_price - new_price) / old_price
+        drop_pct = (old - new) / old
         if drop_pct >= threshold:
             return self.add(
                 notification_type="price_drop",
-                message=f"{title[:60]} dropped £{old_price:.2f} → £{new_price:.2f} ({drop_pct:.0%} off)",
+                message=f"{title[:60]} dropped £{old:.2f} → £{new:.2f} ({drop_pct:.0%} off)",
                 product_id=product_id,
                 priority="high",
             )
