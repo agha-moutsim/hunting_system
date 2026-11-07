@@ -20,7 +20,7 @@ import {
   PriceRange,
   TrackerListResponse,
 } from "@/lib/types";
-import { formatGBP, formatSigned, formatDateTime } from "@/lib/format";
+import { formatGBP, formatPrice, formatSigned, formatDateTime } from "@/lib/format";
 
 export default function TrackerPage() {
   const [products, setProducts] = useState<TrackedProduct[]>([]);
@@ -165,7 +165,7 @@ export default function TrackerPage() {
       align: "right",
       render: (r) => (
         <span className="inline-flex items-center justify-end gap-1.5">
-          {formatGBP(r.ebay_price)}
+          {formatPrice(r.ebay_price)}
           {r.outside_band && <OutsideBandBadge />}
         </span>
       ),
@@ -175,14 +175,14 @@ export default function TrackerPage() {
       key: "target",
       header: "Target",
       align: "right",
-      render: (r) => formatGBP(r.target_price),
+      render: (r) => formatPrice(r.target_price),
       sortValue: (r) => r.target_price,
     },
     {
       key: "supplier",
       header: "Supplier",
       align: "right",
-      render: (r) => formatGBP(r.supplier_price),
+      render: (r) => formatPrice(r.supplier_price),
       sortValue: (r) => r.supplier_price,
     },
     {
@@ -386,9 +386,9 @@ export default function TrackerPage() {
                     {formatDateTime(p.checked_at)}
                   </span>
                   <span>
-                    eBay {formatGBP(p.ebay_price)}{" "}
+                    eBay {formatPrice(p.ebay_price)}{" "}
                     {p.outside_band && <OutsideBandBadge />} · Supplier{" "}
-                    {formatGBP(p.supplier_price)}
+                    {formatPrice(p.supplier_price)}
                   </span>
                 </div>
               ))}
