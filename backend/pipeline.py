@@ -557,7 +557,15 @@ class Pipeline:
         except Exception as e:
             logger.exception("Decision engine failed")
             result.errors.append(f"Decision engine failed: {e}")
-            result.verdict = {"verdict": "error", "profit": 0, "margin": 0, "filters": []}
+            result.verdict = {
+                "verdict": "error",
+                "profit": 0,
+                "margin": 0,
+                # C1 — the zeros are placeholders, not a measured break-even.
+                # Without the flag the Analyze page read them as real money.
+                "profit_computed": False,
+                "filters": [],
+            }
 
         # Calculate profit breakdown
         if best_price is not None:
