@@ -20,7 +20,8 @@ import {
   PriceRange,
   TrackerListResponse,
 } from "@/lib/types";
-import { formatGBP, formatPrice, formatSigned, formatDateTime } from "@/lib/format";
+import { formatPrice, formatSigned, formatDateTime } from "@/lib/format";
+import { formatAlertPair } from "@/lib/alerts";
 
 export default function TrackerPage() {
   const [products, setProducts] = useState<TrackedProduct[]>([]);
@@ -259,8 +260,7 @@ export default function TrackerPage() {
                   {a.product_name}
                 </span>
                 <span className="text-text-secondary">
-                  {a.message} ({formatGBP(a.old_price)} →{" "}
-                  {formatGBP(a.new_price)})
+                  {a.message} ({formatAlertPair(a)})
                 </span>
               </div>
             ))}
