@@ -463,7 +463,7 @@ export default function DeepSearchPage() {
                       </span>
                       <span className="text-text-secondary whitespace-nowrap">
                         {s.sold_count ?? "—"} observed listings ·{" "}
-                        {formatMoney(s.avg_price, displayCurrency)}
+                        {formatPrice(s.avg_price, displayCurrency)}
                       </span>
                     </a>
                   ))}
@@ -588,7 +588,7 @@ export default function DeepSearchPage() {
                       </div>
                       <div className="text-right">
                         <div className="text-lg font-bold text-text-primary">
-                          {formatMoney(s.price, s.currency || displayCurrency)}
+                          {formatPrice(s.price, s.currency || displayCurrency)}
                         </div>
                       </div>
                     </div>
