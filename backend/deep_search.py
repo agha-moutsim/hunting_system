@@ -5,6 +5,7 @@ to research products across the web and generate actionable reselling insights.
 """
 
 import json
+import math
 import os
 import re
 import time
@@ -328,23 +329,39 @@ class DeepSearchResult:
         return asdict(self)
 
     def summary(self) -> str:
+        symbol = self.currency_symbol
+
+        # C1 — a price of 0.0 is this module's "not read" default, not a free
+        # item. The summary used to print it as currency on both the average
+        # and every supplier row.
+        def money(value) -> str:
+            if (
+                isinstance(value, (int, float))
+                and not isinstance(value, bool)
+                and math.isfinite(float(value))
+                and value > 0
+            ):
+                return f"{symbol}{float(value):.2f}"
+            return "not read"
+
         lines = [
             f"Product: {self.product_name}",
             f"Category: {self.product_category}",
             f"eBay {self.currency} monthly sales: {self.ebay_items_sold_month}",
             f"eBay price range: {self.ebay_price_range}",
-            f"eBay avg price: {self.currency_symbol}{self.ebay_avg_price:.2f}",
+            f"eBay avg price: {money(self.ebay_avg_price)}",
             f"Suppliers found: {len(self.suppliers)}",
         ]
         for s in self.suppliers:
-            symbol = self.currency_symbol
-            lines.append(f"  - {s.get('name', 'N/A')} | {symbol}{s.get('price', 0):.2f} | {s.get('supplier_type', '')} | {s.get('url', '')}")
-        if self.best_supplier_price is None:
+            lines.append(
+                f"  - {s.get('name', 'N/A')} | {money(s.get('price'))} | "
+                f"{s.get('supplier_type', '')} | {s.get('url', '')}"
+            )
+        best = money(self.best_supplier_price)
+        if best == "not read":
             lines.append("Best supplier cost: Not computed")
         else:
-            lines.append(
-                f"Best supplier cost: {self.currency_symbol}{self.best_supplier_price:.2f}"
-            )
+            lines.append(f"Best supplier cost: {best}")
         if self.profit_computed:
             lines.append(
                 f"Profit: {self.currency_symbol}{self.profit:.2f} | Margin: {self.margin:.1f}%"
