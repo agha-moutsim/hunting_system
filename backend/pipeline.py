@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import re
 from dataclasses import asdict, field
 from datetime import datetime
@@ -667,7 +668,15 @@ class Pipeline:
 
         # Product
         lines.append(f"Product: {product.title[:70]}")
-        lines.append(f"eBay Price: GBP {product.price:.2f}")
+        if (
+            isinstance(product.price, (int, float))
+            and not isinstance(product.price, bool)
+            and math.isfinite(float(product.price))
+            and product.price > 0
+        ):
+            lines.append(f"eBay Price: GBP {float(product.price):.2f}")
+        else:
+            lines.append("eBay Price: (not read)")
         lines.append("")
 
         # Demand. Two kinds of evidence under two headings: a sale is demand, a
@@ -712,11 +721,33 @@ class Pipeline:
         p = result.profit
         if p:
             lines.append("PROFIT")
-            lines.append(f"  Supplier:     GBP {p.get('supplier_price', 0):.2f}")
-            lines.append(f"  eBay fee:     GBP {p.get('ebay_fee', 0):.2f}")
-            lines.append(f"  Returns buf:  GBP {p.get('returns_buffer', 0):.2f}")
-            lines.append(f"  Net profit:   GBP {p.get('profit', 0):.2f}")
-            lines.append(f"  Margin:       {p.get('margin', 0):.1f}%")
+
+            # C1 — calculate_profit returns None for a figure it could not
+            # measure. `.get(key, 0)` printed those as GBP 0.00, which reads
+            # as a measured break-even.
+            def money_line(label: str, key: str) -> str:
+                value = p.get(key)
+                if (
+                    isinstance(value, (int, float))
+                    and not isinstance(value, bool)
+                    and math.isfinite(float(value))
+                ):
+                    return f"  {label}GBP {float(value):.2f}"
+                return f"  {label}not computed"
+
+            lines.append(money_line("Supplier:     ", "supplier_price"))
+            lines.append(money_line("eBay fee:     ", "ebay_fee"))
+            lines.append(money_line("Returns buf:  ", "returns_buffer"))
+            lines.append(money_line("Net profit:   ", "profit"))
+            margin = p.get("margin")
+            if (
+                isinstance(margin, (int, float))
+                and not isinstance(margin, bool)
+                and math.isfinite(float(margin))
+            ):
+                lines.append(f"  Margin:       {float(margin):.1f}%")
+            else:
+                lines.append("  Margin:       not computed")
         lines.append("")
 
         # Errors
