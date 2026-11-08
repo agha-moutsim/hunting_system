@@ -1,3 +1,4 @@
+import math
 from typing import Optional
 
 from scrapers.base import ScrapedProduct, DemandData
@@ -153,8 +154,28 @@ def format_scorecard(
             lines.append("  Profit:           (no supplier price - not computed)")
             lines.append("  Margin:           (no supplier price - not computed)")
         else:
-            lines.append(f"  Profit:           {symbol}{verdict.profit:.2f}")
-            lines.append(f"  Margin:           {verdict.margin:.1f}%")
+            # C1 — quote the figures this card just computed. `Verdict` carries
+            # 0.0 placeholders for a verdict that was not asked to price the
+            # sale, so copying `verdict.profit` printed a measured break-even
+            # in place of a real margin.
+            profit = money["profit"]
+            if (
+                isinstance(profit, (int, float))
+                and not isinstance(profit, bool)
+                and math.isfinite(float(profit))
+            ):
+                lines.append(f"  Profit:           {symbol}{float(profit):.2f}")
+            else:
+                lines.append("  Profit:           (not computed)")
+            margin = money["margin"]
+            if (
+                isinstance(margin, (int, float))
+                and not isinstance(margin, bool)
+                and math.isfinite(float(margin))
+            ):
+                lines.append(f"  Margin:           {float(margin):.1f}%")
+            else:
+                lines.append("  Margin:           (not computed)")
             if not money["profit_is_complete"]:
                 lines.append(
                     "  Note:             postage paid is not known (0.00 "

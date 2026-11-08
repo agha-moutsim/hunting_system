@@ -91,4 +91,18 @@ class TestUnreadSupplierPriceIsNotFree:
         )
 
         assert "£6.00" in _line(card, "Supplier price:")
-        assert "£4.00" in _line(card, "Profit:")
+        # The card quotes the fee engine's own figures, not the verdict's
+        # fields: this verdict carries stale placeholders from another sale.
+        assert "£17.85" in _line(card, "Profit:")
+        assert "59.5%" in _line(card, "Margin:")
+
+    def test_a_verdict_without_figures_does_not_print_a_zero_profit(self):
+        # A Verdict built without pricing the sale carries 0.0 placeholders.
+        # With a real supplier price the engine does compute, and the card
+        # must print that measurement rather than the placeholder zero.
+        card = format_scorecard(
+            _product(), [self._supplier(6.0)], DemandData(), Verdict(verdict="pending")
+        )
+
+        assert "£17.85" in _line(card, "Profit:")
+        assert "£0.00" not in _line(card, "Profit:")
