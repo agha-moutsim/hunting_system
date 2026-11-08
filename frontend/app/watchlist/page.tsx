@@ -314,12 +314,18 @@ export default function WatchlistPage() {
       align: "right",
       render: (r) => (
         <span
-          className={r.margin >= 25 ? "text-accent-green" : "text-accent-amber"}
+          className={
+            r.margin == null
+              ? "text-text-dim"
+              : r.margin >= 25
+                ? "text-accent-green"
+                : "text-accent-amber"
+          }
         >
           {formatPercent(r.margin)}
         </span>
       ),
-      sortValue: (r) => r.margin,
+      sortValue: (r) => r.margin ?? Number.NEGATIVE_INFINITY,
     },
     {
       key: "verdict",

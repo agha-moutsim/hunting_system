@@ -727,8 +727,10 @@ export interface SearchResult {
   supplier_price: number;
   supplier_url: string;
   supplier_name: string;
-  profit: number;
-  margin: number;
+  /** null when the stored run had no supplier price to measure from. */
+  profit: number | null;
+  /** null when the stored run had no supplier price to measure from. */
+  margin: number | null;
   verdict: string;
   is_read: boolean;
   found_at?: string | null;
