@@ -28,6 +28,7 @@ import {
   formatDateTime,
   formatGBP,
   formatPercent,
+  formatPrice,
   timeAgo,
 } from "@/lib/format";
 import type {
@@ -244,13 +245,13 @@ function MatchRow({
           <span>
             eBay avg{" "}
             <span className="font-mono text-text-primary">
-              {formatGBP(match.ebay_price)}
+              {formatPrice(match.ebay_price)}
             </span>
           </span>
           <span>
             supplier{" "}
             <span className="font-mono text-text-primary">
-              {formatGBP(match.supplier_price)}
+              {formatPrice(match.supplier_price)}
             </span>
             {match.supplier_name ? ` (${match.supplier_name})` : ""}
           </span>
