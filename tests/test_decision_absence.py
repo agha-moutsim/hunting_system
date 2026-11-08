@@ -55,6 +55,14 @@ class TestASupplierPriceOfZeroIsUnread:
         assert _margin(verdict).verified is False
         assert verdict.profit_computed is False
 
+    def test_an_unread_margin_is_not_printed_as_zero_percent(self):
+        """The row said "0.0%", which reads as a measured break-even."""
+        verdict = DecisionEngine().evaluate(_product(), _demand(), None)
+
+        row = _margin(verdict)
+        assert "not computed" in row.actual
+        assert "0.0%" not in row.actual
+
     def test_a_real_price_still_computes(self):
         verdict = DecisionEngine().evaluate(_product(), _demand(), 8.0)
 

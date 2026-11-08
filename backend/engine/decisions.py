@@ -206,12 +206,20 @@ class DecisionEngine:
             )
 
         # --- Margin filter ---
+        # C1: with no supplier price there is no margin. Printing the 0.0
+        # placeholder as "0.0%" reads as a measured break-even, so absence is
+        # stated in words instead.
         margin_min = self.filters.get("margin_min", 25.0)
         margin_pass = profit_info["margin"] >= margin_min
+        margin_actual = (
+            f"{profit_info['margin']:.1f}%"
+            if supplier_price is not None
+            else "not computed - no supplier price"
+        )
         filters.append(FilterResult(
             name="Margin",
             passed=margin_pass,
-            actual=f"{profit_info['margin']:.1f}%",
+            actual=margin_actual,
             expected=f"≥{margin_min}%",
             verified=supplier_price is not None,
         ))
