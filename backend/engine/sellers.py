@@ -25,6 +25,7 @@ seller's whole business.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import math
 from statistics import median
 from typing import Any, Iterable, Optional
 
@@ -181,7 +182,10 @@ def _group_stats(grouped: dict[str, list[dict]], now: Any = None) -> dict:
 
         price = _number(_latest(listing_rows, "price"))
         currency = _text(_latest(listing_rows, "currency"))
-        if price is not None and currency:
+        # C1 — a stored price of 0 is the scraper's "not read" placeholder.
+        # Letting it into the range put a £0.00 minimum (and often a £0.00
+        # median) on the panel as if the seller were giving stock away.
+        if price is not None and math.isfinite(price) and price > 0 and currency:
             prices.append((price, currency.upper()))
 
         creation = _latest(listing_rows, "item_creation_date")

@@ -227,6 +227,30 @@ class TestSellerEngine:
         assert body["listed_age"]["max_days"] == 10
         assert body["listed_age"]["sample"] == 1
 
+    def test_a_stored_zero_price_is_not_a_free_listing(self):
+        """C1 — 0 in a stored price column is the scraper's "not read" mark.
+
+        The range and median used to include it, so one unread row turned the
+        panel's asking range into £0.00–£16.99 and its median into £8.50.
+        """
+        from engine.sellers import build_seller_footprint
+
+        now = datetime(2026, 10, 20, 12, 0, 0)
+        rows = [
+            _reading("1", now, price=0.0, currency="GBP", creation=now),
+            _reading("2", now, price=16.99, currency="GBP", creation=now),
+        ]
+
+        body = build_seller_footprint(rows, "agprefect_09", now=now)
+
+        assert body["asking_prices"] == {
+            "currency": "GBP",
+            "min": 16.99,
+            "max": 16.99,
+            "median": 16.99,
+            "sample": 1,
+        }
+
     def test_absent_readings_are_null_with_a_sentence(self):
         from engine.sellers import build_seller_footprint
 
