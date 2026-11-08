@@ -383,3 +383,40 @@ class TestOneImplementation:
         assert len(rows) == 1
         assert rows[0]["margin"] == 19.1
         assert rows[0]["search_name"] == "drill"
+
+    def test_a_legacy_row_with_no_supplier_price_serves_no_margin(
+        self, session_factory, monkeypatch
+    ):
+        """C1 — the rows written before the supplier gate carry 0.0/0.0.
+
+        Those zeros were never measured: with no supplier price there is no
+        profit and no margin. The Watchlist page used to print "0.0%" as a
+        measured margin for them.
+        """
+        monkeypatch.setattr(watchlist_runner, "SessionLocal", session_factory)
+        search_id = _search(session_factory)
+        db = session_factory()
+        try:
+            db.add(
+                SearchResult(
+                    search_id=search_id,
+                    product_name="legacy drill",
+                    ebay_url="https://www.ebay.co.uk/itm/167000000010",
+                    ebay_price=42.50,
+                    supplier_price=0.0,
+                    profit=0.0,
+                    margin=0.0,
+                    verdict="PENDING",
+                )
+            )
+            db.commit()
+        finally:
+            db.close()
+
+        rows = watchlist_runner.get_new_results(
+            unread_only=True, price_range={"min": 0.0, "max": 100000.0}
+        )
+
+        assert len(rows) == 1
+        assert rows[0]["profit"] is None
+        assert rows[0]["margin"] is None

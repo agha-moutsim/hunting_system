@@ -49,6 +49,11 @@ def get_new_results(
         for r in results:
             if not price_in_range(r.ebay_price, view):
                 continue
+            # C1 — a row saved before the "supplier price is required" gate
+            # carries profit=0 and margin=0 as placeholders. With no measured
+            # supplier price those zeros describe nothing, so they are served
+            # as null and the page prints a dash instead of a measured 0.0%.
+            money_measured = r.supplier_price is not None and r.supplier_price > 0
             row = {
                 "id": r.id,
                 "search_id": r.search_id,
@@ -59,8 +64,8 @@ def get_new_results(
                 "supplier_price": r.supplier_price,
                 "supplier_url": r.supplier_url,
                 "supplier_name": r.supplier_name,
-                "profit": r.profit,
-                "margin": r.margin,
+                "profit": r.profit if money_measured else None,
+                "margin": r.margin if money_measured else None,
                 "verdict": r.verdict,
                 "is_read": r.is_read,
                 "found_at": r.found_at.isoformat() if r.found_at else None,
