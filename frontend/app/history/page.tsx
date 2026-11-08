@@ -19,7 +19,7 @@ import {
   PriceRange,
   ProductDetail,
 } from "@/lib/types";
-import { formatMoney, formatDate, truncate } from "@/lib/format";
+import { formatMoney, formatPrice, formatDate, truncate } from "@/lib/format";
 import { detailAsScorecard } from "@/lib/historyDetail";
 
 export default function HistoryPage() {
@@ -94,7 +94,7 @@ export default function HistoryPage() {
       align: "right",
       render: (r) => (
         <span className="inline-flex items-center justify-end gap-1.5">
-          {formatMoney(r.price, r.currency || "GBP")}
+          {formatPrice(r.price, r.currency || "GBP")}
           {r.outside_band && <OutsideBandBadge />}
         </span>
       ),
