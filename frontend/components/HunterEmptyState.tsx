@@ -10,7 +10,7 @@ import {
   UNKNOWN_PROFIT,
 } from "@/components/ui/HotBadge";
 import { CategoryProduct, HunterLookupSummary } from "@/lib/types";
-import { currencySymbol, formatMoney, formatPercent } from "@/lib/format";
+import { currencySymbol, formatMoney, formatPercent, formatPrice } from "@/lib/format";
 
 /**
  * The empty state.
@@ -148,7 +148,7 @@ export function SupplierCell({
           rel="noopener noreferrer"
           className="text-accent-blue hover:underline"
         >
-          {row.supplier_name} {formatMoney(row.supplier_price, currency)}
+          {row.supplier_name} {formatPrice(row.supplier_price, currency)}
         </a>
         {row.supplier_total_landed_cost != null && (
           <div className="text-[11px] text-text-dim">

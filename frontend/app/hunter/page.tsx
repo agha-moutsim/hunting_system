@@ -24,7 +24,7 @@ import {
   HunterReport,
   PriceRange,
 } from "@/lib/types";
-import { formatMoney, formatPercent } from "@/lib/format";
+import { formatPrice, formatPercent } from "@/lib/format";
 import { useMarketplace } from "@/lib/marketplace";
 
 export default function HunterPage() {
@@ -182,7 +182,7 @@ export default function HunterPage() {
       key: "price",
       header: "eBay",
       align: "right",
-      render: (r) => formatMoney(r.price, marketplace.currency),
+      render: (r) => formatPrice(r.price, marketplace.currency),
       sortValue: (r) => r.price,
     },
     {
