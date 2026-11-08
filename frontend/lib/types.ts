@@ -138,7 +138,7 @@ export interface EbayStore {
   /** Listings observed in the search window (cap 50) - NOT eBay sold count. */
   sold_count: number;
   sold_count_label?: string;
-  avg_price: number;
+  avg_price: number | null;
   provenance?: string;
   provenance_label?: string;
   /** Why a row is not a confirmed storefront, when it is not. */

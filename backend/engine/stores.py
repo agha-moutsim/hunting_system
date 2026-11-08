@@ -30,6 +30,7 @@ analysis.
 
 from __future__ import annotations
 
+import math
 from typing import Any, Iterable, Optional
 from urllib.parse import urlparse
 
@@ -210,7 +211,17 @@ def _row(name: str, sold_count: int, avg_price: float,
         "sold_count": int(sold_count),
         # C11 - the label travels WITH the number.
         "sold_count_label": SOLD_COUNT_LABEL,
-        "avg_price": round(float(avg_price or 0.0), 2),
+        # C1 — an unread average is absent, never GBP 0.00. The input
+        # contract uses 0/0.0 for "no price was read", and carrying that into
+        # a payload let a consumer price the seller's stock at nothing.
+        "avg_price": (
+            round(float(avg_price), 2)
+            if isinstance(avg_price, (int, float))
+            and not isinstance(avg_price, bool)
+            and math.isfinite(float(avg_price))
+            and avg_price > 0
+            else None
+        ),
         "provenance": prov.value,
         "provenance_label": prov.label,
         "source_name": source_name,
@@ -262,10 +273,15 @@ def build_stores(counts: Iterable[tuple], source_name: str = SOURCE_NAME,
             merged_n = prior + count_i
             existing["sold_count"] += count_i
             if avg_f and merged_n:
-                # Re-weighted mean, so merging cannot silently skew the price.
-                existing["avg_price"] = (
-                    (existing["avg_price"] * prior + avg_f * count_i) / merged_n
-                )
+                if existing["avg_price"] is None:
+                    # The first row had no readable price; the merged row can
+                    # only claim the one reading it actually has (C1).
+                    existing["avg_price"] = avg_f
+                else:
+                    # Re-weighted mean, so merging cannot silently skew the price.
+                    existing["avg_price"] = (
+                        (existing["avg_price"] * prior + avg_f * count_i) / merged_n
+                    )
             existing["_n"] = merged_n
             continue
         row = _row(name, count_i, avg_f, source_name=source_name,
@@ -277,7 +293,8 @@ def build_stores(counts: Iterable[tuple], source_name: str = SOURCE_NAME,
     rows = sorted(seen.values(), key=lambda r: r["sold_count"], reverse=True)
     for r in rows:
         r.pop("_n", None)
-        r["avg_price"] = round(r["avg_price"], 2)
+        if r["avg_price"] is not None:
+            r["avg_price"] = round(r["avg_price"], 2)
     return rows[:limit]
 
 
