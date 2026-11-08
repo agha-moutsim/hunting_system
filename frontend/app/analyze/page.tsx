@@ -192,7 +192,10 @@ export default function AnalyzePage() {
             sellerQuery={submittedQuery}
           />
           {Array.isArray(result.ebay_stores) && (
-            <EbayStoresCard stores={result.ebay_stores} />
+            <EbayStoresCard
+              stores={result.ebay_stores}
+              currency={result.currency || marketplace.currency}
+            />
           )}
         </>
       )}

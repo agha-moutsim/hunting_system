@@ -293,6 +293,7 @@ export default function BulkPage() {
                   <EbayStoresCard
                     stores={r.ebay_stores}
                     provenance={r.ebay_stores_provenance}
+                    currency={r.currency || marketplace.currency}
                   />
                 </div>
               </Card>

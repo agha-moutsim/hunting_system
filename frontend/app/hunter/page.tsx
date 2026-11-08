@@ -594,6 +594,7 @@ export default function HunterPage() {
               <EbayStoresCard
                 stores={products[0].ebay_stores}
                 provenance={products[0].ebay_stores_provenance}
+                currency={marketplace.currency}
               />
             </div>
           ) : null}

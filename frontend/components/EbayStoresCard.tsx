@@ -5,7 +5,7 @@ import EmptyState from "@/components/EmptyState";
 import ProvenanceBadge from "@/components/ui/ProvenanceBadge";
 import { EbayStore, ProvenanceInfo } from "@/lib/types";
 import { describeStoreLink } from "@/lib/storeLinks";
-import { formatGBP } from "@/lib/format";
+import { formatPrice } from "@/lib/format";
 
 /**
  * Competitor eBay stores (C11 — up to 4 real seller usernames).
@@ -21,9 +21,12 @@ import { formatGBP } from "@/lib/format";
 export default function EbayStoresCard({
   stores,
   provenance,
+  currency = "GBP",
 }: {
   stores?: EbayStore[] | null;
   provenance?: ProvenanceInfo | null;
+  /** Currency of the search that produced these rows (AU screens are real). */
+  currency?: string;
 }) {
   const reason = provenance?.reason?.trim();
 
@@ -114,7 +117,9 @@ export default function EbayStoresCard({
                     {s.sold_count_label || "observed listings"}
                   </span>
                 </span>
-                <span className="text-white">{formatGBP(s.avg_price)}</span>
+                <span className="text-white">
+                  {formatPrice(s.avg_price, currency)}
+                </span>
                 <ProvenanceBadge
                   provenance={s.provenance}
                   label={s.provenance_label}

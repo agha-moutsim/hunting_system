@@ -436,7 +436,10 @@ export default function DeepSearchPage() {
 
           {/* Competitor stores (C11) — legacy top-seller rows as fallback */}
           {Array.isArray(result.ebay_stores) ? (
-            <EbayStoresCard stores={result.ebay_stores} />
+            <EbayStoresCard
+              stores={result.ebay_stores}
+              currency={displayCurrency}
+            />
           ) : (
             result.ebay_top_sellers?.length > 0 && (
               <Card title="eBay Top Sellers">
