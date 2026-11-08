@@ -16,7 +16,7 @@ import FilterChecks from "@/components/FilterChecks";
 import { fieldProvenance, infoTitle } from "@/lib/provenance";
 import { saleEvidence } from "@/lib/saleEvidence";
 import { sellerPagePath } from "@/lib/sellers";
-import { formatMoney, formatObservedAt, formatPercent } from "@/lib/format";
+import { formatMoney, formatObservedAt, formatPercent, formatPrice } from "@/lib/format";
 import { SoldPriceDistribution } from "@/components/charts";
 import SupplierCard from "@/components/SupplierCard";
 
@@ -282,7 +282,7 @@ export default function Scorecard({
                 emphasis
                 value={
                   <span className="inline-flex flex-wrap items-center gap-2">
-                    {formatMoney(ebayProduct.price, ebayCurrency)}
+                    {formatPrice(ebayProduct.price, ebayCurrency)}
                     {ebayProduct.outside_band && <OutsideBandBadge />}
                   </span>
                 }
@@ -408,21 +408,31 @@ export default function Scorecard({
             <Metric
               label="eBay price"
               emphasis
-              value={formatMoney(ebayProduct.price, ebayCurrency)}
+              value={formatPrice(ebayProduct.price, ebayCurrency)}
             />
             {suppliers.map((s, i) => {
               const supplierCurrency = s.currency || currency;
               const comparable =
                 s.currency == null ||
                 s.currency.toUpperCase() === ebayCurrency.toUpperCase();
-              const delta = comparable ? ebayProduct.price - s.price : null;
+              // C1 — a delta needs two readings. `s.price` is 0 when the
+              // supplier price was not read, and comparing the eBay price to
+              // that zero printed the whole sale price as "savings".
+              const twoReadings =
+                Number.isFinite(s.price) &&
+                s.price > 0 &&
+                Number.isFinite(ebayProduct.price) &&
+                ebayProduct.price > 0;
+              const delta = comparable && twoReadings
+                ? ebayProduct.price - s.price
+                : null;
               return (
                 <Metric
                   key={i}
                   label={s.source}
                   value={
                     <span className="flex flex-col gap-1">
-                      <span>{formatMoney(s.price, supplierCurrency)}</span>
+                      <span>{formatPrice(s.price, supplierCurrency)}</span>
                       {delta != null && (
                         <span
                           className={`text-xs font-medium ${
