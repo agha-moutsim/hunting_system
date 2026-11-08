@@ -50,10 +50,30 @@ def _sale_payload(sale) -> dict:
     return sale_to_dict(sale)
 
 
+_GROUPED_MONEY = re.compile(r"^\d{1,3}(?:,\d{3})+(?:\.\d+)?$")
+
+
 def _parse_money(value: str, field: str, *, allow_zero: bool) -> float:
-    cleaned = (value or "").strip().replace("£", "").replace(",", "")
+    cleaned = (value or "").strip().replace("£", "").replace(" ", "")
     if cleaned == "":
         raise ValueError(f"{field} is missing")
+
+    # C1 — a comma is a thousands separator, never a decimal point. Stripping
+    # every comma turned "1,23" into 123: a tenfold price nobody wrote. Only a
+    # correctly grouped number may contain one.
+    sign = ""
+    body = cleaned
+    if body.startswith(("+", "-")):
+        sign, body = body[0], body[1:]
+    if "," in body:
+        if not _GROUPED_MONEY.match(body):
+            raise ValueError(
+                f"{field} has an ambiguous thousands separator: {value!r} "
+                "(write 1234.56 or 1,234.56)"
+            )
+        body = body.replace(",", "")
+    cleaned = sign + body
+
     try:
         number = float(cleaned)
     except ValueError:
