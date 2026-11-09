@@ -5,7 +5,7 @@ Common database queries.
 from datetime import datetime, timedelta
 from typing import Iterable
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from db.models import (
@@ -320,20 +320,30 @@ def profit_was_computed(profit, recorded: bool | None) -> bool:
     return profit != 0
 
 
-def get_recent_products(db: Session, limit: int = 20) -> list[dict]:
+def get_recent_products(
+    db: Session, limit: int = 20, marketplace: str | None = None
+) -> list[dict]:
     """Get recent products with their verdicts.
 
     ``profit_computed`` travels with every row so a client can tell a measured
     zero from the placeholder: when it is false, ``profit``/``margin`` are
     None rather than 0, and History renders a dash instead of £0.00.
+
+    ``marketplace`` narrows the read to one market's rows. A legacy NULL is
+    the UK: the migration backfilled existing rows with EBAY_GB, but a row
+    written before the column existed is still a GBP row, not an unknown one.
     """
-    results = (
-        db.query(Product, Verdict)
-        .outerjoin(Verdict, Verdict.product_id == Product.id)
-        .order_by(Product.created_at.desc())
-        .limit(limit)
-        .all()
+    query = db.query(Product, Verdict).outerjoin(
+        Verdict, Verdict.product_id == Product.id
     )
+    if marketplace == "EBAY_GB":
+        query = query.filter(
+            or_(Product.marketplace == "EBAY_GB", Product.marketplace.is_(None))
+        )
+    elif marketplace:
+        query = query.filter(Product.marketplace == marketplace)
+
+    results = query.order_by(Product.created_at.desc()).limit(limit).all()
     rows = []
     for product, verdict in results:
         computed = profit_was_computed(

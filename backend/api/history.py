@@ -3,7 +3,7 @@
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 from engine.price_gate import in_band
 from utils.filters import active_range, outside_range, price_in_range, resolve_range
@@ -110,33 +110,62 @@ def _observations_block(db, listing_id) -> dict:
 
 @router.get("/history")
 def list_history(
+    request: Request = None,
     verdict: str = "All",
     q: str = "",
     limit: int = 50,
     price_min: float | None = None,
     price_max: float | None = None,
 ):
-    """Recent analyses with optional verdict filter, text search and range view filter.
+    """Recent analyses from the selected market, with optional filters.
 
     PR-6/PR-7: rows are stored regardless of price; the default view shows only
-    rows inside the active range (user may override with price_min/price_max),
-    rows inside the view but outside the active range carry `outside_band`.
+    rows inside the market's active range (user may override with
+    price_min/price_max), rows inside the view but outside the active range
+    carry `outside_band`.
+
+    The GBP band is not the world's band. A History list scoped to Australia is
+    judged by the AUD default range, so an A$45 listing is not flagged because
+    it would be over the UK's £35 ceiling. A market with no stated band (the
+    search-only ones) is not filtered or flagged at all.
     """
+    from api.market_context import marketplace_for_optional_request
+    from marketplaces import market_filter_defaults
+
     from db.database import SessionLocal
     from db.queries import get_recent_products
 
+    market = marketplace_for_optional_request(request)
     db = SessionLocal()
     try:
-        products = get_recent_products(db, limit=limit)
-        active = active_range()
-        view = resolve_range(price_min, price_max)
+        products = get_recent_products(
+            db, limit=limit, marketplace=market["id"]
+        )
 
-        products = [
-            p for p in products
-            if price_in_range(p.get("price"), view)
-        ]
+        if market["id"] == "EBAY_GB":
+            view = resolve_range(price_min, price_max)
+        else:
+            defaults = market_filter_defaults(market)
+            if (
+                defaults.get("price_min") is not None
+                and defaults.get("price_max") is not None
+            ):
+                view = resolve_range(
+                    defaults["price_min"] if price_min is None else price_min,
+                    defaults["price_max"] if price_max is None else price_max,
+                )
+            else:
+                view = None
+
+        if view is not None:
+            products = [
+                p for p in products
+                if price_in_range(p.get("price"), view)
+            ]
         for p in products:
-            p["outside_band"] = outside_range(p.get("price"), active)
+            p["outside_band"] = (
+                outside_range(p.get("price"), view) if view is not None else False
+            )
 
         if verdict and verdict != "All":
             products = [p for p in products if (p.get("verdict") or "pending") == verdict]

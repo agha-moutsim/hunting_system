@@ -151,3 +151,104 @@ class TestProductPersistenceCarriesMarket:
 
         assert detail["product"]["marketplace"] == "EBAY_AU"
         assert detail["product"]["currency"] == "AUD"
+
+
+class TestHistoryListIsScopedToItsMarket:
+    """The list must not mix a market's rows, and must not judge them by GBP.
+
+    `get_recent_products` reads every product in the database, so a History
+    screen scoped to Australia used to list UK rows beside AUD ones, and the
+    £5–£35 band flagged an A$45 listing as out of range. Neither is a fact
+    about the selected market.
+    """
+
+    @pytest.fixture()
+    def rows(self, tmp_path, monkeypatch):
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+
+        engine = create_engine(f"sqlite:///{tmp_path/'list.db'}")
+        Base.metadata.create_all(engine)
+        session_factory = sessionmaker(bind=engine)
+        monkeypatch.setattr(dbmod, "SessionLocal", session_factory)
+
+        from db.models import Product
+
+        session = session_factory()
+        try:
+            session.add_all(
+                [
+                    Product(
+                        ebay_url="https://www.ebay.co.uk/itm/gb",
+                        title="UK Widget",
+                        price=12.5,
+                        marketplace="EBAY_GB",
+                        currency="GBP",
+                    ),
+                    # A row written before the columns existed: still a GBP row.
+                    Product(
+                        ebay_url="https://www.ebay.co.uk/itm/legacy",
+                        title="Legacy Widget",
+                        price=20.0,
+                        marketplace=None,
+                        currency=None,
+                    ),
+                    Product(
+                        ebay_url="https://www.ebay.com.au/itm/au",
+                        title="AU Widget",
+                        price=45.0,
+                        marketplace="EBAY_AU",
+                        currency="AUD",
+                    ),
+                ]
+            )
+            session.commit()
+        finally:
+            session.close()
+
+        from fastapi.testclient import TestClient
+        from main import app
+
+        with TestClient(app) as client:
+            yield client
+
+    def test_the_au_list_returns_only_au_rows(self, rows):
+        body = rows.get(
+            "/api/history", headers={"X-Ebay-Marketplace": "EBAY_AU"}
+        ).json()
+
+        assert [p["title"] for p in body["products"]] == ["AU Widget"]
+        assert body["products"][0]["currency"] == "AUD"
+
+    def test_an_aud_price_is_not_judged_by_the_gbp_ceiling(self, rows):
+        """A$45 is above the UK £35 ceiling and inside the AU A$0.99–50 band."""
+        body = rows.get(
+            "/api/history", headers={"X-Ebay-Marketplace": "EBAY_AU"}
+        ).json()
+
+        assert body["range_filter"] == {"min": 0.99, "max": 50.0}
+        assert body["products"][0]["outside_band"] is False
+
+    def test_the_gb_list_includes_its_legacy_null_rows(self, rows):
+        body = rows.get(
+            "/api/history",
+            params={"price_min": 5, "price_max": 35},
+            headers={"X-Ebay-Marketplace": "EBAY_GB"},
+        ).json()
+
+        assert {p["title"] for p in body["products"]} == {
+            "UK Widget",
+            "Legacy Widget",
+        }
+        assert all(p["currency"] == "GBP" for p in body["products"])
+        assert all(p["outside_band"] is False for p in body["products"])
+
+    def test_a_request_without_a_header_is_the_uk_list(self, rows):
+        body = rows.get(
+            "/api/history", params={"price_min": 5, "price_max": 35}
+        ).json()
+
+        assert {p["title"] for p in body["products"]} == {
+            "UK Widget",
+            "Legacy Widget",
+        }
