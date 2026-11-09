@@ -13,6 +13,7 @@ import EmptyState from "@/components/EmptyState";
 import RangeFilterBar from "@/components/ui/RangeFilterBar";
 import OutsideBandBadge from "@/components/ui/OutsideBandBadge";
 import { apiFetch } from "@/lib/api";
+import { useMarketplace } from "@/lib/marketplace";
 import {
   HistoryItem,
   HistoryListResponse,
@@ -23,6 +24,7 @@ import { formatMoney, formatPrice, formatDate, truncate } from "@/lib/format";
 import { detailAsScorecard } from "@/lib/historyDetail";
 
 export default function HistoryPage() {
+  const { marketplace } = useMarketplace();
   const [items, setItems] = useState<HistoryItem[]>([]);
   const [q, setQ] = useState("");
   const [verdict, setVerdict] = useState("All");
@@ -54,7 +56,15 @@ export default function HistoryPage() {
     } finally {
       setLoading(false);
     }
-  }, [verdict, q, viewMin, viewMax, reloadKey]);
+  }, [verdict, q, viewMin, viewMax, reloadKey, marketplace.id]);
+
+  useEffect(() => {
+    // The list is scoped to the selected market, and a view range typed for
+    // one market's prices is not a range in another. Clearing it reloads the
+    // list under the new market's own band.
+    setViewMin("");
+    setViewMax("");
+  }, [marketplace.id]);
 
   useEffect(() => {
     const t = setTimeout(load, q ? 300 : 0);
@@ -190,6 +200,7 @@ export default function HistoryPage() {
         <div className="mt-3 pt-3 border-t border-border">
           <RangeFilterBar
             initial={rangeFilter}
+            symbol={marketplace.currency_symbol}
             loading={loading}
             onApply={(lo, hi) => {
               setViewMin(String(lo));

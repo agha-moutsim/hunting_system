@@ -1014,7 +1014,8 @@ export interface HistoryItem {
 export interface HistoryListResponse {
   products: HistoryItem[];
   count: number;
-  range_filter: PriceRange;
+  /** Null for a market with no stated band (the search-only markets). */
+  range_filter: PriceRange | null;
 }
 
 export interface ProductDetail {

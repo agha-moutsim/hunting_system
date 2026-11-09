@@ -13,12 +13,15 @@ export default function RangeFilterBar({
   onReset,
   loading = false,
   className = "",
+  symbol = "£",
 }: {
   initial?: PriceRange | null;
   onApply: (min: number, max: number) => void;
   onReset: () => void;
   loading?: boolean;
   className?: string;
+  /** The selected market's symbol. Defaults to the UK's, the historical band. */
+  symbol?: string;
 }) {
   const initMin = initial?.min;
   const initMax = initial?.max;
@@ -46,7 +49,7 @@ export default function RangeFilterBar({
   return (
     <div className={`flex flex-wrap items-end gap-3 ${className}`}>
       <div className="w-24">
-        <Label htmlFor="view-price-min">Min (£)</Label>
+        <Label htmlFor="view-price-min">Min ({symbol})</Label>
         <Input
           id="view-price-min"
           type="number"
@@ -59,7 +62,7 @@ export default function RangeFilterBar({
         />
       </div>
       <div className="w-24">
-        <Label htmlFor="view-price-max">Max (£)</Label>
+        <Label htmlFor="view-price-max">Max ({symbol})</Label>
         <Input
           id="view-price-max"
           type="number"
@@ -90,7 +93,9 @@ export default function RangeFilterBar({
         title="Change the active price range on the Analyze page"
       >
         <Badge tone="info">
-          Active £{initMin ?? "…"}–£{initMax ?? "…"}
+          Active {symbol}
+          {initMin ?? "…"}–{symbol}
+          {initMax ?? "…"}
         </Badge>
       </Link>
     </div>
