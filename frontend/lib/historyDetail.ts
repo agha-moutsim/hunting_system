@@ -16,6 +16,8 @@ import type {
  * measured, and the page is the only place that would have done it.
  */
 export interface HistoryScorecardProps {
+  /** ISO currency of the eBay/demand figures; supplier rows carry their own. */
+  currency: string;
   ebayProduct: ScrapedProduct;
   demand: DemandData | null;
   suppliers: ScrapedProduct[];
@@ -26,6 +28,15 @@ export interface HistoryScorecardProps {
   /** A stored scorecard's own legacy placeholders, called out before it is read. */
   scorecardWarning?: string | null;
 }
+
+/** The stored marketplace id as the name a person reads. */
+const MARKET_LABELS: Record<string, string> = {
+  EBAY_GB: "eBay UK",
+  EBAY_US: "eBay US",
+  EBAY_DE: "eBay DE",
+  EBAY_AU: "eBay AU",
+  EBAY_CA: "eBay CA",
+};
 
 /**
  * C1 — a scorecard written before `profit_computed` existed may still say
@@ -62,8 +73,13 @@ export function parseFilters(raw: unknown): FilterCheck[] {
 }
 
 export function detailAsScorecard(d: ProductDetail): HistoryScorecardProps {
+  // Phase F — a replayed AUD row is still an AUD row. Without this the
+  // Scorecard fell back to its GBP default and printed the same number with a
+  // pound sign the API never served.
+  const currency = d.product.currency || "GBP";
   const ebay: ScrapedProduct = {
-    source: "eBay UK",
+    source: MARKET_LABELS[d.product.marketplace || ""] || "eBay UK",
+    currency,
     title: d.product.title,
     price: d.product.price,
     url: d.product.ebay_url,
@@ -92,6 +108,7 @@ export function detailAsScorecard(d: ProductDetail): HistoryScorecardProps {
   }));
   const filters = parseFilters(d.verdict?.filter_results);
   return {
+    currency,
     ebayProduct: ebay,
     demand: d.demand,
     suppliers,

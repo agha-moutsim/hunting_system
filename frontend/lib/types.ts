@@ -1033,6 +1033,9 @@ export interface ProductDetail {
     outside_band?: boolean;
     provenance?: string;
     provenance_label?: string;
+    /** Phase F — the market that produced the row and its price currency. */
+    marketplace?: string;
+    currency?: string;
   };
   demand: DemandData | null;
   provenance?: string;

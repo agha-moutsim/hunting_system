@@ -154,6 +154,25 @@ describe("detailAsScorecard", () => {
 
     expect(props.scorecardWarning).toBeNull();
   });
+
+  it("replays the stored currency instead of relabelling AUD as pounds", () => {
+    const base = detail();
+    const props = detailAsScorecard({
+      ...base,
+      product: { ...base.product, marketplace: "EBAY_AU", currency: "AUD" },
+    });
+
+    expect(props.currency).toBe("AUD");
+    expect(props.ebayProduct.currency).toBe("AUD");
+    expect(props.ebayProduct.source).toBe("eBay AU");
+  });
+
+  it("falls back to pounds only when the row never stated a currency", () => {
+    const props = detailAsScorecard(detail());
+
+    expect(props.currency).toBe("GBP");
+    expect(props.ebayProduct.currency).toBe("GBP");
+  });
 });
 
 describe("legacyPlaceholderWarning", () => {
