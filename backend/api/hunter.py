@@ -181,7 +181,16 @@ def hunter_lookup(req: HunterLookupRequest, request: Request = None):
     # supplier rows are never range-gated, PR-1)
     if excluded_suppliers:
         from engine.price_gate import excluded_note
-        report.notes = excluded_note("eBay listings", excluded_suppliers)
+        # The band that actually excluded the rows, in the market's currency.
+        report.notes = excluded_note(
+            "eBay listings",
+            excluded_suppliers,
+            price_range=(
+                float(filters["price_min"]),
+                float(filters["price_max"]),
+            ),
+            currency_symbol=market["currency_symbol"],
+        )
 
     payload = report.to_dict()
     payload["marketplace"] = market["id"]

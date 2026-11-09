@@ -6,11 +6,11 @@ from typing import Optional
 
 from hunter.category_scan import CategoryProduct
 from engine.match import TIER_NO_MATCH, compute_match, image_hash_for
-from engine.price_gate import in_band
+from engine.price_gate import in_band, in_band_range
 from engine.source_type import supplier_type
 from engine.provenance import Provenance
 from engine.sourcing import rank_suppliers, apply_assessment
-from marketplaces import get_marketplace, supplier_bench
+from marketplaces import get_marketplace, market_filter_defaults, supplier_bench
 
 # Timeout for ONE supplier fetch inside a product lookup (seconds).
 SUPPLIER_FETCH_TIMEOUT = 10
@@ -424,10 +424,28 @@ def batch_supplier_lookup(
     _excluded_over_band = 0
     market = get_marketplace(marketplace)
 
-    # Client-supplied products: eBay price must also sit in the band (PR-1)
+    # The band is the market's own. For the UK it is the persisted active
+    # range; for AU it is the AUD default. Reusing the GBP gate here dropped
+    # an A$45 product as "outside the active range" because it was over the
+    # UK's £35 ceiling — a currency comparison that was never made.
+    if market["id"] == "EBAY_GB":
+        def _in_market_band(price):
+            return in_band(price)
+    else:
+        defaults = market_filter_defaults(market)
+        lo, hi = defaults.get("price_min"), defaults.get("price_max")
+        if lo is None or hi is None:
+            # No stated band for this market: do not invent one.
+            def _in_market_band(price):
+                return True
+        else:
+            def _in_market_band(price):
+                return in_band_range(price, float(lo), float(hi))
+
+    # Client-supplied products: eBay price must also sit in that band (PR-1)
     kept_products = []
     for p in products:
-        if in_band(p.price):
+        if _in_market_band(p.price):
             p.supplier_status = ""
             kept_products.append(p)
         else:

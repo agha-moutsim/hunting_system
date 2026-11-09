@@ -170,3 +170,78 @@ class TestMarketPropagation:
         assert ccs.scan_category("", marketplace="EBAY_AU") == []
         assert dc.batch_demand_check([], marketplace="EBAY_AU") == []
         assert pc.batch_profit_calc([], marketplace="EBAY_AU") == []
+
+
+class TestTheLookupBandBelongsToTheMarket:
+    """A$45 is not over the UK's £35 ceiling, because it is not pounds."""
+
+    def _product(self, price: float):
+        from hunter.category_scan import CategoryProduct
+
+        return CategoryProduct(
+            title="Generic widget",
+            price=price,
+            url="https://www.ebay.com.au/itm/1",
+        )
+
+    def test_an_au_price_above_the_gbp_ceiling_is_kept(self, monkeypatch):
+        import hunter.supplier_lookup as sl
+
+        async def no_supplier(product, marketplace="EBAY_GB"):
+            return None
+
+        monkeypatch.setattr(sl, "_lookup_single_supplier", no_supplier)
+
+        product = self._product(45.0)
+        kept, excluded = sl.batch_supplier_lookup(
+            [product], marketplace="EBAY_AU"
+        )
+
+        assert kept == [product]
+        assert excluded == 0
+        assert product.supplier_status != "out_of_band"
+
+    def test_a_gbp_price_above_the_uk_ceiling_is_still_excluded(self, monkeypatch):
+        import hunter.supplier_lookup as sl
+
+        monkeypatch.setattr(
+            "engine.price_gate.load_filters",
+            lambda: {"price_min": 5.0, "price_max": 35.0},
+        )
+
+        product = self._product(45.0)
+        kept, excluded = sl.batch_supplier_lookup(
+            [product], marketplace="EBAY_GB"
+        )
+
+        assert kept == []
+        assert excluded == 1
+        assert product.supplier_status == "out_of_band"
+
+    def test_the_lookup_note_states_the_aud_band(self, monkeypatch):
+        import hunter.profit_calc as pc
+        import hunter.report as rp
+        import hunter.supplier_lookup as sl
+
+        monkeypatch.setattr(
+            sl, "batch_supplier_lookup", lambda products, **k: (products, 1)
+        )
+        monkeypatch.setattr(
+            pc,
+            "batch_profit_calc",
+            lambda products, filters=None, **k: products,
+        )
+        report = types.SimpleNamespace(to_dict=lambda: {"ok": True}, notes="")
+        monkeypatch.setattr(rp, "generate_report", lambda *a, **k: report)
+
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/hunter/lookup",
+                json={"products": [_product()]},
+                headers={"X-Ebay-Marketplace": "EBAY_AU"},
+            )
+
+        assert resp.status_code == 200
+        assert report.notes == (
+            "1 eBay listings excluded (not in A$0.99–A$50.00 range)"
+        )
