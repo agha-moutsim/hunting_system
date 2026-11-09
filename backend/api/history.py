@@ -197,6 +197,12 @@ def product_detail(product_id: int):
                 "id": product.id,
                 "title": product.title,
                 "price": product.price,
+                # Phase F — which market produced this row and the currency
+                # every price in it belongs to. The list endpoint has carried
+                # both since the migration; detail did not, so an AUD replay
+                # was rendered in pounds by a client that had no other signal.
+                "marketplace": product.marketplace or "EBAY_GB",
+                "currency": product.currency or "GBP",
                 # Same semantics as the list endpoint: a missing price is
                 # never flagged, only a real price outside the active range.
                 "outside_band": outside_range(product.price, active_range()),

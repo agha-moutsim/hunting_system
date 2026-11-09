@@ -110,3 +110,44 @@ class TestProductPersistenceCarriesMarket:
         saved = next(row for row in rows if row["id"] == product_id)
         assert saved["marketplace"] == "EBAY_AU"
         assert saved["currency"] == "AUD"
+
+    def test_the_detail_payload_carries_the_same_market_and_currency(
+        self, tmp_path, monkeypatch
+    ):
+        """The list named AUD and the detail re-labelled the same rows £.
+
+        History detail is the screen with the money on it; a stored AUD price
+        served without its currency is rendered in pounds by the Scorecard.
+        """
+        engine = create_engine(f"sqlite:///{tmp_path/'detail.db'}")
+        Base.metadata.create_all(engine)
+        monkeypatch.setattr(dbmod, "engine", engine)
+        session_factory = sessionmaker(bind=engine)
+        monkeypatch.setattr(dbmod, "SessionLocal", session_factory)
+
+        from db.database import ensure_product_columns
+
+        ensure_product_columns()
+
+        db = session_factory()
+        try:
+            product = ScrapedProduct(
+                source="ebay_au",
+                title="Widget",
+                price=12.5,
+                url="https://example.com/au-item",
+            )
+            product_id = save_product(
+                db, product, marketplace="EBAY_AU", currency="AUD"
+            )
+        finally:
+            db.close()
+
+        from fastapi.testclient import TestClient
+        from main import app
+
+        with TestClient(app) as client:
+            detail = client.get(f"/api/history/{product_id}").json()
+
+        assert detail["product"]["marketplace"] == "EBAY_AU"
+        assert detail["product"]["currency"] == "AUD"
