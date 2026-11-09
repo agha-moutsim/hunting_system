@@ -101,9 +101,8 @@ def _market_only_analysis(query: str, is_url: bool, market: dict) -> dict:
         "verdict is calculated. " + (warning or "")
     )
     errors.append(
-        f"This result is not written to History: stored analyses do not carry "
-        f"a currency, and keeping {market['currency']} prices beside GBP ones "
-        "would let them be compared."
+        f"This search-only result is not written to History: it carries no "
+        "supplier or verdict block to replay."
     )
     return {
         "ebay_product": product,
@@ -167,15 +166,9 @@ def analyze(req: AnalyzeRequest, request: Request = None):
         filters.update(req.filters or {})
         filters = clamp_band(filters, market_defaults or None)
 
-    # Stored analyses now carry marketplace and currency, so AU rows can be
-    # written to History without being compared with GBP ones.
-    history_allowed = True
-    history_refusal = (
-        f"This result is not written to History: stored analyses do not carry "
-        f"a currency, and keeping {market['currency']} prices beside GBP ones "
-        "would let them be compared."
-    )
-
+    # Stored analyses carry marketplace and currency, so every completed run
+    # is written to History; the search-only path above returns before this
+    # point and has no verdict to replay.
     timing_sink: dict = {}
     pipeline_kwargs = {
         "is_url": req.is_url,
@@ -223,7 +216,6 @@ def analyze(req: AnalyzeRequest, request: Request = None):
             "errors": [
                 f"Analysis timed out after {int(PIPELINE_TIMEOUT_S)}s. "
                 "Supplier scrapers or the LLM hung — retry, or try Deep Search → Fast.",
-                *([] if history_allowed else [history_refusal]),
             ],
             "marketplace": market["id"],
             "currency": market["currency"],
@@ -236,7 +228,7 @@ def analyze(req: AnalyzeRequest, request: Request = None):
         # not finish, so persist it here; the ordinary save below never runs.
         # An empty list means no search completed, and writes nothing.
         completed_searches = timing_sink.get("query_observations") or []
-        if completed_searches and history_allowed:
+        if completed_searches:
             try:
                 save_analysis_to_db(
                     {
@@ -254,17 +246,12 @@ def analyze(req: AnalyzeRequest, request: Request = None):
 
     # Persist. Phase G - a query that returned no usable product still ran a
     # real Browse search, and its result set is evidence the churn page needs;
-    # save_analysis_to_db handles that no-product case itself. Non-GBP rows
-    # stay out of History until stored analyses carry a currency.
-    if history_allowed and (
-        raw.get("ebay_product") or raw.get("query_observations")
-    ):
+    # save_analysis_to_db handles that no-product case itself.
+    if raw.get("ebay_product") or raw.get("query_observations"):
         try:
             save_analysis_to_db(raw)
         except Exception as e:
             logger.warning("DB save failed (non-fatal): %s", e)
-    elif not history_allowed:
-        raw.setdefault("errors", []).append(history_refusal)
 
     resp = {
         "ebay_product": _serialize(raw.get("ebay_product")),

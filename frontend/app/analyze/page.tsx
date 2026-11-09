@@ -21,7 +21,7 @@ export default function AnalyzePage() {
   const fullAnalysis = marketplace.analyze_ready ?? marketIsUk;
   const supplierCount = marketplace.supplier_bench?.length ?? 0;
   const marketBand = marketplace.price_band;
-  const historySaved = marketIsUk;
+  const historySaved = marketIsUk || (marketplace.analyze_ready ?? false);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -120,7 +120,7 @@ export default function AnalyzePage() {
           Usually 30–90s (capped at 3 min).{" "}
           {historySaved
             ? "Results are saved to History."
-            : "Results are not written to History yet: stored analyses carry no currency."}{" "}
+            : "This search-only result is not written to History: it has no verdict to replay."}{" "}
           If it times out, retry or use Deep Search → Fast.
         </p>
       </Card>

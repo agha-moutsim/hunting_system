@@ -460,6 +460,10 @@ class TestNonUkAnalyzeIsSearchOnly:
         assert body["verdict"] is None
         assert any("search-only" in e for e in body["errors"])
         assert any("USD" in e for e in body["errors"])
+        # The refusal names the real reason (no verdict to replay). Stored
+        # analyses DO carry a currency now, so the old sentence was false.
+        assert any("not written to History" in e for e in body["errors"])
+        assert not any("currency" in e for e in body["errors"])
 
     def test_deep_search_refuses_a_market_it_cannot_price(self):
         with _client() as client:
