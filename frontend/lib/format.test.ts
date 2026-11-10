@@ -6,6 +6,7 @@ import {
   formatObservedAt,
   formatPrice,
   formatSoldCount,
+  priceSortKey,
   timeAgo,
 } from "./format";
 
@@ -125,6 +126,16 @@ describe("formatPrice", () => {
     expect(formatPrice(undefined, "GBP")).toBe("\u2014");
     expect(formatPrice(Number.NaN, "GBP")).toBe("\u2014");
     expect(formatPrice(-5, "GBP")).toBe("\u2014");
+  });
+});
+
+describe("priceSortKey", () => {
+  it("sorts an unread price after every measured one", () => {
+    expect(priceSortKey(0)).toBe(Number.POSITIVE_INFINITY);
+    expect(priceSortKey(null)).toBe(Number.POSITIVE_INFINITY);
+    expect(priceSortKey(undefined)).toBe(Number.POSITIVE_INFINITY);
+    expect(priceSortKey(Number.NaN)).toBe(Number.POSITIVE_INFINITY);
+    expect(priceSortKey(3.5)).toBe(3.5);
   });
 });
 

@@ -20,7 +20,7 @@ import {
   PriceRange,
   TrackerListResponse,
 } from "@/lib/types";
-import { formatPrice, formatSigned, formatDateTime } from "@/lib/format";
+import { formatPrice, formatSigned, formatDateTime, priceSortKey } from "@/lib/format";
 import { formatAlertPair } from "@/lib/alerts";
 
 export default function TrackerPage() {
@@ -170,21 +170,21 @@ export default function TrackerPage() {
           {r.outside_band && <OutsideBandBadge />}
         </span>
       ),
-      sortValue: (r) => r.ebay_price,
+      sortValue: (r) => priceSortKey(r.ebay_price),
     },
     {
       key: "target",
       header: "Target",
       align: "right",
       render: (r) => formatPrice(r.target_price),
-      sortValue: (r) => r.target_price,
+      sortValue: (r) => priceSortKey(r.target_price),
     },
     {
       key: "supplier",
       header: "Supplier",
       align: "right",
       render: (r) => formatPrice(r.supplier_price),
-      sortValue: (r) => r.supplier_price,
+      sortValue: (r) => priceSortKey(r.supplier_price),
     },
     {
       key: "checked",

@@ -37,6 +37,18 @@ export function formatPrice(
 }
 
 /**
+ * The sort key for a price column. A price that was not read is 0 (or null)
+ * in the payloads, so sorting on the raw value put an unread row first as
+ * "the cheapest". Unread sorts after every real price instead.
+ */
+export function priceSortKey(n: number | null | undefined): number {
+  if (typeof n !== "number" || !Number.isFinite(n) || n <= 0) {
+    return Number.POSITIVE_INFINITY;
+  }
+  return n;
+}
+
+/**
  * A sold/observed count. The analysis payload defaults an unread count to 0,
  * so 0 prints a dash: a zero would otherwise read as a measured "no sales".
  */

@@ -20,7 +20,7 @@ import {
   PriceRange,
   ProductDetail,
 } from "@/lib/types";
-import { formatMoney, formatPrice, formatDate, truncate } from "@/lib/format";
+import { formatMoney, formatPrice, formatDate, priceSortKey, truncate } from "@/lib/format";
 import { detailAsScorecard } from "@/lib/historyDetail";
 
 export default function HistoryPage() {
@@ -108,7 +108,7 @@ export default function HistoryPage() {
           {r.outside_band && <OutsideBandBadge />}
         </span>
       ),
-      sortValue: (r) => r.price ?? -1,
+      sortValue: (r) => priceSortKey(r.price),
     },
     {
       key: "profit",
