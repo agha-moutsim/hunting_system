@@ -50,6 +50,24 @@ def test_a_failed_revenue_read_has_no_total_and_says_why(monkeypatch):
     assert trend["values"] == []
 
 
+def test_a_session_that_will_not_open_still_answers_honestly(monkeypatch):
+    """The error branch must be reachable: a failed connect is not a crash."""
+
+    def no_session():
+        raise RuntimeError("cannot open database")
+
+    monkeypatch.setattr(charts, "SessionLocal", no_session)
+    trend = charts.get_revenue_trend(days=7)
+    assert trend["total"] is None
+    assert "cannot open database" in trend["reason"]
+
+    monkeypatch.setattr(analytics, "SessionLocal", no_session)
+    kpis = analytics.get_kpis(days=7)
+    assert kpis["total_revenue"] is None
+    assert kpis["total_sales"] is None
+    assert "cannot open database" in kpis["error"]
+
+
 def test_an_empty_revenue_read_is_still_a_measured_zero(monkeypatch):
     monkeypatch.setattr(charts, "SessionLocal", lambda: _EmptySession())
 

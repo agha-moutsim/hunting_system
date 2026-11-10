@@ -83,8 +83,9 @@ def _error_kpis(days: int, reason: str) -> dict:
 
 def get_kpis(days: int = 30) -> dict:
     """KPIs for the last N calendar days, with missing money left absent."""
-    db = SessionLocal()
+    db = None
     try:
+        db = SessionLocal()
         start, end = _period(days)
         previous_start = start - timedelta(days=days)
         sales = (
@@ -187,13 +188,15 @@ def get_kpis(days: int = 30) -> dict:
         print(f"[ERROR] Failed to get KPIs: {exc}")
         return _error_kpis(days, str(exc))
     finally:
-        db.close()
+        if db is not None:
+            db.close()
 
 
 def get_monthly_stats(year: int) -> list[dict]:
     """Monthly rows for a year, preserving unknown profit as None."""
-    db = SessionLocal()
+    db = None
     try:
+        db = SessionLocal()
         stats = (
             db.query(MonthlyStat)
             .filter(MonthlyStat.year == year)
@@ -216,13 +219,15 @@ def get_monthly_stats(year: int) -> list[dict]:
         print(f"[ERROR] Failed to get monthly stats: {exc}")
         return []
     finally:
-        db.close()
+        if db is not None:
+            db.close()
 
 
 def get_top_products(limit: int = 10) -> list[dict]:
     """Top products by profit when every cost is known, else by revenue."""
-    db = SessionLocal()
+    db = None
     try:
+        db = SessionLocal()
         product_data: dict[str, dict] = {}
         for sale in db.query(Sale).all():
             row = product_data.setdefault(
@@ -261,13 +266,15 @@ def get_top_products(limit: int = 10) -> list[dict]:
         print(f"[ERROR] Failed to get top products: {exc}")
         return []
     finally:
-        db.close()
+        if db is not None:
+            db.close()
 
 
 def get_top_categories(limit: int = 10) -> list[dict]:
     """Top categories by profit when every cost is known, else by revenue."""
-    db = SessionLocal()
+    db = None
     try:
+        db = SessionLocal()
         category_data: dict[str, dict] = {}
         for sale in db.query(Sale).filter(Sale.category != "").all():
             row = category_data.setdefault(
@@ -306,4 +313,5 @@ def get_top_categories(limit: int = 10) -> list[dict]:
         print(f"[ERROR] Failed to get top categories: {exc}")
         return []
     finally:
-        db.close()
+        if db is not None:
+            db.close()

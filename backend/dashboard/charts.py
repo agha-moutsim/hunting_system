@@ -9,8 +9,9 @@ from db.models import Sale
 
 def get_revenue_trend(days: int = 30) -> dict:
     """Get daily revenue trend for the last N days."""
-    db = SessionLocal()
+    db = None
     try:
+        db = SessionLocal()
         start_date = datetime.utcnow() - timedelta(days=days)
         sales = db.query(Sale).filter(Sale.sale_date >= start_date).all()
 
@@ -48,13 +49,15 @@ def get_revenue_trend(days: int = 30) -> dict:
             "reason": str(e),
         }
     finally:
-        db.close()
+        if db is not None:
+            db.close()
 
 
 def get_profit_trend(days: int = 30) -> dict:
     """Get daily profit trend for the last N days."""
-    db = SessionLocal()
+    db = None
     try:
+        db = SessionLocal()
         start_date = datetime.utcnow() - timedelta(days=days)
         sales = db.query(Sale).filter(Sale.sale_date >= start_date).all()
 
@@ -101,13 +104,15 @@ def get_profit_trend(days: int = 30) -> dict:
             "reason": str(e),
         }
     finally:
-        db.close()
+        if db is not None:
+            db.close()
 
 
 def get_category_breakdown() -> dict:
     """Get category breakdown for pie chart."""
-    db = SessionLocal()
+    db = None
     try:
+        db = SessionLocal()
         sales = db.query(Sale).filter(Sale.category != "").all()
 
         cat_revenue = defaultdict(float)
@@ -124,13 +129,15 @@ def get_category_breakdown() -> dict:
         print(f"[ERROR] Failed to get category breakdown: {e}")
         return {"categories": [], "values": []}
     finally:
-        db.close()
+        if db is not None:
+            db.close()
 
 
 def get_monthly_comparison(months: int = 6) -> dict:
     """Get monthly revenue/profit comparison for bar chart."""
-    db = SessionLocal()
+    db = None
     try:
+        db = SessionLocal()
         start_date = datetime.utcnow() - timedelta(days=months * 30)
         sales = db.query(Sale).filter(Sale.sale_date >= start_date).all()
 
@@ -177,4 +184,5 @@ def get_monthly_comparison(months: int = 6) -> dict:
         print(f"[ERROR] Failed to get monthly comparison: {e}")
         return {"labels": [], "revenue": [], "profit": []}
     finally:
-        db.close()
+        if db is not None:
+            db.close()
