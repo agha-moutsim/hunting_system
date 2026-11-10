@@ -102,6 +102,7 @@ def generate_report(
         product.hot_30d = bool(h30["hot"])
         product.hot_30d_basis = h30["basis"]
         product.hot_30d_provenance = h30["provenance"]
+        product.hot_30d_reason = h30.get("reason", "")
 
     for product in products:
         result.products.append({

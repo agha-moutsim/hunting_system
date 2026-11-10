@@ -254,6 +254,31 @@ class TestTheReportBelongsToTheMarket:
         assert row["hot_7d"] is True
         assert report.currency_symbol == "£"
 
+    def test_the_30d_reason_is_stamped_like_the_7d_one(self):
+        from hunter.category_scan import CategoryProduct
+        from hunter.report import generate_report
+
+        product = CategoryProduct(
+            title="Generic widget",
+            price=12.0,
+            url="https://www.ebay.com.au/itm/1",
+            sold_30d=None,
+            sold_7d=None,
+        )
+        report = generate_report(
+            [product],
+            category="Garden",
+            price_min=5.0,
+            price_max=35.0,
+        )
+
+        row = report.products[0]
+        assert row["hot_30d_reason"] == "no 30-day sold data retrieved"
+        assert row["hot_reason"] == row["hot_30d_reason"]
+        assert row["hot_7d_reason"] == (
+            "no 7-day data - no fresh purchase-history capture for this product"
+        )
+
 
 class TestTheLookupBandBelongsToTheMarket:
     """A$45 is not over the UK's £35 ceiling, because it is not pounds."""
