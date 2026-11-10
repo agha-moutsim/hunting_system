@@ -29,11 +29,24 @@ def get_revenue_trend(days: int = 30) -> dict:
             dates.append(d.isoformat())
             values.append(round(daily_revenue.get(d.isoformat(), 0), 2))
 
-        return {"dates": dates, "values": values, "total": round(sum(values), 2)}
+        return {
+            "dates": dates,
+            "values": values,
+            "total": round(sum(values), 2),
+            "revenue_is_complete": True,
+        }
 
     except Exception as e:
         print(f"[ERROR] Failed to get revenue trend: {e}")
-        return {"dates": [], "values": [], "total": 0}
+        # C1 — a read that failed did not measure a zero. The caller gets an
+        # absent total and the reason, not a confident £0.00 trend.
+        return {
+            "dates": [],
+            "values": [],
+            "total": None,
+            "revenue_is_complete": False,
+            "reason": str(e),
+        }
     finally:
         db.close()
 

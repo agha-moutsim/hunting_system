@@ -59,6 +59,28 @@ def _empty_kpis(days: int, reason: str | None = None) -> dict:
     }
 
 
+def _error_kpis(days: int, reason: str) -> dict:
+    """A failed sales read: money and counts are unknown, not zero (C1)."""
+    return {
+        **_empty_kpis(days),
+        "total_revenue": None,
+        "total_profit": None,
+        "total_sales": None,
+        "total_units": None,
+        "profit_is_complete": False,
+        "profit_missing_reason": (
+            "Revenue and profit are unknown because the sales read failed."
+        ),
+        "growth_revenue_reason": (
+            "The sales read failed, so no percentage change is claimed."
+        ),
+        "growth_profit_reason": (
+            "The sales read failed, so no percentage change is claimed."
+        ),
+        "error": reason,
+    }
+
+
 def get_kpis(days: int = 30) -> dict:
     """KPIs for the last N calendar days, with missing money left absent."""
     db = SessionLocal()
@@ -163,7 +185,7 @@ def get_kpis(days: int = 30) -> dict:
 
     except Exception as exc:  # noqa: BLE001 - a read must not kill the page
         print(f"[ERROR] Failed to get KPIs: {exc}")
-        return {**_empty_kpis(days), "error": str(exc)}
+        return _error_kpis(days, str(exc))
     finally:
         db.close()
 

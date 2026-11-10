@@ -785,11 +785,13 @@ export interface SearchPassResponse {
 // ── Dashboard ───────────────────────────────────────────────────
 
 export interface Kpis {
-  total_revenue: number;
+  /** Null when the sales read failed — a failed read is not a zero total. */
+  total_revenue: number | null;
   total_profit: number | null;
   avg_margin: number | null;
-  total_sales: number;
-  total_units: number;
+  /** Null when the read failed: the count was not measured. */
+  total_sales: number | null;
+  total_units: number | null;
   best_product: string | null;
   best_category: string | null;
   growth_revenue: number | null;
@@ -803,6 +805,9 @@ export interface TrendChart {
   values: (number | null)[];
   total: number | null;
   profit_is_complete?: boolean;
+  /** False when the read failed; `total` is then null, never zero. */
+  revenue_is_complete?: boolean;
+  reason?: string;
 }
 
 export interface CategoryBreakdown {
