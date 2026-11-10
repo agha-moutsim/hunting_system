@@ -162,6 +162,39 @@ class TestMarketPropagation:
         assert "marketplace" not in profit_seen[0]
         assert profit_seen[1].get("marketplace") == "EBAY_AU"
 
+    def test_lookup_passes_the_market_to_the_report(self, monkeypatch):
+        import hunter.profit_calc as pc
+        import hunter.report as rp
+        import hunter.supplier_lookup as sl
+
+        report_seen = []
+
+        def fake_report(products, **kwargs):
+            report_seen.append(kwargs)
+            return types.SimpleNamespace(to_dict=lambda: {"ok": True}, notes="")
+
+        monkeypatch.setattr(
+            sl, "batch_supplier_lookup", lambda products, **k: (products, 0)
+        )
+        monkeypatch.setattr(
+            pc, "batch_profit_calc", lambda products, filters=None, **k: products
+        )
+        monkeypatch.setattr(rp, "generate_report", fake_report)
+
+        with TestClient(app) as client:
+            client.post(
+                "/api/hunter/lookup",
+                json={"products": [_product()]},
+            )
+            client.post(
+                "/api/hunter/lookup",
+                json={"products": [_product()]},
+                headers={"X-Ebay-Marketplace": "EBAY_AU"},
+            )
+
+        assert report_seen[0].get("marketplace") == "EBAY_GB"
+        assert report_seen[1].get("marketplace") == "EBAY_AU"
+
     def test_functions_accept_an_au_market(self):
         import hunter.category_scan as ccs
         import hunter.demand_check as dc
@@ -170,6 +203,56 @@ class TestMarketPropagation:
         assert ccs.scan_category("", marketplace="EBAY_AU") == []
         assert dc.batch_demand_check([], marketplace="EBAY_AU") == []
         assert pc.batch_profit_calc([], marketplace="EBAY_AU") == []
+
+
+class TestTheReportBelongsToTheMarket:
+    """A report is judged by its market's floors and carries its symbol."""
+
+    def _product(self, sold_30d: int, sold_7d: int):
+        from hunter.category_scan import CategoryProduct
+
+        return CategoryProduct(
+            title="Generic widget",
+            price=12.0,
+            url="https://www.ebay.com.au/itm/1",
+            sold_30d=sold_30d,
+            sold_7d=sold_7d,
+        )
+
+    def test_a_row_below_the_uk_floor_is_hot_under_the_au_floor(self):
+        from hunter.report import generate_report
+
+        # 20/30d and 12/7d is below the UK 30/30d floor, so only a report
+        # judged by AU's 15/30d and 10/7d may call it hot.
+        product = self._product(20, 12)
+        report = generate_report(
+            [product],
+            category="Garden",
+            price_min=0.99,
+            price_max=50.0,
+            marketplace="EBAY_AU",
+        )
+
+        row = report.products[0]
+        assert row["hot_30d"] is True
+        assert row["hot_7d"] is True
+        assert report.currency_symbol == "A$"
+
+    def test_the_uk_report_keeps_the_uk_floor_and_symbol(self):
+        from hunter.report import generate_report
+
+        product = self._product(20, 12)
+        report = generate_report(
+            [product],
+            category="Garden",
+            price_min=5.0,
+            price_max=35.0,
+        )
+
+        row = report.products[0]
+        assert row["hot_30d"] is False
+        assert row["hot_7d"] is True
+        assert report.currency_symbol == "£"
 
 
 class TestTheLookupBandBelongsToTheMarket:

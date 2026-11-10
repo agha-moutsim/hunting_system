@@ -43,10 +43,19 @@ def generate_report(
     total_scanned: int = 0,
     total_with_demand: int = 0,
     total_with_supplier: int = 0,
+    marketplace: str = "EBAY_GB",
 ) -> HunterResult:
-    """Generate a category hunt report."""
+    """Generate a category hunt report.
+
+    The hotness badge is judged by the market's own demand floors — AU's
+    15/30d and 10/7d are not the UK's 30/30d and 8/7d — and the CSV's money
+    columns carry the market's symbol, never a defaulted pound sign.
+    """
     from datetime import datetime
 
+    from marketplaces import get_marketplace, market_filter_defaults
+
+    market = get_marketplace(marketplace)
     result = HunterResult(
         category=category,
         price_min=price_min,
@@ -56,6 +65,7 @@ def generate_report(
         total_with_supplier=total_with_supplier,
         total_pass=sum(1 for p in products if p.verdict == "PASS"),
         scanned_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        currency_symbol=market["currency_symbol"],
     )
 
     # Hot/trending is stamped on the rows BEFORE they are serialised, so the
@@ -66,13 +76,19 @@ def generate_report(
     from utils.filters import load_filters
 
     _active = load_filters()
+    # A market that states its own floors is judged by them. The UK record
+    # states none (its range and floors are the user-adjustable store), so
+    # the active UK filters still apply there.
+    _market_floors = market_filter_defaults(market)
+    demand_min_30d = _market_floors.get("demand_min_30d", _active["demand_min_30d"])
+    demand_min_7d = _market_floors.get("demand_min_7d", _active["demand_min_7d"])
     window = "30d"  # default; the UI may request "7d"
     # Stamp BOTH windows so the client can toggle without a re-fetch.
     for product in products:
         h30 = hotness_for_window(product.sold_30d, product.sold_7d, "30d",
-                                 _active["demand_min_30d"], _active["demand_min_7d"])
+                                 demand_min_30d, demand_min_7d)
         h7 = hotness_for_window(product.sold_30d, product.sold_7d, "7d",
-                                _active["demand_min_30d"], _active["demand_min_7d"])
+                                demand_min_30d, demand_min_7d)
         product.hot = h30["hot"]
         product.hot_basis = h30["basis"]
         product.hot_provenance = h30["provenance"]

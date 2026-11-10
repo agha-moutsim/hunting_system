@@ -176,6 +176,7 @@ def hunter_lookup(req: HunterLookupRequest, request: Request = None):
         total_scanned=total_scanned,
         total_with_demand=total_with_demand,
         total_with_supplier=len(with_supplier),
+        marketplace=market["id"],
     )
     # PR-4: surface what the active range removed (eBay listings only —
     # supplier rows are never range-gated, PR-1)
