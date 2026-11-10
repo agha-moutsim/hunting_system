@@ -1,6 +1,6 @@
 # Handoff - current state
 
-Last updated: 2026-11-08, fourth live-check sweep closed; unread money and counts stay absent on the remaining screens, payloads and exports.
+Last updated: 2026-11-10, fifth live-check sweep closed; stored money, History currency and Hunter market floors stay honest.
 Read this first, then `implementation.md` (phase specs and rules) and `design.md` (surfaces).
 
 ## Where the work stands
@@ -202,6 +202,48 @@ Commits in this sweep: `d80c08e`, `5f1b556`, `379b7f5`, `b123ace`, `ff20360`, `0
 `f5355e9`, `61fe5be`, `6942ab1`, `fbaf698`, `bc0d3ad`, `3a3cd1f`, `e5c83c4`, `fe02efb`,
 `08132fd`, `f01b7b2`, `b6165dc`, `93f2665`, `67a1df7`, `13a81e2`, `a72c96d`, `7618d36`,
 plus this handoff update.
+
+## Fifth live-check sweep, 2026-11-10
+
+The fourth sweep fixed what the screens printed. This one followed the same values into the
+stored payloads and the market seams: a legacy row's zero profit, a History row judged by the
+GBP band, and a Hunter report stamped with UK floors.
+
+**Stored profit and margin.** `d1571bd` makes the engine leave an unread margin absent rather
+than `0.0%`. `d6c3449` refuses a legacy watchlist zero margin when no supplier price exists,
+and `cf95afc` makes `SearchResult.profit`/`margin` nullable so the watchlist can print a dash
+and sort null last. `93c4e14` stamps `"profit_computed": False` on an engine error verdict,
+so a failed run cannot look like a measured zero. `19b643d` keeps a stored zero price out of
+the sellers asking range and median.
+
+**History belongs to its market.** `f8aa2ce` serves `product.marketplace`/`product.currency`
+on the detail payload, and `34241e2` carries both through the replay into `Scorecard`, with
+Vitest coverage. `a77735e` scopes the list to the selected market and judges rows by that
+market's own band (legacy `NULL` marketplace is `EBAY_GB`); a market with no stated band
+serves `range_filter: null`. `dae1f87` gives `RangeFilterBar` a `symbol`, passes the selected
+market's symbol, reloads on a market change and clears market-specific view filters.
+`0dce51e` stops Analyze refusing History for a currency its stored analyses now carry.
+
+**Hunter floors and band.** `c381d85` gates lookup prices by the market's own band and names
+that band and symbol in the exclusion note. `05436ea` judges the report by the market's own
+demand floors (AU 30d=15, 7d=10) and stamps the market's currency symbol, so the CSV cannot
+print pounds over AUD figures. `2d62c96` stamps the 30-day hotness reason alongside the
+7-day one.
+
+**Formatting and reads.** `29dbee3` prints saved-search match prices through `formatPrice`.
+`5021588` sorts an unread price after every real price in History, Tracker and Watchlist.
+`cb4d49c` makes a failed dashboard sales read return `None` money/counts with a reason rather
+than `0`, and keeps an empty period's measured zero; `0d0374c` makes that error branch
+reachable when the database session itself will not open.
+
+Checks on the final run: backend **2116 passed, 9 deselected**, with the machine's
+scheduled-task last-result test failing independently (`-1073741510`); frontend typecheck
+clean, **251 tests across 18 files**, production build **18 route rows**. No live eBay or
+AliGate calls were made.
+
+Commits in this sweep: `d1571bd`, `d6c3449`, `cf95afc`, `29dbee3`, `19b643d`, `93c4e14`,
+`f8aa2ce`, `34241e2`, `0dce51e`, `a77735e`, `dae1f87`, `c381d85`, `5021588`, `05436ea`,
+`cb4d49c`, `2d62c96`, `0d0374c`, plus this handoff update.
 
 ## AU market build (new thread, 2026-10-27)
 
