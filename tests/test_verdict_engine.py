@@ -425,6 +425,67 @@ class TestDeepSearchAdapter:
                 r.field_provenance["ebay_top_sellers"]["provenance"] == "verified"
             ), stamp.__name__
 
+    def test_an_unread_price_is_not_verified_by_a_sold_count(self):
+        # C1: `ebay_avg_price`/min/max default to 0.0 meaning "not read", but
+        # a run holding a count and a seller list stamped the price fields
+        # VERIFIED beside a 0.00 the UI renders as a dash.
+        from deep_search import (
+            DeepSearchResult,
+            _stamp_ebay_facts,
+            _stamp_provenance,
+        )
+
+        # The fast path stamps four facts, of which only the price is unread.
+        fast = DeepSearchResult(
+            product_name="Generic widget",
+            ebay_total_sold_30d=40,
+            ebay_top_sellers=[{"name": "shop", "url": "https://ebay.test/1"}],
+        )
+        _stamp_ebay_facts(fast)
+        assert fast.field_provenance["ebay_avg_price"]["provenance"] == "unverified"
+        assert fast.field_provenance["ebay_avg_price"].get("reason")
+
+        # The full path also stamps min/max/range from the same response.
+        full = DeepSearchResult(
+            product_name="Generic widget",
+            ebay_total_sold_30d=40,
+            ebay_top_sellers=[{"name": "shop", "url": "https://ebay.test/1"}],
+        )
+        _stamp_provenance(full)
+        for name in (
+            "ebay_avg_price",
+            "ebay_price_min",
+            "ebay_price_max",
+            "ebay_price_range",
+        ):
+            entry = full.field_provenance[name]
+            assert entry["provenance"] == "unverified", name
+            assert entry.get("reason"), name
+        assert (
+            full.field_provenance["ebay_total_sold_30d"]["provenance"]
+            == "verified"
+        )
+
+    def test_a_real_price_keeps_its_verified_stamp(self):
+        from deep_search import DeepSearchResult, _stamp_provenance
+
+        r = DeepSearchResult(
+            product_name="Generic widget",
+            ebay_total_sold_30d=40,
+            ebay_avg_price=12.5,
+            ebay_price_min=9.0,
+            ebay_price_max=20.0,
+            ebay_price_range="£9.00 - £20.00 (avg £12.50)",
+        )
+        _stamp_provenance(r)
+        for name in (
+            "ebay_avg_price",
+            "ebay_price_min",
+            "ebay_price_max",
+            "ebay_price_range",
+        ):
+            assert r.field_provenance[name]["provenance"] == "verified", name
+
     def test_caller_filters_are_honoured(self):
         # Regression: deep search used to ignore the caller's filter set.
         from deep_search import _calculate_profit_and_verdict

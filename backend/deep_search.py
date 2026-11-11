@@ -973,6 +973,16 @@ def _system_prompt(market: dict) -> str:
     )
 
 
+def _is_read_price(value: Any) -> bool:
+    """C1 — only a positive finite number is a price; 0.0 is "not read"."""
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(float(value))
+        and value > 0
+    )
+
+
 def _stamp_ebay_facts(result: "DeepSearchResult") -> None:
     """Stamp the four Browse-API fields, each from ITS OWN value.
 
@@ -981,21 +991,29 @@ def _stamp_ebay_facts(result: "DeepSearchResult") -> None:
     fields VERIFIED and the UI printed "Sold 30d: - [Verified]". A badge has
     to describe the number it sits beside, so the null is stamped UNVERIFIED
     with its own reason instead of borrowing its neighbour's provenance.
+
+    C1: a PRICE is different from a COUNT. A sold count of 0 is a measured
+    zero, but `ebay_avg_price` defaults to 0.0 for "no price was read" — so a
+    run with sellers and no price used to stamp GBP 0.00 as verified.
     """
     fields = (
         ("ebay_total_sold_30d", result.ebay_total_sold_30d,
-         "eBay did not report a 30-day sold count"),
+         "eBay did not report a 30-day sold count", False),
         ("ebay_top_sellers", result.ebay_top_sellers,
-         "no eBay top sellers retrieved"),
+         "no eBay top sellers retrieved", False),
         ("ebay_avg_price", result.ebay_avg_price,
-         "eBay did not report a price"),
+         "eBay did not report a price", True),
         ("ebay_condition", result.ebay_condition,
-         "eBay did not report a condition"),
+         "eBay did not report a condition", False),
     )
-    for name, value, reason in fields:
+    for name, value, reason, is_price in fields:
         # 0 is a measurement ("sold 0") and is kept; None / "" / [] are the
         # absence of one. C10: an empty condition means we did not read it.
-        if value is not None and value != "" and value != []:
+        # A price gets the stricter test: only a positive number is one.
+        present = value is not None and value != "" and value != []
+        if is_price:
+            present = _is_read_price(value)
+        if present:
             result.set_fact_provenance(
                 name, Provenance.VERIFIED,
                 source_name="eBay Browse API (conditions:{NEW})",
@@ -1031,10 +1049,37 @@ def _stamp_provenance(result: "DeepSearchResult") -> None:
             # Same response, same origin: min/max and the range string are
             # sold_data's (deep_search.py:785-791), never the model's,
             # whenever this branch has a count to show for them.
-            for _name in ("ebay_price_range", "ebay_price_min", "ebay_price_max"):
+            #
+            # C1 — each is still stamped from ITS OWN value. A count beside
+            # the dataclass's 0.0 price defaults used to mark the min, max
+            # and range verified, dressing "not read" as a measurement.
+            for _name, _value in (
+                ("ebay_price_min", result.ebay_price_min),
+                ("ebay_price_max", result.ebay_price_max),
+            ):
+                if _is_read_price(_value):
+                    result.set_fact_provenance(
+                        _name, Provenance.VERIFIED,
+                        source_name="eBay Browse API (conditions:{NEW})"
+                    )
+                else:
+                    result.set_fact_provenance(
+                        _name, Provenance.UNVERIFIED,
+                        reason="eBay did not report a readable price range",
+                    )
+            if (
+                str(result.ebay_price_range or "").strip()
+                and _is_read_price(result.ebay_price_min)
+                and _is_read_price(result.ebay_price_max)
+            ):
                 result.set_fact_provenance(
-                    _name, Provenance.VERIFIED,
+                    "ebay_price_range", Provenance.VERIFIED,
                     source_name="eBay Browse API (conditions:{NEW})"
+                )
+            else:
+                result.set_fact_provenance(
+                    "ebay_price_range", Provenance.UNVERIFIED,
+                    reason="eBay did not report a readable price range",
                 )
         # Null means eBay did not report it, which is not the same as "we
         # never asked" - so it is stamped explicitly rather than left to
