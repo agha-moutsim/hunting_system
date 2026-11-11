@@ -130,19 +130,35 @@ class DecisionEngine:
         ))
 
         # --- Price filter (eBay listing price vs active range) ---
+        # C1 — 0/negative/NaN is the scraper's "not read" placeholder, not a
+        # free listing. It fails the gate but stays UNVERIFIED (we cannot say
+        # the item is outside a range we never read), and the row says so in
+        # words instead of printing a confident `symbol`0.00.
+        raw_price = product.price
+        ebay_price_known = (
+            isinstance(raw_price, (int, float))
+            and not isinstance(raw_price, bool)
+            and math.isfinite(float(raw_price))
+            and raw_price > 0
+        )
         price_in_range = (
-            self.filters["price_min"] <= product.price <= self.filters["price_max"]
+            ebay_price_known
+            and self.filters["price_min"] <= raw_price <= self.filters["price_max"]
         )
         symbol = self.market["currency_symbol"]
         filters.append(FilterResult(
             name="Price",
             passed=price_in_range,
-            actual=f"{symbol}{product.price:.2f}",
+            actual=(
+                f"{symbol}{raw_price:.2f}"
+                if ebay_price_known
+                else "not read (no eBay price)"
+            ),
             expected=(
                 f"{symbol}{self.filters['price_min']:.2f}–"
                 f"{symbol}{self.filters['price_max']:.2f}"
             ),
-            verified=product.verified,
+            verified=product.verified and ebay_price_known,
         ))
 
         # --- Demand filter (30d) ---
@@ -197,31 +213,33 @@ class DecisionEngine:
         # product that charges it. 0.0 means UNREAD, not free - calculate_profit
         # reports the figure as incomplete in that case (C1/C13).
         profit_info = {"profit": 0.0, "margin": 0.0}
-        if supplier_price is not None:
+        if supplier_price is not None and ebay_price_known:
             profit_info = calculate_market_profit(
-                product.price,
+                raw_price,
                 supplier_price,
                 shipping_cost=getattr(product, "shipping_cost", 0.0) or 0.0,
                 market=self.market,
             )
 
         # --- Margin filter ---
-        # C1: with no supplier price there is no margin. Printing the 0.0
-        # placeholder as "0.0%" reads as a measured break-even, so absence is
-        # stated in words instead.
+        # C1: with no supplier price there is no margin, and with no eBay
+        # price there is no sale to margin. Printing either 0.0 placeholder as
+        # "0.0%" reads as a measured break-even, so absence is stated in
+        # words instead.
         margin_min = self.filters.get("margin_min", 25.0)
         margin_pass = profit_info["margin"] >= margin_min
-        margin_actual = (
-            f"{profit_info['margin']:.1f}%"
-            if supplier_price is not None
-            else "not computed - no supplier price"
-        )
+        if supplier_price is None:
+            margin_actual = "not computed - no supplier price"
+        elif not ebay_price_known:
+            margin_actual = "not computed - no eBay price"
+        else:
+            margin_actual = f"{profit_info['margin']:.1f}%"
         filters.append(FilterResult(
             name="Margin",
             passed=margin_pass,
             actual=margin_actual,
             expected=f"≥{margin_min}%",
-            verified=supplier_price is not None,
+            verified=supplier_price is not None and ebay_price_known,
         ))
 
         # --- Delivery (ADVISORY, C-new: never decides the verdict) ---
@@ -326,7 +344,7 @@ class DecisionEngine:
         # C1: an unmeasured profit is not a loss. When no supplier price came
         # back the margin row is unverified, and its 0.0 placeholder must not
         # be promoted into the decisive "fail" — absence belongs in "pending".
-        profit_computed = supplier_price is not None
+        profit_computed = supplier_price is not None and ebay_price_known
         profit_positive = profit_computed and profit_info["profit"] > 0
         # A rule we KNOW is broken always wins: a verified failure can never
         # be downgraded to "pending" by some unrelated unverified row.
@@ -358,5 +376,5 @@ class DecisionEngine:
             filters=filters,
             profit=profit_info["profit"],
             margin=profit_info["margin"],
-            profit_computed=supplier_price is not None,
+            profit_computed=supplier_price is not None and ebay_price_known,
         )

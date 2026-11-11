@@ -169,6 +169,41 @@ class TestProfitComputedFlag:
         assert v.profit_computed is False
 
 
+class TestUnreadEbayPrice:
+    """C1 — a 0.0 listing price is "not read", not a free item.
+
+    The engine used to print it as GBP 0.00, compare a string against the
+    range, and hand the zero to the fee engine, which raises on a zero sale.
+    """
+
+    def test_an_unread_price_is_never_printed_as_money(self):
+        v = DecisionEngine().evaluate(_product(price=0.0), _demand(), 6.0)
+        row = _filter(v, "Price")
+
+        assert row.actual == "not read (no eBay price)"
+        assert row.verified is False
+        assert "£0.00" not in row.actual
+
+    def test_the_verdict_waits_instead_of_failing_on_an_unread_price(self):
+        v = DecisionEngine().evaluate(_product(price=0.0), _demand(), 6.0)
+
+        assert v.verdict == "pending"
+        assert v.profit_computed is False
+
+    def test_the_margin_says_which_side_is_missing(self):
+        v = DecisionEngine().evaluate(_product(price=0.0), _demand(), 6.0)
+        row = _filter(v, "Margin")
+
+        assert row.actual == "not computed - no eBay price"
+        assert row.verified is False
+
+    def test_a_real_price_still_reaches_the_fee_engine(self):
+        v = DecisionEngine().evaluate(_product(price=12.0), _demand(), 6.0)
+
+        assert v.profit_computed is True
+        assert v.profit == calculate_profit(12.0, 6.0)["profit"]
+
+
 class TestMoneySingleSource:
     def test_the_default_split_is_the_published_card(self):
         # What runs today: Everything Else at 12.9%, the 40p per-order fee,
