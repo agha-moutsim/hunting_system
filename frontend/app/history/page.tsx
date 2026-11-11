@@ -20,7 +20,7 @@ import {
   PriceRange,
   ProductDetail,
 } from "@/lib/types";
-import { formatMoney, formatPrice, formatDate, priceSortKey, truncate } from "@/lib/format";
+import { formatMoney, formatPrice, formatDate, priceSortKey, profitSortKey, truncate } from "@/lib/format";
 import { detailAsScorecard } from "@/lib/historyDetail";
 
 export default function HistoryPage() {
@@ -124,7 +124,7 @@ export default function HistoryPage() {
         ) : (
           <span className="text-text-dim">—</span>
         ),
-      sortValue: (r) => r.profit ?? -1,
+      sortValue: (r) => profitSortKey(r.profit),
     },
     {
       key: "verdict",

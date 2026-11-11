@@ -7,6 +7,7 @@ import {
   formatPrice,
   formatSoldCount,
   priceSortKey,
+  profitSortKey,
   timeAgo,
 } from "./format";
 
@@ -136,6 +137,17 @@ describe("priceSortKey", () => {
     expect(priceSortKey(undefined)).toBe(Number.POSITIVE_INFINITY);
     expect(priceSortKey(Number.NaN)).toBe(Number.POSITIVE_INFINITY);
     expect(priceSortKey(3.5)).toBe(3.5);
+  });
+});
+
+describe("profitSortKey", () => {
+  it("sorts an unmeasured profit after every measured one, losses included", () => {
+    expect(profitSortKey(null)).toBe(Number.POSITIVE_INFINITY);
+    expect(profitSortKey(undefined)).toBe(Number.POSITIVE_INFINITY);
+    expect(profitSortKey(Number.NaN)).toBe(Number.POSITIVE_INFINITY);
+    // A real loss is a measurement and keeps its own place.
+    expect(profitSortKey(-5.5)).toBe(-5.5);
+    expect(profitSortKey(0)).toBe(0);
   });
 });
 

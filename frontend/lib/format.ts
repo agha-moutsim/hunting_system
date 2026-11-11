@@ -49,6 +49,19 @@ export function priceSortKey(n: number | null | undefined): number {
 }
 
 /**
+ * The sort key for a profit column. `null`/undefined/NaN means the profit
+ * was never measured (no supplier price, a failed fee engine), so it sorts
+ * after every measured figure — including a loss. Absence is not the worst
+ * trade; it is not a trade at all.
+ */
+export function profitSortKey(n: number | null | undefined): number {
+  if (typeof n !== "number" || !Number.isFinite(n)) {
+    return Number.POSITIVE_INFINITY;
+  }
+  return n;
+}
+
+/**
  * A sold/observed count. The analysis payload defaults an unread count to 0,
  * so 0 prints a dash: a zero would otherwise read as a measured "no sales".
  */

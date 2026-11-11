@@ -24,7 +24,7 @@ import {
   HunterReport,
   PriceRange,
 } from "@/lib/types";
-import { formatPrice, formatPercent, priceSortKey } from "@/lib/format";
+import { formatPrice, formatPercent, priceSortKey, profitSortKey } from "@/lib/format";
 import { useMarketplace } from "@/lib/marketplace";
 
 export default function HunterPage() {
@@ -247,7 +247,7 @@ export default function HunterPage() {
       // "unverified" - that is the ABSENCE of a calculation, so it renders as
       // a dash with the reason rather than a confident red GBP0.00.
       render: (r) => <ProfitCell row={r} currency={marketplace.currency} />,
-      sortValue: (r) => (hasRealProfit(r) ? (r.profit as number) : -1),
+      sortValue: (r) => profitSortKey(hasRealProfit(r) ? r.profit : null),
     },
     {
       key: "stores",
