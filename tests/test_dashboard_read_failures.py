@@ -79,6 +79,49 @@ def test_an_empty_revenue_read_is_still_a_measured_zero(monkeypatch):
     assert trend["values"] == [0, 0, 0, 0, 0, 0, 0]
 
 
+def test_a_failed_category_read_says_why_it_is_empty(monkeypatch):
+    monkeypatch.setattr(charts, "SessionLocal", lambda: _BrokenSession())
+
+    breakdown = charts.get_category_breakdown()
+
+    assert breakdown["categories"] == []
+    assert breakdown["values"] == []
+    assert breakdown["revenue_is_complete"] is False
+    assert "database is locked" in breakdown["reason"]
+
+
+def test_an_empty_category_read_is_still_a_measured_zero(monkeypatch):
+    monkeypatch.setattr(charts, "SessionLocal", lambda: _EmptySession())
+
+    breakdown = charts.get_category_breakdown()
+
+    assert breakdown["categories"] == []
+    assert breakdown["values"] == []
+    assert breakdown["revenue_is_complete"] is True
+
+
+def test_a_failed_monthly_read_says_why_it_is_empty(monkeypatch):
+    monkeypatch.setattr(charts, "SessionLocal", lambda: _BrokenSession())
+
+    monthly = charts.get_monthly_comparison(months=3)
+
+    assert monthly["labels"] == []
+    assert monthly["revenue"] == []
+    assert monthly["profit"] == []
+    assert monthly["revenue_is_complete"] is False
+    assert "database is locked" in monthly["reason"]
+
+
+def test_an_empty_monthly_read_is_still_a_measured_zero(monkeypatch):
+    monkeypatch.setattr(charts, "SessionLocal", lambda: _EmptySession())
+
+    monthly = charts.get_monthly_comparison(months=3)
+
+    assert monthly["labels"] == []
+    assert monthly["revenue"] == []
+    assert monthly["revenue_is_complete"] is True
+
+
 def test_a_failed_kpi_read_does_not_claim_zero_money_or_zero_sales(monkeypatch):
     monkeypatch.setattr(analytics, "SessionLocal", lambda: _BrokenSession())
 

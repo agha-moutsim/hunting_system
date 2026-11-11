@@ -123,11 +123,23 @@ def get_category_breakdown() -> dict:
         categories = list(cat_revenue.keys())
         values = [round(v, 2) for v in cat_revenue.values()]
 
-        return {"categories": categories, "values": values}
+        return {
+            "categories": categories,
+            "values": values,
+            "revenue_is_complete": True,
+        }
 
     except Exception as e:
         print(f"[ERROR] Failed to get category breakdown: {e}")
-        return {"categories": [], "values": []}
+        # C1 — an empty pie is a measurement; a failed read is not. The
+        # caller gets the reason and a false completeness flag so it cannot
+        # draw "no category data yet" over a database error.
+        return {
+            "categories": [],
+            "values": [],
+            "revenue_is_complete": False,
+            "reason": str(e),
+        }
     finally:
         if db is not None:
             db.close()
@@ -177,12 +189,23 @@ def get_monthly_comparison(months: int = 6) -> dict:
             "revenue": revenue_values,
             "profit": profit_values,
             "profit_is_complete": profit_complete,
+            "revenue_is_complete": True,
             "user_declared": True,
         }
 
     except Exception as e:
         print(f"[ERROR] Failed to get monthly comparison: {e}")
-        return {"labels": [], "revenue": [], "profit": []}
+        # C1 — no bars is not no sales. A failed read says why it could not
+        # answer, so the chart does not present a database error as an empty
+        # comparison.
+        return {
+            "labels": [],
+            "revenue": [],
+            "profit": [],
+            "profit_is_complete": [],
+            "revenue_is_complete": False,
+            "reason": str(e),
+        }
     finally:
         if db is not None:
             db.close()
