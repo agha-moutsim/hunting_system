@@ -330,12 +330,19 @@ export default function WatchlistPage() {
     {
       key: "verdict",
       header: "Verdict",
-      render: (r) => (
-        <Badge tone={(r.verdict || "pending").toLowerCase()}>
-          {(r.verdict || "pending").toUpperCase()}
-        </Badge>
-      ),
-      sortValue: (r) => r.verdict || "",
+      render: (r) =>
+        r.verdict ? (
+          <Badge tone={r.verdict.toLowerCase()}>
+            {r.verdict.toUpperCase()}
+          </Badge>
+        ) : (
+          // C1 — a find saved before verdicts were required carries none.
+          // "PENDING" claims a run is in flight; it is not.
+          <Badge tone="neutral" title="This find stored no verdict">
+            NOT RECORDED
+          </Badge>
+        ),
+      sortValue: (r) => r.verdict || "zz",
     },
     {
       key: "read",

@@ -731,7 +731,8 @@ export interface SearchResult {
   profit: number | null;
   /** null when the stored run had no supplier price to measure from. */
   margin: number | null;
-  verdict: string;
+  /** null/"" when the stored find carried no verdict at all. */
+  verdict: string | null;
   is_read: boolean;
   found_at?: string | null;
 }
