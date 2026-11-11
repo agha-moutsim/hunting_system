@@ -129,12 +129,20 @@ export default function HistoryPage() {
     {
       key: "verdict",
       header: "Verdict",
-      render: (r) => (
-        <Badge tone={(r.verdict || "pending").toLowerCase()}>
-          {(r.verdict || "pending").toUpperCase()}
-        </Badge>
-      ),
-      sortValue: (r) => r.verdict || "",
+      render: (r) =>
+        r.verdict ? (
+          <Badge tone={r.verdict.toLowerCase()}>
+            {r.verdict.toUpperCase()}
+          </Badge>
+        ) : (
+          // C1 — the History query is an outer join, so a row can carry no
+          // verdict at all. "PENDING" claims the engine is still working on
+          // it; nothing is.
+          <Badge tone="neutral" title="This run stored no verdict">
+            NOT RECORDED
+          </Badge>
+        ),
+      sortValue: (r) => r.verdict || "zz",
     },
     {
       key: "date",
