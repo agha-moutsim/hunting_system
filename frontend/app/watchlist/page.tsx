@@ -299,14 +299,14 @@ export default function WatchlistPage() {
       header: "eBay",
       align: "right",
       render: (r) => formatPrice(r.ebay_price),
-      sortValue: (r) => r.ebay_price,
+      sortValue: (r) => priceSortKey(r.ebay_price),
     },
     {
       key: "supplier",
       header: "Supplier",
       align: "right",
       render: (r) => formatPrice(r.supplier_price),
-      sortValue: (r) => r.supplier_price,
+      sortValue: (r) => priceSortKey(r.supplier_price),
     },
     {
       key: "margin",
