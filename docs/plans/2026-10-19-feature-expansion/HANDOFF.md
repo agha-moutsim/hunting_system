@@ -1,6 +1,6 @@
 # Handoff - current state
 
-Last updated: 2026-11-10, fifth live-check sweep closed; stored money, History currency and Hunter market floors stay honest.
+Last updated: 2026-11-11, sixth live-check sweep closed; unread prices, absent verdicts and failed reads stay absent on every surface.
 Read this first, then `implementation.md` (phase specs and rules) and `design.md` (surfaces).
 
 ## Where the work stands
@@ -244,6 +244,43 @@ AliGate calls were made.
 Commits in this sweep: `d1571bd`, `d6c3449`, `cf95afc`, `29dbee3`, `19b643d`, `93c4e14`,
 `f8aa2ce`, `34241e2`, `0dce51e`, `a77735e`, `dae1f87`, `c381d85`, `5021588`, `05436ea`,
 `cb4d49c`, `2d62c96`, `0d0374c`, plus this handoff update.
+
+## Sixth live-check sweep, 2026-11-11
+
+The fifth sweep followed stored values into their markets. This one went after the remaining
+places where an unread value still wore a number or a verdict: a store average, an eBay price
+the engine had not read, a provenance badge over a dash, and empty-shaped answers to failed
+reads.
+
+**Unread is not zero.** `5104828` keeps a 0.0 listing price out of a competitor store's average
+(one real 20.00 beside one unread row used to print 10.00), while still counting the listing.
+`2d8e8fd` makes the decision engine print "not read (no eBay price)" and keep profit uncomputed
+instead of showing the market's currency over 0.0 and handing zero to the fee engine.
+
+**Badges describe their own number.** `8d9b611` stamps `ebay_avg_price`, min, max and the price
+range from each field's own value: a run holding a sold count used to mark the dataclass's 0.0
+defaults `verified`. `aa34e7b` stops the Scorecard turning a missing verdict into `PENDING`;
+`856a30e` and `093c70f` do the same for History rows and saved-search finds, which read
+`NOT RECORDED` in neutral tone. The saved-search wire type now says the verdict can be null.
+
+**A failed read is not an empty result.** `fd4468e` gives the category-breakdown and monthly
+comparison failures a reason and a false completeness flag. `219e891` gives the top-products and
+top-categories reads `read_complete` plus the reason, instead of returning the same empty list a
+measured "no sales" returns.
+
+**Sorting.** `de5552e` sends an unread price after every real price in Watchlist finds and Hunter
+rows (matching History and Tracker). `ec56b59` adds `profitSortKey`, so an unmeasured profit sorts
+after measured figures including losses, instead of posing as a small loss.
+
+**Types.** `181a8b5` marks the Deep Search price statistics and `TopSeller.avg_price` nullable, so
+the client cannot assume a price the backend did not read.
+
+Checks on the final run: backend **2133 passed, 9 deselected**; frontend typecheck clean, **252
+tests across 18 files**, production build **18 route rows**. No live eBay or AliGate calls were
+made.
+
+Commits in this sweep: `5104828`, `2d8e8fd`, `8d9b611`, `fd4468e`, `219e891`, `856a30e`,
+`093c70f`, `de5552e`, `ec56b59`, `181a8b5`, `aa34e7b`, plus this handoff update.
 
 ## AU market build (new thread, 2026-10-27)
 
