@@ -223,8 +223,12 @@ def get_monthly_stats(year: int) -> list[dict]:
             db.close()
 
 
-def get_top_products(limit: int = 10) -> list[dict]:
-    """Top products by profit when every cost is known, else by revenue."""
+def get_top_products(limit: int = 10) -> dict:
+    """Top products by profit when every cost is known, else by revenue.
+
+    Returns the rows AND whether the read completed. `[]` alone cannot tell
+    a measured "no products" from a database that never answered (C1).
+    """
     db = None
     try:
         db = SessionLocal()
@@ -261,17 +265,28 @@ def get_top_products(limit: int = 10) -> list[dict]:
             ),
             reverse=True,
         )
-        return rows[:limit]
+        return {
+            "products": rows[:limit],
+            "read_complete": True,
+        }
     except Exception as exc:  # noqa: BLE001
         print(f"[ERROR] Failed to get top products: {exc}")
-        return []
+        return {
+            "products": [],
+            "read_complete": False,
+            "reason": str(exc),
+        }
     finally:
         if db is not None:
             db.close()
 
 
-def get_top_categories(limit: int = 10) -> list[dict]:
-    """Top categories by profit when every cost is known, else by revenue."""
+def get_top_categories(limit: int = 10) -> dict:
+    """Top categories by profit when every cost is known, else by revenue.
+
+    Same contract as `get_top_products`: an empty list is a measurement only
+    when `read_complete` says the query finished.
+    """
     db = None
     try:
         db = SessionLocal()
@@ -308,10 +323,17 @@ def get_top_categories(limit: int = 10) -> list[dict]:
             ),
             reverse=True,
         )
-        return rows[:limit]
+        return {
+            "categories": rows[:limit],
+            "read_complete": True,
+        }
     except Exception as exc:  # noqa: BLE001
         print(f"[ERROR] Failed to get top categories: {exc}")
-        return []
+        return {
+            "categories": [],
+            "read_complete": False,
+            "reason": str(exc),
+        }
     finally:
         if db is not None:
             db.close()

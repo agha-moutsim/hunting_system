@@ -54,11 +54,13 @@ def monthly_comparison(months: int = 6):
 def top_products(limit: int = 10):
     from dashboard.analytics import get_top_products
 
-    return {"products": get_top_products(limit=limit)}
+    # The payload carries `read_complete` and, on failure, `reason`, so the
+    # caller never reads an empty list as a measured "no products".
+    return get_top_products(limit=limit)
 
 
 @router.get("/dashboard/top-categories")
 def top_categories(limit: int = 10):
     from dashboard.analytics import get_top_categories
 
-    return {"categories": get_top_categories(limit=limit)}
+    return get_top_categories(limit=limit)
