@@ -411,7 +411,8 @@ export interface TopSeller {
   name: string;
   url: string;
   sold_count?: number;
-  avg_price?: number;
+  /** null = none of this seller's observed listings carried a readable price. */
+  avg_price?: number | null;
   provenance?: string;
   provenance_label?: string;
 }
@@ -422,10 +423,14 @@ export interface DeepSearchResult {
   ebay_items_sold_month: string;
   ebay_top_sellers: TopSeller[];
   ebay_price_range: string;
-  ebay_avg_price: number;
-  ebay_price_min: number;
-  ebay_price_max: number;
-  ebay_price_median: number;
+  /**
+   * C1 — null (and the backend's legacy 0.0 default) mean no price was read;
+   * `formatPrice` prints a dash rather than $0.00.
+   */
+  ebay_avg_price: number | null;
+  ebay_price_min: number | null;
+  ebay_price_max: number | null;
+  ebay_price_median: number | null;
   /** Per-sale prices behind the price summary. Empty when the run held
    *  none — the chart draws its honest empty state, never a stand-in. */
   sold_prices: number[];
