@@ -194,7 +194,13 @@ export default function Scorecard({
   /** The search lane this result came from, when it was not a URL analysis. */
   sellerQuery?: string | null;
 }) {
-  const v = (verdict?.verdict || "pending").toLowerCase();
+  const storedVerdict = (verdict?.verdict || "").trim();
+  // C1 — no stored verdict is not PENDING. Pending claims a decision is in
+  // flight; nothing is evaluating a finished run.
+  const verdictTone = storedVerdict ? storedVerdict.toLowerCase() : "neutral";
+  const verdictLabel = storedVerdict
+    ? storedVerdict.toUpperCase()
+    : "NOT RECORDED";
   const ebayCurrency = ebayProduct.currency || currency;
   const demandCurrency = demand?.currency || currency;
   // Two price ranges, kept apart. One is a SALE range and only exists when a
@@ -273,7 +279,12 @@ export default function Scorecard({
               <h2 className="max-w-2xl text-balance text-xl font-semibold leading-snug tracking-tight text-white sm:text-2xl">
                 {ebayProduct.title}
               </h2>
-              <Badge tone={v}>{v.toUpperCase()}</Badge>
+              <Badge
+                tone={verdictTone}
+                title={storedVerdict ? undefined : "This run stored no verdict"}
+              >
+                {verdictLabel}
+              </Badge>
             </div>
 
             <div className="mt-6 grid gap-3 sm:grid-cols-3">
@@ -387,7 +398,16 @@ export default function Scorecard({
             <Metric
               label="Assessment"
               emphasis
-              value={<Badge tone={v}>{v.toUpperCase()}</Badge>}
+              value={
+                <Badge
+                  tone={verdictTone}
+                  title={
+                    storedVerdict ? undefined : "This run stored no verdict"
+                  }
+                >
+                  {verdictLabel}
+                </Badge>
+              }
             />
           </div>
           <div className="mt-4 space-y-2">
