@@ -365,6 +365,12 @@ class TestStoresFromItems:
             [_item("", 5.0), _item(None, 5.0), _item("real_store", 5.0)])
         assert _names(rows) == ["real_store"]
 
+    def test_an_unread_item_price_does_not_drag_the_average_down(self):
+        rows = stores_from_items([_item("alpha", 0.0), _item("alpha", 20.0)])
+
+        assert rows[0]["sold_count"] == 2
+        assert rows[0]["avg_price"] == 20.0
+
     @pytest.mark.parametrize("empty", [[], None])
     def test_empty_or_none_input_returns_empty(self, empty):
         assert stores_from_items(empty) == []

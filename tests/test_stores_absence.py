@@ -36,6 +36,18 @@ class TestUnreadAverageIsAbsent:
 
         assert rows[0]["avg_price"] is None
 
+    def test_an_unread_row_does_not_drag_a_real_average_down(self):
+        """One real reading beside one unread row is 20.00, not 10.00."""
+        rows = stores_from_products(
+            [
+                SimpleNamespace(seller="shop", price=0.0),
+                SimpleNamespace(seller="shop", price=20.0),
+            ]
+        )
+
+        assert rows[0]["sold_count"] == 2
+        assert rows[0]["avg_price"] == 20.0
+
     def test_a_merge_keeps_the_one_reading_it_has(self):
         # First spelling carried no price; the second did. The merged row can
         # claim the reading that exists, and must not average it with zero.

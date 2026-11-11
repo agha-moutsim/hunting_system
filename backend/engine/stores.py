@@ -318,14 +318,23 @@ def stores_from_items(items: Iterable[Any], source_name: str = SOURCE_NAME,
         if not name:
             continue
         price = float(getattr(item, "price", 0.0) or 0.0)
-        slot = tally.setdefault(name, [0, 0.0])
+        slot = tally.setdefault(name, [0, 0.0, 0])
         slot[0] += 1
-        slot[1] += price
+        # C1 — 0.0 is the scraper's "not read" price. Adding it to the total
+        # dragged a seller's average toward zero (one real 20.00 beside one
+        # unread row printed 10.00), a price nobody observed. Only a real
+        # reading enters the mean; the listing still counts in sold_count.
+        if math.isfinite(price) and price > 0:
+            slot[1] += price
+            slot[2] += 1
         seen_url = getattr(item, "store_url", "") or ""
         if name not in observed and is_observed_store_url(seen_url, site_base):
             observed[name] = seen_url
     return build_stores(
-        ((n, c, t / c if c else 0.0) for n, (c, t) in tally.items()),
+        (
+            (n, c, t / p if p else 0.0)
+            for n, (c, t, p) in tally.items()
+        ),
         source_name=source_name, limit=limit,
         observed_store_urls=observed, site_base=site_base,
     )
@@ -392,11 +401,15 @@ def stores_from_products(products: Iterable[Any],
         if not name:
             continue
         price = float(getattr(p, "price", 0.0) or 0.0)
-        slot = tally.setdefault(name, [0, 0.0])
+        slot = tally.setdefault(name, [0, 0.0, 0])
         slot[0] += 1
-        slot[1] += price
+        # C1 — a zero price is "not read", not a free listing. It must not
+        # join the average, or one unread row halves a real reading.
+        if math.isfinite(price) and price > 0:
+            slot[1] += price
+            slot[2] += 1
     return build_stores(
-        ((n, c, t / c if c else 0.0) for n, (c, t) in tally.items()),
+        ((n, c, t / p if p else 0.0) for n, (c, t, p) in tally.items()),
         source_name=source_name, limit=limit, site_base=site_base,
     )
 
