@@ -159,7 +159,11 @@ export default function DeepSearchPage() {
     }
   }
 
-  const v = (result?.verdict || "").toUpperCase() || "PENDING";
+  // C1 — a run that stored no verdict is not PENDING. Nothing is still
+  // evaluating it; the card says the run recorded nothing.
+  const storedVerdict = (result?.verdict || "").trim().toUpperCase();
+  const verdictTone = storedVerdict ? storedVerdict.toLowerCase() : "neutral";
+  const verdictLabel = storedVerdict || "NOT RECORDED";
   const displayRange = marketIsUk ? activeRange : marketBand;
   const displayCurrency = result?.currency || marketplace.currency;
   const displaySymbol =
@@ -269,7 +273,12 @@ export default function DeepSearchPage() {
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="min-w-0">
                 <div className="flex items-center gap-2 mb-2">
-                  <Badge tone={v}>{v}</Badge>
+                  <Badge
+                    tone={verdictTone}
+                    title={storedVerdict ? undefined : "This run stored no verdict"}
+                  >
+                    {verdictLabel}
+                  </Badge>
                   <span className="text-xs text-text-dim">
                     Competition: {result.competition_level || "—"} · Profit
                     potential: {result.profit_potential || "—"}
