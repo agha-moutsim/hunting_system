@@ -647,6 +647,28 @@ class TestRegression005ProfitIsHonest:
         assert rows[0]["hot_basis"]
         assert rows[1]["hot"] is False
 
+    def test_an_unmeasured_margin_does_not_outrank_a_real_loss(self):
+        """C1 — profit_calc leaves margin 0.0 when it cannot compute one.
+
+        Sorted as a number, that placeholder tied with a break-even and beat
+        a real loss, so the report ranked a row nobody measured as profitable.
+        """
+        from hunter import report as rp
+
+        loss = _product(title="Real loss", price=20.0)
+        loss.margin = -5.0
+        loss.profit_provenance = "estimated"
+
+        unmeasured = _product(title="Unmeasured", price=15.0)
+        unmeasured.margin = 0.0
+        unmeasured.profit_provenance = "unverified"
+
+        rep = rp.generate_report([unmeasured, loss], "Electronics", 5.0, 35.0,
+                                 total_scanned=2)
+        rows = rep.to_dict()["products"]
+
+        assert [r["title"] for r in rows] == ["Real loss", "Unmeasured"]
+
     def test_hot_for_a_30d_window_uses_only_real_30d_data(self):
         """A product selling steadily is 30d-hot even with no 7d signal.
 

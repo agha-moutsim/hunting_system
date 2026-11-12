@@ -35,6 +35,31 @@ class HunterResult:
         return asdict(self)
 
 
+def _margin_sort_key(row: dict) -> tuple[int, float]:
+    """Rank a row's margin for the report's "hot, then most profitable" order.
+
+    A row whose profit was never computed still carries `margin == 0.0` from
+    profit_calc's placeholder path, so sorting the number alone made it look
+    like a measured break-even and outrank a real loss. Provenance decides
+    first: only a computed figure is compared, and absence sorts last.
+    """
+    if (row.get("profit_provenance") or "").strip().lower() not in (
+        "verified",
+        "estimated",
+    ):
+        return (1, 0.0)
+    value = row.get("margin")
+    if value is None:
+        return (1, 0.0)
+    try:
+        margin = float(value)
+    except (TypeError, ValueError):
+        return (1, 0.0)
+    if margin != margin:  # NaN is not a measurement either.
+        return (1, 0.0)
+    return (0, -margin)
+
+
 def generate_report(
     products: list[CategoryProduct],
     category: str,
@@ -171,11 +196,13 @@ def generate_report(
     }
 
     # The user asked for hot items: rank the hot, profitable rows first.
-    # `hot` was stamped on the rows before serialisation, above.
+    # `hot` was stamped on the rows before serialisation, above. An
+    # unmeasured margin sorts after every measured one, a real loss included,
+    # rather than posing as a 0.0 that beats it.
     result.products.sort(
         key=lambda row: (
             0 if row.get("hot") else 1,
-            -float(row.get("margin") or 0.0),
+            *_margin_sort_key(row),
             -float(row.get("demand_pace_7d_per_week") or 0.0),
         )
     )
