@@ -122,6 +122,21 @@ describe("detailAsScorecard", () => {
     expect(supplier.fetch_method).toBeUndefined();
   });
 
+  it("keeps an empty stored verdict empty, not pending", () => {
+    const props = detailAsScorecard(
+      detail({
+        verdict: {
+          verdict: "",
+          profit_amount: null,
+          profit_margin: null,
+          filter_results: [],
+        },
+      })
+    );
+
+    expect(props.verdict?.verdict).toBe("");
+  });
+
   it("serves no verdict at all when the run saved none", () => {
     const props = detailAsScorecard(
       detail({ verdict: null, profit_computed: undefined })

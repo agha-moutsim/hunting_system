@@ -124,7 +124,10 @@ export function detailAsScorecard(d: ProductDetail): HistoryScorecardProps {
       : null,
     verdict: d.verdict
       ? {
-          verdict: d.verdict.verdict || "pending",
+          // No stored verdict is not "pending": pending claims a decision
+          // is still coming. The Scorecard reads "" as NOT RECORDED, so it
+          // must survive this translation unchanged.
+          verdict: d.verdict.verdict || "",
           // C1 — null means "never computed" (no supplier price), and the
           // scorecard says so rather than printing a £0.00 nobody measured.
           profit: d.verdict.profit_amount ?? null,
