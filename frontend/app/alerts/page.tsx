@@ -212,6 +212,7 @@ function MatchRow({
   busy: boolean;
   onRead: () => void;
 }) {
+  const storedVerdict = (match.verdict || "").trim();
   return (
     <div
       className={`flex items-start gap-3 border-b border-border px-4 py-3.5 last:border-b-0 ${
@@ -234,8 +235,11 @@ function MatchRow({
           >
             {match.product_name || match.search_name}
           </a>
-          <Badge tone={match.verdict || "pending"}>
-            {match.verdict || "unrated"}
+          <Badge
+            tone={storedVerdict ? storedVerdict.toLowerCase() : "neutral"}
+            title={storedVerdict ? undefined : "This match stored no verdict"}
+          >
+            {storedVerdict ? storedVerdict.toUpperCase() : "NOT RECORDED"}
           </Badge>
           <span className="text-[11px] text-text-dim">
             from “{match.search_name}”
