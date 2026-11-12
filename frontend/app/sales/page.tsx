@@ -11,7 +11,7 @@ import Textarea from "@/components/ui/Textarea";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import DataTable, { Column } from "@/components/DataTable";
 import Spinner from "@/components/Spinner";
-import { formatGBP, formatPercent } from "@/lib/format";
+import { formatGBP, formatPercent, profitSortKey } from "@/lib/format";
 import {
   EMPTY_SALE_FORM,
   SALES_CSV_HEADERS,
@@ -301,7 +301,7 @@ export default function SalesPage() {
           {formatGBP(sale.profit)}
         </span>
       ),
-      sortValue: (sale) => sale.profit ?? Number.NEGATIVE_INFINITY,
+      sortValue: (sale) => profitSortKey(sale.profit),
     },
     {
       key: "margin",
