@@ -29,6 +29,9 @@ class _EmptyQuery:
     def filter(self, *args, **kwargs):
         return self
 
+    def order_by(self, *args, **kwargs):
+        return self
+
     def all(self):
         return []
 
@@ -123,6 +126,24 @@ def test_an_empty_monthly_read_is_still_a_measured_zero(monkeypatch):
     assert monthly["labels"] == []
     assert monthly["revenue"] == []
     assert monthly["revenue_is_complete"] is True
+
+
+def test_a_failed_monthly_stats_read_is_not_an_empty_year(monkeypatch):
+    monkeypatch.setattr(analytics, "SessionLocal", lambda: _BrokenSession())
+
+    payload = analytics.get_monthly_stats(2026)
+
+    assert payload["months"] == []
+    assert payload["read_complete"] is False
+    assert "database is locked" in payload["reason"]
+
+
+def test_an_empty_monthly_stats_read_is_a_measured_empty_year(monkeypatch):
+    monkeypatch.setattr(analytics, "SessionLocal", lambda: _EmptySession())
+
+    payload = analytics.get_monthly_stats(2026)
+
+    assert payload == {"months": [], "read_complete": True}
 
 
 def test_a_failed_top_products_read_is_not_an_empty_list(monkeypatch):

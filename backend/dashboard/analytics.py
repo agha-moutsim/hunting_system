@@ -192,8 +192,13 @@ def get_kpis(days: int = 30) -> dict:
             db.close()
 
 
-def get_monthly_stats(year: int) -> list[dict]:
-    """Monthly rows for a year, preserving unknown profit as None."""
+def get_monthly_stats(year: int) -> dict:
+    """Monthly rows for a year, preserving unknown profit as None.
+
+    Returns the rows AND whether the read completed. An empty list alone
+    cannot tell a year with no recorded months from a database that never
+    answered (C1).
+    """
     db = None
     try:
         db = SessionLocal()
@@ -203,21 +208,28 @@ def get_monthly_stats(year: int) -> list[dict]:
             .order_by(MonthlyStat.month)
             .all()
         )
-        return [
-            {
-                "month": stat.month,
-                "year": stat.year,
-                "total_revenue": stat.total_revenue,
-                "total_profit": stat.total_profit,
-                "total_sales": stat.total_sales,
-                "avg_margin": stat.avg_margin,
-                "user_declared": True,
-            }
-            for stat in stats
-        ]
+        return {
+            "months": [
+                {
+                    "month": stat.month,
+                    "year": stat.year,
+                    "total_revenue": stat.total_revenue,
+                    "total_profit": stat.total_profit,
+                    "total_sales": stat.total_sales,
+                    "avg_margin": stat.avg_margin,
+                    "user_declared": True,
+                }
+                for stat in stats
+            ],
+            "read_complete": True,
+        }
     except Exception as exc:  # noqa: BLE001
         print(f"[ERROR] Failed to get monthly stats: {exc}")
-        return []
+        return {
+            "months": [],
+            "read_complete": False,
+            "reason": f"monthly stats read failed: {exc}",
+        }
     finally:
         if db is not None:
             db.close()
