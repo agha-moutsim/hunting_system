@@ -13,7 +13,13 @@ import KpiCard from "@/components/KpiCard";
 import Spinner from "@/components/Spinner";
 import { RevenueProfitChart } from "@/components/charts";
 import { downloadFile } from "@/lib/api";
-import { formatGBP, formatPercent, formatSigned, profitSortKey } from "@/lib/format";
+import {
+  formatGBP,
+  formatPercent,
+  formatSigned,
+  marginSortKey,
+  profitSortKey,
+} from "@/lib/format";
 import {
   SALES_DECLARATION,
   fetchSales,
@@ -128,7 +134,7 @@ export default function DashboardPage() {
       header: "Margin",
       align: "right",
       render: (sale) => formatPercent(sale.margin_percent),
-      sortValue: (sale) => sale.margin_percent ?? Number.NEGATIVE_INFINITY,
+      sortValue: (sale) => marginSortKey(sale.margin_percent),
     },
   ];
 

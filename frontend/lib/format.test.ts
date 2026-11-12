@@ -6,6 +6,7 @@ import {
   formatObservedAt,
   formatPrice,
   formatSoldCount,
+  marginSortKey,
   priceSortKey,
   profitSortKey,
   timeAgo,
@@ -148,6 +149,17 @@ describe("profitSortKey", () => {
     // A real loss is a measurement and keeps its own place.
     expect(profitSortKey(-5.5)).toBe(-5.5);
     expect(profitSortKey(0)).toBe(0);
+  });
+});
+
+describe("marginSortKey", () => {
+  it("sorts an unmeasured margin after every measured one", () => {
+    expect(marginSortKey(null)).toBe(Number.POSITIVE_INFINITY);
+    expect(marginSortKey(undefined)).toBe(Number.POSITIVE_INFINITY);
+    expect(marginSortKey(Number.NaN)).toBe(Number.POSITIVE_INFINITY);
+    // A negative margin is a measurement, and break-even is not absence.
+    expect(marginSortKey(-12.5)).toBe(-12.5);
+    expect(marginSortKey(0)).toBe(0);
   });
 });
 

@@ -20,7 +20,13 @@ import {
   FiltersResponse,
   PriceRange,
 } from "@/lib/types";
-import { formatPrice, formatPercent, formatDate, priceSortKey } from "@/lib/format";
+import {
+  formatPrice,
+  formatPercent,
+  formatDate,
+  marginSortKey,
+  priceSortKey,
+} from "@/lib/format";
 
 export default function WatchlistPage() {
   const [items, setItems] = useState<WatchlistItem[]>([]);
@@ -325,7 +331,7 @@ export default function WatchlistPage() {
           {formatPercent(r.margin)}
         </span>
       ),
-      sortValue: (r) => r.margin ?? Number.NEGATIVE_INFINITY,
+      sortValue: (r) => marginSortKey(r.margin),
     },
     {
       key: "verdict",

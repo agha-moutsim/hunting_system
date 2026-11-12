@@ -62,6 +62,16 @@ export function profitSortKey(n: number | null | undefined): number {
 }
 
 /**
+ * The sort key for a margin column. `null` means the margin was never
+ * measured, so it sorts after every measured percentage — a real negative
+ * margin is a measurement and keeps its place. A measured break-even (0) is
+ * not absence either.
+ */
+export function marginSortKey(n: number | null | undefined): number {
+  return profitSortKey(n);
+}
+
+/**
  * A sold/observed count. The analysis payload defaults an unread count to 0,
  * so 0 prints a dash: a zero would otherwise read as a measured "no sales".
  */
