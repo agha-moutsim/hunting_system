@@ -18,6 +18,23 @@ import {
 } from "@/lib/format";
 import { useMarketplace } from "@/lib/marketplace";
 
+/**
+ * A stored verdict, or the honest absence of one. PENDING would claim a
+ * decision is still in flight on a run that already finished; the empty
+ * verdict means the row recorded nothing.
+ */
+function VerdictBadge({ verdict }: { verdict: string | null | undefined }) {
+  const stored = (verdict || "").trim();
+  if (!stored) {
+    return (
+      <Badge tone="neutral" title="This run stored no verdict">
+        NOT RECORDED
+      </Badge>
+    );
+  }
+  return <Badge tone={stored.toLowerCase()}>{stored.toUpperCase()}</Badge>;
+}
+
 export default function BulkPage() {
   const { marketplace } = useMarketplace();
   const marketIsUk = marketplace.id === "EBAY_GB";
@@ -188,9 +205,7 @@ export default function BulkPage() {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 mb-1">
-                      <Badge tone={(r.verdict || "PENDING").toUpperCase()}>
-                        {(r.verdict || "PENDING").toUpperCase()}
-                      </Badge>
+                      <VerdictBadge verdict={r.verdict} />
                       <span className="text-xs text-text-dim">
                         {r.product_category}
                       </span>
