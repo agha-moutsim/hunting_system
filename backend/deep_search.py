@@ -1966,7 +1966,9 @@ def _calculate_profit_and_verdict(
         missing.append("Supplier cost (no suppliers found)")
 
     if missing:
-        result.verdict = "PENDING"
+        # C1 — the run is over and no verdict was reached. "PENDING" would
+        # claim a decision is still in flight; the sentence below says the
+        # truth, and an absent verdict reads NOT RECORDED on every surface.
         result.filters_passed.append({
             "name": "Data",
             "passed": False,

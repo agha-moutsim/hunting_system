@@ -59,3 +59,44 @@ def test_deep_search_fast_saves_observations(monkeypatch):
 
     assert result.marketplace == "EBAY_GB"
     assert calls == [("EBAY_GB", "widget")]
+
+
+def test_a_fast_run_without_data_stores_no_verdict(monkeypatch):
+    """C1 — the run is over; PENDING would claim a decision is still coming."""
+    empty = types.SimpleNamespace(
+        items=[],
+        total_sold_30d=0,
+        total_sold_7d=0,
+        price_min=0.0,
+        price_max=0.0,
+        price_avg=0.0,
+        price_median=0.0,
+        top_sellers=[],
+        sold_prices=[],
+        active_prices=[],
+        excluded_over_band=0,
+        _band_used=(0.99, 50.0),
+    )
+    monkeypatch.setattr(
+        "backend.deep_search._sold_scraper",
+        lambda market: types.SimpleNamespace(
+            get_sold_data=lambda query, **kwargs: empty
+        ),
+    )
+    monkeypatch.setattr(
+        "backend.deep_search._discover_approved_suppliers",
+        lambda *args, **kwargs: [],
+    )
+    monkeypatch.setattr(
+        "backend.deep_search._verify_supplier_candidates",
+        lambda *args, **kwargs: [],
+    )
+    monkeypatch.setattr(
+        "backend.deep_search._save_deep_search_observations",
+        lambda *args, **kwargs: None,
+    )
+
+    result = deep_search_fast("widget")
+
+    assert result.verdict == ""
+    assert "Cannot determine verdict" in result.notes
