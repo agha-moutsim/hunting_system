@@ -630,7 +630,8 @@ class TestTheRouteAnswersWithWhatItFound:
 
         payload = _partial_or_timeout("widget", 120.0, {}, full=True)
 
-        assert payload["verdict"] == "PENDING"
+        # C1 — a timeout stored no verdict; PENDING would claim work in flight.
+        assert payload["verdict"] == ""
         assert payload["provenance"]["demand"]["provenance"] == "unverified"
         assert payload["provenance"]["ebay_stores"]["provenance"] == "unverified"
 
@@ -649,6 +650,9 @@ class TestTheRouteAnswersWithWhatItFound:
 
         assert payload["ebay_total_sold_30d"] == 42
         assert len(payload["ebay_stores"]) == MAX_STORES
+        # C1 — the run never reached the decision engine, so it stored no
+        # verdict. Naming one would be a decision the app did not make.
+        assert payload["verdict"] == ""
         assert any("timed out" in f["actual"].lower()
                    for f in payload["filters_passed"])
         # C13 — fetched reads fetched: a partial run must not stamp what it

@@ -330,7 +330,8 @@ def _timeout_result(query: str, seconds: float, full: bool,
         currency=market["currency"],
         currency_symbol=market["currency_symbol"],
     )
-    r.verdict = "PENDING"
+    # C1 — a timed-out run stored no verdict. "PENDING" would claim a
+    # decision is still in flight, and this answer is the last word.
     r.notes = (
         f"Request timed out after {int(seconds)}s. "
         + ("Try Fast mode or retry." if full else "Supplier scrapers hung — retry.")
@@ -375,8 +376,9 @@ def _partial_or_timeout(query: str, seconds: float, sink: dict | None,
     if partial is None:
         return _timeout_result(query, seconds, full, marketplace)
 
-    if not partial.verdict:
-        partial.verdict = "PENDING"
+    # C1 — whatever stage the run reached, an absent verdict stays absent.
+    # The overrun is reported below in `filters_passed` and `notes`; the
+    # verdict field must not claim a decision that never happened.
     late = (
         f"Timed out after {int(seconds)}s — returning the work already done; "
         "later stages did not run."
