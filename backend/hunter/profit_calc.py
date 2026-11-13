@@ -51,7 +51,9 @@ def _calc_single(product: CategoryProduct, filters: dict, market=None):
         market = get_marketplace("EBAY_GB")
 
     if product.price <= 0 or product.supplier_price <= 0:
-        product.verdict = "PENDING"
+        # C1 — no supplier means no decision was reached. "PENDING" would
+        # claim one is still coming, and this row may never get another run.
+        product.verdict = ""
         product.profit = 0
         product.margin = 0
         product.profit_provenance = Provenance.UNVERIFIED.value

@@ -502,6 +502,8 @@ class TestRegression005ProfitIsHonest:
         assert p.profit_provenance == "unverified"
         assert p.profit_provenance_reason
         assert p.profit_status == "no_supplier"
+        # C1 — no supplier is no decision, not a decision in flight.
+        assert p.verdict == ""
 
     def test_a_real_profit_is_stamped_estimated_not_verified(self, monkeypatch):
         from hunter import profit_calc as pc
