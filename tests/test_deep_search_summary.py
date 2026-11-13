@@ -56,3 +56,16 @@ class TestSummaryKeepsUnreadPricesUnread:
         assert "A$83.90" in _line(text, "eBay avg price")
         assert "CJ | A$41.20" in text
         assert "Best supplier cost: A$41.20" in text
+
+
+class TestSummaryKeepsAnAbsentVerdictAbsent:
+    def test_an_empty_verdict_is_not_a_blank_line(self):
+        result = DeepSearchResult(product_name="Widget")
+
+        assert "Verdict: NOT RECORDED" in result.summary()
+        assert "Verdict: \n" not in result.summary()
+
+    def test_a_stored_verdict_still_prints(self):
+        result = DeepSearchResult(verdict="pass")
+
+        assert "Verdict: PASS" in result.summary()

@@ -368,7 +368,10 @@ class DeepSearchResult:
             )
         else:
             lines.append("Profit: Not computed | Margin: Not computed")
-        lines.append(f"Verdict: {self.verdict}")
+        verdict = (self.verdict or "").strip()
+        # C1 — a run that stored no verdict has no answer to print. A bare
+        # "Verdict:" line reads as a blank result; say it was not recorded.
+        lines.append(f"Verdict: {verdict.upper() if verdict else 'NOT RECORDED'}")
         lines.append(f"Competition: {self.competition_level}")
         lines.append(f"Profit potential: {self.profit_potential}")
         if self.notes:
