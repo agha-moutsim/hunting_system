@@ -835,6 +835,29 @@ class TestPipelineSupplierSearchEndToEnd:
         for row in flat:
             assert row.match_tier != ""
 
+    def test_an_unpriced_row_never_spends_a_cap_slot(self, monkeypatch):
+        # C12/C1 — with nothing to match against the gate keeps rows as they
+        # came, so the ranking alone decides the seven. A row with no read
+        # price used to sort as the cheapest and take a slot from a real
+        # offer; absence now sorts last.
+        rows = [_product(TITLE_MATCH, price=0.0, source="supplier_0")]
+        rows += [
+            _product(TITLE_MATCH, price=9.99 + i, source=f"supplier_{i}")
+            for i in range(1, 8)
+        ]
+        instance = _pipeline_with({
+            "supplier_0": _FakeSupplierScraper("supplier_0", rows),
+        })
+        result = _pipeline_result()
+
+        out = ap.run_async(instance._search_suppliers(
+            REF_TITLE, result, reference_title="", ebay_price=0.0,
+        ))
+        flat = [p for group in out.values() for p in group]
+
+        assert len(flat) == MAX_SUPPLIERS
+        assert all(p.price and p.price > 0 for p in flat)
+
     def test_more_than_seven_qualifying_rows_are_capped_at_seven(
             self, monkeypatch):
         flat, _ = _run_supplier_search(monkeypatch, {

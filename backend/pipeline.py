@@ -102,6 +102,20 @@ def _resolve_supplier_choice(name: Any, suppliers: list[dict]) -> dict | None:
     return None
 
 
+def _rank_price(product) -> float:
+    """The price half of the supplier ranking key.
+
+    A price that was never read is not the cheapest one: a raw 0 sorted it
+    first and could spend one of the seven C12 slots on a row with no cost,
+    pushing out a real offer. Unread sorts after every stated price.
+    """
+    try:
+        price = float(getattr(product, "price", 0.0))
+    except (TypeError, ValueError):
+        return math.inf
+    return price if math.isfinite(price) and price > 0 else math.inf
+
+
 def _match_gate(
     products: list,
     reference_title: str,
@@ -390,7 +404,7 @@ class Pipeline:
         # identities rather than whichever scraper answered first.
         flat = sorted(
             (p for _, products in pairs for p in products),
-            key=lambda p: (-getattr(p, "match_score", 0.0), p.price or 0.0),
+            key=lambda p: (-getattr(p, "match_score", 0.0), _rank_price(p)),
         )[:MAX_SUPPLIERS]
         by_source: dict[str, list] = {name: [] for name, _ in pairs}
         for p in flat:
