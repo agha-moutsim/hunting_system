@@ -330,13 +330,14 @@ class TestHunterAdapter:
         _calc_single(p, None)
         assert p.verdict == "FAIL"
 
-    def test_missing_supplier_is_pending(self, monkeypatch):
+    def test_missing_supplier_has_no_verdict(self, monkeypatch):
+        # C1 — no supplier is no decision. "PENDING" claims one is coming.
         from hunter.profit_calc import _calc_single
         self._stub_capture(monkeypatch, verified=True)
         p = self._category_product()
         p.supplier_price = 0.0
         _calc_single(p, None)
-        assert p.verdict == "PENDING"
+        assert p.verdict == ""
 
 
 class TestDeepSearchAdapter:
@@ -367,11 +368,12 @@ class TestDeepSearchAdapter:
         assert d7["passed"] is True and d7["verified"] is False
         assert r.profit == calculate_profit(12.5, 6.0)["profit"]
 
-    def test_missing_supplier_is_pending_with_data_row(self):
+    def test_missing_supplier_says_why_and_stores_no_verdict(self):
+        # C1 — the Data row explains the gap; the verdict itself stays absent.
         from deep_search import _calculate_profit_and_verdict
         r = self._result(best_supplier_price=None)
         _calculate_profit_and_verdict(r, filters={})
-        assert r.verdict == "PENDING"
+        assert r.verdict == ""
         assert r.profit_computed is False
         assert r.best_supplier_price is None
         assert r.filters_passed[0]["name"] == "Data"
