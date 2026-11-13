@@ -12,6 +12,27 @@ from hunter.category_scan import CategoryProduct
 from scrapers.base import DemandData, ScrapedProduct
 
 
+def _margin_rank(product: CategoryProduct) -> tuple[int, float]:
+    """Rank a product for the batch's "most profitable first" order.
+
+    An unmeasured margin still carries profit_calc's 0.0 placeholder, so a
+    numeric sort made it look like measured break-even and outrank a real
+    loss. Provenance decides first, then the measured number. Absence sinks.
+    """
+    if (product.profit_provenance or "").strip().lower() not in (
+        "verified",
+        "estimated",
+    ):
+        return (1, 0.0)
+    try:
+        margin = float(product.margin)
+    except (TypeError, ValueError):
+        return (1, 0.0)
+    if margin != margin:  # NaN is not a measurement either.
+        return (1, 0.0)
+    return (0, -margin)
+
+
 def batch_profit_calc(
     products: list[CategoryProduct],
     filters: Optional[dict] = None,
@@ -28,8 +49,8 @@ def batch_profit_calc(
     for product in products:
         _calc_single(product, filters, market)
 
-    # Sort by margin (highest first)
-    products.sort(key=lambda p: p.margin, reverse=True)
+    # Sort by margin (highest first), unmeasured rows last (C1).
+    products.sort(key=_margin_rank)
 
     return products
 

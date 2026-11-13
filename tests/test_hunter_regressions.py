@@ -691,6 +691,30 @@ class TestRegression005ProfitIsHonest:
 
         assert [p.title for p in ordered] == ["Real loss", "Unmeasured"]
 
+    def test_the_batch_calc_does_not_rank_an_unmeasured_margin_first(
+        self, monkeypatch
+    ):
+        """C1 — batch_profit_calc sorted the raw 0.0 placeholder.
+
+        The placeholder looked like a measured break-even and outranked a
+        real loss, so the caller's first row could be one nobody measured.
+        """
+        from hunter import profit_calc as pc
+
+        monkeypatch.setattr(pc, "_calc_single", lambda *a, **k: None)
+
+        loss = _product(title="Real loss", price=20.0)
+        loss.margin = -5.0
+        loss.profit_provenance = "estimated"
+
+        unmeasured = _product(title="Unmeasured", price=15.0)
+        unmeasured.margin = 0.0
+        unmeasured.profit_provenance = "unverified"
+
+        ordered = pc.batch_profit_calc([unmeasured, loss])
+
+        assert [p.title for p in ordered] == ["Real loss", "Unmeasured"]
+
     def test_an_unread_pace_sorts_after_a_declining_one(self):
         # C1 — a real decline is a measurement; absence is not a flat week.
         from hunter import demand_hotness
