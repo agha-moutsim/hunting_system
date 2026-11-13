@@ -372,7 +372,11 @@ export interface SupplierInfo extends Omit<
 > {
   name: string;
   full_name?: string;
-  price: number;
+  /**
+   * C1 — null means the source stated no price. A 0 placeholder would read
+   * as a free item, so this is nullable rather than defaulted.
+   */
+  price: number | null;
   /** ISO code for THIS row's price. Absent means the source stated none. */
   currency?: string;
   url: string;

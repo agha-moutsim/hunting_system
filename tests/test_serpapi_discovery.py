@@ -560,7 +560,20 @@ class TestDeepSearchDiscovery:
         for key in ("in_stock", "stock_raw", "shipping_cost",
                     "shipping_days", "shipping_raw"):
             assert key in row
-        assert row["shipping_cost"] == 0.0          # unknown, not "free"
+        assert row["shipping_cost"] is None         # unstated, not "free"
+
+    def test_an_unstated_amount_serialises_as_absent_not_zero(self):
+        # C1 — these helpers build the wire row. A 0.0 placeholder would
+        # read as a free item or a same-day delivery, not as "not stated".
+        assert ds._stated_price(0.0) is None
+        assert ds._stated_price(None) is None
+        assert ds._stated_price("nonsense") is None
+        assert ds._stated_price(float("nan")) is None
+        assert ds._stated_days(0) is None
+        assert ds._stated_days(None) is None
+        # A real reading keeps its value.
+        assert ds._stated_price(4.5) == 4.5
+        assert ds._stated_days(3) == 3
 
     def test_a_row_survives_the_real_match_gate(self, monkeypatch):
         rows = ds._discover_approved_suppliers("bosch drill")

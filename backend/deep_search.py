@@ -504,6 +504,28 @@ def _fetch_page_text(url: str, max_chars: int = 3000,
 _MAX_VERIFIED_SUPPLIERS = 7  # C12: never pad past what we could confirm
 
 
+def _stated_price(value: Any) -> Optional[float]:
+    """A positive price a source stated, or None when it stated none.
+
+    C1 — the discovery row is serialised straight onto the wire, so a 0.0
+    placeholder would reach a consumer as "free" rather than "not read".
+    """
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) and number > 0 else None
+
+
+def _stated_days(value: Any) -> Optional[int]:
+    """A positive lead time a source stated, or None. 0 is not a lead time."""
+    try:
+        days = int(value or 0)
+    except (TypeError, ValueError):
+        return None
+    return days if days > 0 else None
+
+
 def _page_availability(html: str, url: str) -> dict:
     """Stock + shipping read off a fetched supplier page.
 
@@ -853,7 +875,7 @@ def _discover_approved_suppliers(
         out.append({
             "name": product.source,
             "full_name": product.source,
-            "price": float(product.price or 0.0),
+            "price": _stated_price(product.price),
             # Unstated stays unstated: tagging it with the market's currency
             # would turn a USD row into an AUD one without a conversion.
             "currency": getattr(product, "currency", "") or "",
@@ -877,8 +899,8 @@ def _discover_approved_suppliers(
             # unknown, never defaulted.
             "in_stock": product.in_stock or "",
             "stock_raw": product.stock_raw or "",
-            "shipping_cost": float(product.shipping_cost or 0.0),
-            "shipping_days": int(product.shipping_days or 0),
+            "shipping_cost": _stated_price(product.shipping_cost),
+            "shipping_days": _stated_days(product.shipping_days),
             "shipping_raw": product.shipping_raw or "",
             "review_rating": getattr(product, "review_rating", None),
             "review_count": getattr(product, "review_count", None),
@@ -1839,8 +1861,8 @@ def deep_search_fast(
             "in_stock": getattr(product, "in_stock", ""),
             "stock_raw": getattr(product, "stock_raw", ""),
             "availability_url": getattr(product, "availability_url", "") or product.url,
-            "shipping_cost": getattr(product, "shipping_cost", 0.0),
-            "shipping_days": getattr(product, "shipping_days", 0),
+            "shipping_cost": _stated_price(getattr(product, "shipping_cost", None)),
+            "shipping_days": _stated_days(getattr(product, "shipping_days", None)),
             "shipping_raw": getattr(product, "shipping_raw", ""),
         })
 
