@@ -98,7 +98,9 @@ class BatchAnalyzer:
                 profitable.append(r)
             products.append({
                 "query": r.query,
-                "verdict": verdict.get("verdict") or "N/A",
+                # C1 — no stored verdict is "not recorded", never "N/A":
+                # the question was not inapplicable, the answer is missing.
+                "verdict": verdict.get("verdict") or "NOT RECORDED",
                 "profit": measured,
             })
 

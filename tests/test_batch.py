@@ -63,6 +63,21 @@ class TestBatchSummaryReadsTheVerdictDict:
 
         assert summary["products"][0]["profit"] == 2.0
 
+    def test_an_absent_verdict_reads_not_recorded(self):
+        # C1 — the batch asked a real question and stored no answer; "N/A"
+        # would claim the question did not apply.
+        results = [
+            _ok("drill", {"verdict": "", "profit": None, "profit_computed": False}),
+            _ok("saw", {}),
+        ]
+
+        summary = _analyzer().get_summary(results)
+        text = _analyzer().format_summary(results)
+
+        assert summary["products"][0]["verdict"] == "NOT RECORDED"
+        assert summary["products"][1]["verdict"] == "NOT RECORDED"
+        assert "NOT RECORDED" in text
+
     def test_an_error_row_is_not_summarised_as_a_product(self):
         results = [
             BatchResult(query="drill", status="error", error="boom"),
