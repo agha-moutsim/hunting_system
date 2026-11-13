@@ -669,6 +669,46 @@ class TestRegression005ProfitIsHonest:
 
         assert [r["title"] for r in rows] == ["Real loss", "Unmeasured"]
 
+    def test_the_shared_sort_key_also_sinks_an_unmeasured_margin(self):
+        # C1 — the module-level sort_key is the same ordering the report
+        # applies; leaving it numeric-only would re-introduce the bug for the
+        # next caller.
+        from hunter import demand_hotness
+
+        loss = _product(title="Real loss", price=20.0)
+        loss.hot = True
+        loss.margin = -5.0
+        loss.profit_provenance = "estimated"
+
+        unmeasured = _product(title="Unmeasured", price=15.0)
+        unmeasured.hot = True
+        unmeasured.margin = 0.0
+        unmeasured.profit_provenance = "unverified"
+
+        ordered = sorted([unmeasured, loss], key=demand_hotness.sort_key)
+
+        assert [p.title for p in ordered] == ["Real loss", "Unmeasured"]
+
+    def test_an_unread_pace_sorts_after_a_declining_one(self):
+        # C1 — a real decline is a measurement; absence is not a flat week.
+        from hunter import demand_hotness
+
+        declining = _product(title="Declining", price=20.0)
+        declining.hot = True
+        declining.margin = 5.0
+        declining.profit_provenance = "estimated"
+        declining.demand_pace_7d_per_week = -4.0
+
+        unread = _product(title="Unread pace", price=20.0)
+        unread.hot = True
+        unread.margin = 5.0
+        unread.profit_provenance = "estimated"
+        unread.demand_pace_7d_per_week = None
+
+        ordered = sorted([unread, declining], key=demand_hotness.sort_key)
+
+        assert [p.title for p in ordered] == ["Declining", "Unread pace"]
+
     def test_hot_for_a_30d_window_uses_only_real_30d_data(self):
         """A product selling steadily is 30d-hot even with no 7d signal.
 

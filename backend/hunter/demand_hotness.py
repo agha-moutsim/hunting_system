@@ -204,6 +204,37 @@ def apply_hotness(products, demand_min_30d: int, demand_min_7d: int) -> None:
         p.demand_pace_30d_per_week = result["pace_30d_per_week"]
 
 
+def _margin_key(product) -> tuple[int, float]:
+    """The margin half of `sort_key`, provenance first.
+
+    `profit_calc` leaves `margin == 0.0` when no profit was computed, so the
+    number alone makes an unmeasured row tie a break-even and beat a real
+    loss. Only a computed figure is compared; absence sorts last.
+    """
+    provenance = (getattr(product, "profit_provenance", "") or "").strip().lower()
+    if provenance not in ("verified", "estimated"):
+        return (1, 0.0)
+    try:
+        margin = float(getattr(product, "margin", None))
+    except (TypeError, ValueError):
+        return (1, 0.0)
+    if margin != margin:  # NaN is not a measurement either.
+        return (1, 0.0)
+    return (0, -margin)
+
+
+def _pace_key(product) -> float:
+    """The 7-day pace, descending; an unread pace sorts after a real decline."""
+    value = getattr(product, "demand_pace_7d_per_week", None)
+    try:
+        pace = float(value)
+    except (TypeError, ValueError):
+        return float("inf")
+    if pace != pace or pace in (float("inf"), float("-inf")):
+        return float("inf")
+    return -pace
+
+
 def sort_key(p) -> tuple:
     """Rank hot + profitable rows first.
 
@@ -212,6 +243,6 @@ def sort_key(p) -> tuple:
     """
     return (
         0 if getattr(p, "hot", False) else 1,
-        -float(getattr(p, "margin", 0.0) or 0.0),
-        -float(getattr(p, "demand_pace_7d_per_week", 0.0) or 0.0),
+        *_margin_key(p),
+        _pace_key(p),
     )
