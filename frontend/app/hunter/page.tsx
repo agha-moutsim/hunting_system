@@ -24,7 +24,7 @@ import {
   HunterReport,
   PriceRange,
 } from "@/lib/types";
-import { formatPrice, formatPercent, priceSortKey, profitSortKey } from "@/lib/format";
+import { formatPrice, formatPercent, countSortKey, priceSortKey, profitSortKey, verdictSortKey } from "@/lib/format";
 import { useMarketplace } from "@/lib/marketplace";
 
 export default function HunterPage() {
@@ -225,7 +225,7 @@ export default function HunterPage() {
         ) : (
           <span className="text-text-dim">⚠️</span>
         ),
-      sortValue: (r) => r.sold_30d ?? -1,
+      sortValue: (r) => countSortKey(r.sold_30d),
     },
     {
       key: "supplier",
@@ -286,7 +286,7 @@ export default function HunterPage() {
             —
           </span>
         ),
-      sortValue: (r) => r.ebay_stores?.length ?? -1,
+      sortValue: (r) => countSortKey(r.ebay_stores?.length),
     },
     {
       key: "verdict",
@@ -299,7 +299,7 @@ export default function HunterPage() {
         ) : (
           <span className="text-text-dim">—</span>
         ),
-      sortValue: (r) => r.verdict || "",
+      sortValue: (r) => verdictSortKey(r.verdict),
     },
   ];
 

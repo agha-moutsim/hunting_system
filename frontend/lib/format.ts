@@ -72,6 +72,27 @@ export function marginSortKey(n: number | null | undefined): number {
 }
 
 /**
+ * The sort key for a count column (sold in 30 days, observed stores). The
+ * payloads use 0 for the same absence they use null for, and the screen
+ * prints both as a dash, so neither may sort ahead of a real count.
+ */
+export function countSortKey(n: number | null | undefined): number {
+  if (typeof n !== "number" || !Number.isFinite(n) || n <= 0) {
+    return Number.POSITIVE_INFINITY;
+  }
+  return n;
+}
+
+/**
+ * The sort key for a verdict column. An absent verdict is not an empty word —
+ * it sorts after every real verdict rather than ahead of them.
+ */
+export function verdictSortKey(v: string | null | undefined): string {
+  const key = (v || "").trim().toUpperCase();
+  return key || "\uffff";
+}
+
+/**
  * A sold/observed count. The analysis payload defaults an unread count to 0,
  * so 0 prints a dash: a zero would otherwise read as a measured "no sales".
  */

@@ -26,6 +26,7 @@ import {
   formatDate,
   marginSortKey,
   priceSortKey,
+  verdictSortKey,
 } from "@/lib/format";
 
 export default function WatchlistPage() {
@@ -348,7 +349,7 @@ export default function WatchlistPage() {
             NOT RECORDED
           </Badge>
         ),
-      sortValue: (r) => r.verdict || "zz",
+      sortValue: (r) => verdictSortKey(r.verdict),
     },
     {
       key: "read",

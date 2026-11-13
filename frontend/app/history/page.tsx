@@ -20,7 +20,15 @@ import {
   PriceRange,
   ProductDetail,
 } from "@/lib/types";
-import { formatMoney, formatPrice, formatDate, priceSortKey, profitSortKey, truncate } from "@/lib/format";
+import {
+  formatMoney,
+  formatPrice,
+  formatDate,
+  priceSortKey,
+  profitSortKey,
+  truncate,
+  verdictSortKey,
+} from "@/lib/format";
 import { detailAsScorecard } from "@/lib/historyDetail";
 
 export default function HistoryPage() {
@@ -142,7 +150,7 @@ export default function HistoryPage() {
             NOT RECORDED
           </Badge>
         ),
-      sortValue: (r) => r.verdict || "zz",
+      sortValue: (r) => verdictSortKey(r.verdict),
     },
     {
       key: "date",

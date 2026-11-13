@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   asUtc,
+  countSortKey,
   formatMoney,
   formatObservedAt,
   formatPrice,
@@ -10,6 +11,7 @@ import {
   priceSortKey,
   profitSortKey,
   timeAgo,
+  verdictSortKey,
 } from "./format";
 
 /**
@@ -160,6 +162,29 @@ describe("marginSortKey", () => {
     // A negative margin is a measurement, and break-even is not absence.
     expect(marginSortKey(-12.5)).toBe(-12.5);
     expect(marginSortKey(0)).toBe(0);
+  });
+});
+
+describe("countSortKey", () => {
+  it("sorts an unread count after every real count", () => {
+    expect(countSortKey(null)).toBe(Number.POSITIVE_INFINITY);
+    expect(countSortKey(undefined)).toBe(Number.POSITIVE_INFINITY);
+    expect(countSortKey(Number.NaN)).toBe(Number.POSITIVE_INFINITY);
+    // 0 is the payload's other spelling of "not read"; the screen prints it
+    // as a dash, so it may not sort ahead of a measured count either.
+    expect(countSortKey(0)).toBe(Number.POSITIVE_INFINITY);
+    expect(countSortKey(7)).toBe(7);
+  });
+});
+
+describe("verdictSortKey", () => {
+  it("sorts an absent verdict after every stored one", () => {
+    const absent = verdictSortKey("");
+    expect(verdictSortKey(null)).toBe(absent);
+    expect(verdictSortKey(undefined)).toBe(absent);
+    expect(absent > "PASS").toBe(true);
+    expect(absent > "FAIL").toBe(true);
+    expect(verdictSortKey("pass")).toBe("PASS");
   });
 });
 
