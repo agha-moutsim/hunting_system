@@ -168,7 +168,15 @@ def list_history(
             )
 
         if verdict and verdict != "All":
-            products = [p for p in products if (p.get("verdict") or "pending") == verdict]
+            # C1 — a row with no stored verdict is not "pending"; nothing was
+            # measured, so it matches no verdict filter. Stored verdicts are
+            # upper case (profit_calc upper-cases the engine's answer) while
+            # the History control sends lowercase, so compare case-folded.
+            wanted = verdict.strip().upper()
+            products = [
+                p for p in products
+                if (p.get("verdict") or "").strip().upper() == wanted
+            ]
 
         if q:
             ql = q.lower()

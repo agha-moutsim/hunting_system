@@ -41,6 +41,7 @@ def _saved_analysis(
     profit,
     supplier_prices=(),
     profit_computed=None,
+    verdict="fail",
 ):
     """One saved product + verdict, with the supplier rows it was saved with."""
     from db.models import Product, SupplierMatch, Verdict
@@ -68,7 +69,7 @@ def _saved_analysis(
         session.add(
             Verdict(
                 product_id=product.id,
-                verdict="fail",
+                verdict=verdict,
                 profit_amount=profit,
                 profit_margin=0.0,
                 profit_computed=profit_computed,
@@ -147,3 +148,40 @@ class TestHistoryProfitProvenance:
         detail = client.get(f"/api/history/{product_id}").json()
         assert detail["profit_computed"] is True
         assert detail["verdict"]["profit_amount"] == -1.1
+
+
+class TestHistoryVerdictFilter:
+    """The verdict filter compares what was stored, not what was assumed.
+
+    Rows are written with the engine's upper-case answer while the History
+    control sends the lower-case option value, and a row with no verdict
+    stored has no verdict to filter on — it is not "pending".
+    """
+
+    def test_a_stored_verdict_matches_the_lower_case_filter(self, history_client):
+        client, factory = history_client
+        passed_id = _saved_analysis(
+            factory, listing_id="2001", profit=4.0, verdict="PASS"
+        )
+        failed_id = _saved_analysis(
+            factory, listing_id="2002", profit=-4.0, verdict="FAIL"
+        )
+
+        passed = client.get("/api/history", params={"verdict": "pass"}).json()
+        assert [p["id"] for p in passed["products"]] == [passed_id]
+
+        failed = client.get("/api/history", params={"verdict": "fail"}).json()
+        assert [p["id"] for p in failed["products"]] == [failed_id]
+
+    def test_an_absent_verdict_matches_no_filter(self, history_client):
+        client, factory = history_client
+        only_id = _saved_analysis(factory, listing_id="2003", profit=0.0, verdict="")
+
+        for wanted in ("pass", "fail", "pending"):
+            body = client.get(
+                "/api/history", params={"verdict": wanted}
+            ).json()
+            assert body["products"] == [], wanted
+
+        every = client.get("/api/history", params={"verdict": "All"}).json()
+        assert [p["id"] for p in every["products"]] == [only_id]
