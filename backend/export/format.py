@@ -375,7 +375,9 @@ def format_to_schema(result: Any) -> dict:
             "total_cost": round(total_cost, 2) if total_cost is not None else None,
             "profit": round(profit, 2) if profit is not None else None,
             "margin_percent": round(margin, 1) if margin is not None else None,
-            "verdict": result.verdict or "PENDING",
+            # C1 — an export of a run that stored no verdict says so. "PENDING"
+            # claims a decision is still in flight; nothing is.
+            "verdict": result.verdict or "NOT RECORDED",
         },
         # C13 — where each block came from, plus the full per-field map.
         # Every entry is the same shape: {provenance, label, ...} — the

@@ -350,7 +350,8 @@ def export_to_csv(result: Any) -> str:
         _money(symbol, total_cost) if total_cost is not None else "",
         _money(symbol, profit) if profit is not None else "",
         f"{margin:.1f}%" if margin is not None else "",
-        result.verdict or "PENDING",
+        # C1 — no stored verdict is not a decision in flight.
+        result.verdict or "NOT RECORDED",
         # C13 — provenance for each block.
         _prov_of(result, "ebay_total_sold_30d").label,
         _prov_of(result, "ebay_top_sellers").label,
@@ -457,7 +458,8 @@ def export_bulk_to_csv(results: list) -> str:
             _money(symbol, ebay_fees) if ebay_fees is not None else "",
             _money(symbol, profit) if profit is not None else "",
             f"{margin:.1f}%" if margin is not None else "",
-            result.verdict or "PENDING",
+            # C1 — no stored verdict is not a decision in flight.
+            result.verdict or "NOT RECORDED",
             _prov_of(result, "ebay_total_sold_30d").label,
             _prov_of(result, "suppliers").label,
             # Profit is an estimate only when a supplier cost let it be

@@ -1387,3 +1387,37 @@ class TestProvenanceNeverOverclaimed:
                    match_method="llm confidence")
 
         assert ds._gate_suppliers([row], REF_TITLE, ebay_price=REF_PRICE) == []
+class TestExportVerdict:
+    """C1 - an export with no stored verdict never claims a decision is in flight."""
+
+    def test_the_json_export_says_not_recorded(self):
+        from export.format import format_to_schema
+
+        result = _ExportResult([])
+        result.verdict = ""
+
+        out = format_to_schema(result)
+
+        assert out["profit_analysis"]["verdict"] == "NOT RECORDED"
+
+    def test_the_single_row_csv_says_not_recorded(self):
+        from export.csv_export import export_to_csv
+
+        result = _ExportResult([])
+        result.verdict = ""
+
+        rows = list(csv.reader(io.StringIO(export_to_csv(result))))
+        header, cells = rows[0], rows[1]
+
+        assert cells[header.index("Verdict")] == "NOT RECORDED"
+
+    def test_the_bulk_csv_says_not_recorded(self):
+        from export.csv_export import export_bulk_to_csv
+
+        result = _ExportResult([])
+        result.verdict = ""
+
+        rows = list(csv.reader(io.StringIO(export_bulk_to_csv([result]))))
+        header, cells = rows[0], rows[1]
+
+        assert cells[header.index("Verdict")] == "NOT RECORDED"
