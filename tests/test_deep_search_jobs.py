@@ -185,9 +185,27 @@ class TestPollingHandsWithBackTheRealResult:
         assert body["job_status"] == "failed"
         assert "Ollama is not running" in (body.get("job_error") or "")
         assert "failed" in (body.get("notes") or "").lower()
+        # C1 — the job is over; no verdict was stored. PENDING would claim a
+        # decision is still on its way.
+        assert body["verdict"] == ""
         # and the failure is what makes the data unverified - not a blank
         # object wearing an earned stamp (C13)
         assert body["provenance"]["demand"]["provenance"] == "unverified"
+
+    def test_a_job_finished_without_a_result_is_not_pending(self):
+        import api.deep_search as ads
+
+        body = ads._payload_for("complete", "drill", None, None)
+
+        assert body["verdict"] == ""
+        assert "without a result" in body["notes"]
+
+    def test_a_running_job_may_still_say_pending(self):
+        import api.deep_search as ads
+
+        body = ads._payload_for("running", "drill", None, None)
+
+        assert body["verdict"] == "PENDING"
 
     def test_an_unknown_job_is_404(self, client):
         assert client.get("/api/deep-search/jobs/nope").status_code == 404

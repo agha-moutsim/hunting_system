@@ -284,7 +284,11 @@ def _payload_for(status: str, query: str, sink_result, job_error: str | None,
             currency=market["currency"],
             currency_symbol=market["currency_symbol"],
         )
-        blank.verdict = "PENDING"
+        # C1 — only a job still in flight has a verdict pending. A failed or
+        # finished-without-result run is over and stored no verdict; marking
+        # it PENDING would promise a decision that is never coming.
+        if status == "running":
+            blank.verdict = "PENDING"
         if status == "failed":
             blank.notes = f"Background job failed: {job_error}"
         elif status == "running":
