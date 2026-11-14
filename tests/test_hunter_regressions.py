@@ -715,6 +715,27 @@ class TestRegression005ProfitIsHonest:
 
         assert [p.title for p in ordered] == ["Real loss", "Unmeasured"]
 
+    def test_with_demand_counts_only_rows_that_read_a_sold_count(self):
+        """C1 — the gate keeps unknown rows, but unknown is not demand.
+
+        `total_with_demand` used to be `len(with_demand)`, so a scan that
+        read no sold count at all still reported every row as having demand.
+        """
+        from api.hunter import _count_with_demand
+
+        measured_30d = _product(title="30d reading")
+        measured_30d.sold_30d = 12
+        measured_7d = _product(title="7d reading")
+        measured_7d.sold_7d = 4
+        supply_only = _product(title="Supply only")
+        supply_only.active_listings_in_band = 40
+        unread = _product(title="Unread")
+
+        assert _count_with_demand(
+            [measured_30d, measured_7d, supply_only, unread]
+        ) == 2
+        assert _count_with_demand([]) == 0
+
     def test_an_unread_pace_sorts_after_a_declining_one(self):
         # C1 — a real decline is a measurement; absence is not a flat week.
         from hunter import demand_hotness

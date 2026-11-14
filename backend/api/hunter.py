@@ -25,6 +25,22 @@ def _require_ready_market(request: Request | None, surface: str) -> dict:
     )
 
 
+def _count_with_demand(products) -> int:
+    """Rows carrying a real sold reading — the only rows "with demand".
+
+    The demand gate keeps a row whose counts are unknown (it cannot prune
+    what it did not measure), and `active_listings_in_band` is supply, not
+    demand. Counting the returned rows made the screen say every row had
+    demand when none had a sold figure at all.
+    """
+    return sum(
+        1
+        for p in products or []
+        if getattr(p, "sold_30d", None) is not None
+        or getattr(p, "sold_7d", None) is not None
+    )
+
+
 @router.get("/hunter/categories")
 def hunter_categories():
     """The categories the UI offers, so the box can be a real picker.
@@ -92,7 +108,9 @@ def hunter_scan(req: HunterScanRequest, request: Request = None):
         "currency_symbol": market["currency_symbol"],
         "products": [_product_dict(p) for p in with_demand],
         "total_scanned": total_scanned,
-        "total_with_demand": len(with_demand),
+        # C1 — only rows with a sold reading carry demand; the gate keeping a
+        # row with unknown counts does not make that row measured.
+        "total_with_demand": _count_with_demand(with_demand),
         # What was really asked of eBay — never a category the user did not
         # choose.
         "search": {
@@ -143,7 +161,7 @@ def hunter_lookup(req: HunterLookupRequest, request: Request = None):
         products.append(CategoryProduct(**kwargs))
 
     total_scanned = int(req.products[0].get("_total_scanned", len(products))) if req.products else len(products)
-    total_with_demand = len(products)
+    total_with_demand = _count_with_demand(products)
 
     with_supplier, excluded_suppliers = batch_supplier_lookup(
         products, marketplace=market["id"]
