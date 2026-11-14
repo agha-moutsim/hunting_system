@@ -643,6 +643,46 @@ class TestJsonExportProvenance:
         assert seller["provenance"] == "verified"
 
 
+class TestProfitStampFollowsTheComputedFlag:
+    """C1 — an estimated profit section needs a profit that was measured."""
+
+    @staticmethod
+    def _payload(status, computed):
+        return {
+            "verdict": {
+                "verdict": status,
+                "profit": 0.0 if not computed else 4.5,
+                "margin": 0.0 if not computed else 30.0,
+                "profit_computed": computed,
+                "filters": [],
+            }
+        }
+
+    def test_an_unpriced_run_is_not_an_estimate(self):
+        from export.format import profit_block_for
+
+        block = profit_block_for(self._payload("", False))
+
+        assert block["provenance"] == "unverified"
+        assert "not computed" in block["reason"]
+
+    def test_a_known_failure_without_profit_is_not_an_estimate(self):
+        from export.format import profit_block_for
+
+        block = profit_block_for(self._payload("fail", False))
+
+        assert block["provenance"] == "unverified"
+        assert "not computed" in block["reason"]
+
+    def test_a_measured_run_keeps_its_estimate_and_method(self):
+        from export.format import profit_block_for
+
+        block = profit_block_for(self._payload("pass", True))
+
+        assert block["provenance"] == "estimated"
+        assert block["method"]
+
+
 class TestCsvExportProvenance:
     def test_single_header_carries_provenance_columns(self):
         from export.csv_export import export_to_csv

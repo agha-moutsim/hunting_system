@@ -25,6 +25,7 @@ PROFIT_METHOD = (
 )
 NOT_RUN_REASON = "profit analysis did not run"
 NOT_RUN_DATA_REASON = "profit analysis did not run — required data missing"
+NOT_COMPUTED_REASON = "profit was not computed — a supplier price was not read"
 NO_STAMP_REASON = "no origin stamp was recorded for this block"
 
 
@@ -79,11 +80,23 @@ def profit_block_for(result: Any) -> dict:
     if isinstance(verdict, dict):
         # Analyze serialises VerdictData — its own filter rows ride along.
         rows += list(verdict.get("filters") or [])
+        # C1 — the dict is truthy even when the verdict string inside it is
+        # blank, so read the status and the flag rather than the container.
+        status = str(verdict.get("verdict") or "").strip()
+        computed = verdict.get("profit_computed")
+    else:
+        status = str(verdict or "").strip()
+        computed = getattr(verdict, "profit_computed", None)
     for row in rows:
         if (isinstance(row, dict) and row.get("name") == "Data"
                 and not row.get("passed")):
             return unverified_stamp(NOT_RUN_DATA_REASON)
-    if not verdict:
+    if computed is False:
+        # C1 — a verdict can exist (a known rule failure) while no profit was
+        # measured. Calling that section an estimate would claim money the
+        # run never computed.
+        return unverified_stamp(NOT_COMPUTED_REASON)
+    if not status:
         return unverified_stamp(NOT_RUN_REASON)
     return {
         "provenance": Provenance.ESTIMATED.value,
