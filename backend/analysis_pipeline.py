@@ -26,7 +26,7 @@ from db.queries import (
     save_analysis_data,
     save_verdict_data,
 )
-from engine.decisions import DecisionEngine, Verdict as VerdictData
+from engine.decisions import DecisionEngine, Verdict as VerdictData, resolved_verdict
 from engine.condition_gate import condition_passes, filter_products_by_condition
 from engine.price_gate import (
     PRICE_MIN, PRICE_MAX, band_label, clamp_band, excluded_note,
@@ -830,7 +830,7 @@ async def run_analysis_pipeline(
         # verified status comes from the provenance block, so a short or failed
         # store search is never read as a market with no competitors.
         _store_prov = results.get("ebay_stores_provenance") or {}
-        verdict = engine.evaluate(
+        verdict = resolved_verdict(engine.evaluate(
             ebay_product,
             demand,
             best_supplier_price,
@@ -839,10 +839,10 @@ async def run_analysis_pipeline(
             competitor_stores_verified=(
                 _store_prov.get("provenance") == "verified"
             ),
-        )
+        ))
         results["verdict"] = verdict
         if verdict:
-            _report(f"✓ Verdict: {verdict.verdict.upper()}")
+            _report(f"✓ Verdict: {verdict.verdict.upper() or 'NOT RECORDED'}")
 
         # Step 6: Scorecard
         scorecard = format_scorecard(
@@ -1075,8 +1075,11 @@ def save_analysis_to_db(results: dict):
             clear_analysis_data(db, product_id)
 
         if verdict:
+            # C1 — the same resolution the live payload uses: a finished run
+            # that measured no money has no verdict to store.
+            stored = resolved_verdict(verdict).verdict
             save_verdict_data(db, product_id, {
-                "verdict": verdict.verdict,
+                "verdict": stored,
                 "profit_amount": verdict.profit,
                 "profit_margin": verdict.margin,
                 # C1 — record whether the figures were measured, so a replayed

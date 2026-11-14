@@ -31,6 +31,20 @@ class Verdict:
     scorecard: str = ""
 
 
+def resolved_verdict(verdict: Verdict) -> Verdict:
+    """The verdict a finished run can stand behind.
+
+    ``pending`` covers two different situations. When the money was measured
+    and only the 7-day demand count lacks a capture, the decision is genuinely
+    held for evidence. When nothing was priced at all the run is over and no
+    decision exists — storing ``pending`` there would promise one that is
+    never coming, so the verdict is blank instead.
+    """
+    if verdict.verdict == "pending" and not verdict.profit_computed:
+        verdict.verdict = ""
+    return verdict
+
+
 class DecisionEngine:
     """Evaluate a product against all sourcing filters and produce a verdict.
 

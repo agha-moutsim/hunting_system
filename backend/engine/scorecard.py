@@ -199,7 +199,9 @@ def format_scorecard(
 
     # --- Final verdict ---
     lines.append("=" * 55)
-    v = verdict.verdict.upper()
+    # C1 — a run that measured nothing reached no decision; the card says so
+    # rather than printing a blank after "VERDICT:".
+    v = verdict.verdict.upper() or "NOT RECORDED"
     lines.append(f"  VERDICT: {v}")
     lines.append("=" * 55)
 

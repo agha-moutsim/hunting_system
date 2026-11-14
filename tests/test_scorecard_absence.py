@@ -106,3 +106,11 @@ class TestUnreadSupplierPriceIsNotFree:
 
         assert "£17.85" in _line(card, "Profit:")
         assert "£0.00" not in _line(card, "Profit:")
+
+
+class TestAbsentFinalVerdict:
+    def test_a_blank_verdict_reads_not_recorded(self):
+        card = format_scorecard(_product(), [], None, Verdict(verdict=""))
+
+        assert "VERDICT: NOT RECORDED" in card
+        assert "VERDICT: \n" not in card
