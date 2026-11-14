@@ -45,9 +45,17 @@ def format_scorecard(
             note = "" if f.verified else " (unverified)"
             lines.append(f"  [{tag}] {f.name}: {f.actual}{note} (expected {f.expected})")
             continue
+        if not f.verified:
+            # C13 — a rule nobody checked is not a decision. The live filter
+            # list already shows "Unverified" for these rows; stamping the
+            # written card [PASS] or [FAIL] upgraded an unchecked row into a
+            # verdict the engine never reached (the ladder holds at pending).
+            lines.append(
+                f"  [UNVERIFIED] {f.name}: {f.actual} (expected {f.expected})"
+            )
+            continue
         tag = _status_icon(f.passed)
-        suffix = "" if f.verified else " (unverified)"
-        lines.append(f"  [{tag}] {f.name}: {f.actual}{suffix} (expected {f.expected})")
+        lines.append(f"  [{tag}] {f.name}: {f.actual} (expected {f.expected})")
     lines.append("")
 
     # --- Demand ---

@@ -114,3 +114,41 @@ class TestAbsentFinalVerdict:
 
         assert "VERDICT: NOT RECORDED" in card
         assert "VERDICT: \n" not in card
+
+
+class TestAnUncheckedGatingRowIsNotADecision:
+    """C13 — a rule nobody checked must not wear PASS or FAIL.
+
+    With no demand data the engine leaves the "Demand (30d)" row unverified
+    and holds the verdict at pending. The written card used to stamp the row
+    [FAIL], so one run read as a failed rule in the stored scorecard and as
+    "Unverified" in the live filter list.
+    """
+
+    @staticmethod
+    def _card(product=None, demand=None, supplier_price=6.0):
+        from engine.decisions import DecisionEngine
+
+        product = product or _product()
+        verdict = DecisionEngine().evaluate(product, demand, supplier_price)
+        return format_scorecard(product, [], demand, verdict)
+
+    def test_an_unread_demand_row_is_unverified_not_failed(self):
+        line = _line(self._card(demand=None), "Demand (30d)")
+
+        assert "[UNVERIFIED]" in line
+        assert "[FAIL]" not in line
+        assert "[PASS]" not in line
+
+    def test_a_brand_we_never_checked_is_not_a_pass(self):
+        # No brand name means the VeRO check never ran; the row is not a pass.
+        line = _line(self._card(demand=DemandData()), "Brand")
+
+        assert "[UNVERIFIED]" in line
+        assert "[PASS]" not in line
+
+    def test_verified_rows_keep_their_pass_and_fail(self):
+        card = self._card(product=_product(price=35.01), demand=DemandData())
+
+        assert "[FAIL]" in _line(card, "Price:")
+        assert "[PASS]" in _line(card, "Condition")
