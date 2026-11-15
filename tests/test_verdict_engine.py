@@ -78,6 +78,17 @@ class TestVerdictLadder:
         )
         assert v.verdict == "pending"
 
+    def test_unread_demand_says_not_read_not_na(self):
+        # C1 - "N/A" is a form's blank, not a reading. The row names what was
+        # never read, like the Price row already did.
+        v = DecisionEngine().evaluate(
+            _product(), _demand(d30=None, d7=None, verified=False), 6.0
+        )
+
+        assert _filter(v, "Demand (30d)").actual.startswith("not read")
+        assert _filter(v, "Demand (7d)").actual.startswith("not read")
+        assert "N/A" not in _filter(v, "Demand (7d)").actual
+
     def test_unverified_7d_estimate_never_passes(self, monkeypatch):
         # C4: a 7-day figure without purchase history holds the verdict at
         # PENDING even when every threshold is met.

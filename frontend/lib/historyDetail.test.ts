@@ -216,4 +216,25 @@ describe("parseFilters", () => {
     expect(parseFilters(null)).toEqual([]);
     expect(parseFilters('{"name":"Margin"}')).toEqual([]);
   });
+
+  it("replays a legacy N/A demand count as not read", () => {
+    // 50 stored UK verdicts say "N/A" for the 7-day demand count. N/A is not a
+    // measurement, so the replayed row keeps its absence in words (C1).
+    const rows = parseFilters(
+      JSON.stringify([
+        { name: "Demand (7d)", passed: false, actual: "N/A", verified: false },
+      ])
+    );
+
+    expect(rows[0].actual).toBe("not read");
+    expect(rows[0].verified).toBe(false);
+  });
+
+  it("leaves a real reading alone", () => {
+    const rows = parseFilters([
+      { name: "Demand (7d)", passed: true, actual: "12 sold" },
+    ]);
+
+    expect(rows[0].actual).toBe("12 sold");
+  });
 });

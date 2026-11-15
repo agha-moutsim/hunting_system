@@ -59,12 +59,27 @@ export function legacyPlaceholderWarning(
 }
 
 export function parseFilters(raw: unknown): FilterCheck[] {
+  // Stored verdicts written before the engine said "not read" spelled an
+  // unread demand count "N/A". N/A was never a measurement, so replay keeps
+  // it absent: the row still reads as something nobody checked (C1).
+  const absent = (row: unknown): FilterCheck | null => {
+    if (!row || typeof row !== "object") return null;
+    const check = row as FilterCheck;
+    if (typeof check.actual !== "string") return check;
+    if (check.actual.trim().toUpperCase() !== "N/A") return check;
+    return { ...check, actual: "not read" };
+  };
+  const normalise = (rows: unknown[]): FilterCheck[] =>
+    rows
+      .map(absent)
+      .filter((row): row is FilterCheck => row !== null);
+
   if (!raw) return [];
-  if (Array.isArray(raw)) return raw;
+  if (Array.isArray(raw)) return normalise(raw);
   if (typeof raw === "string") {
     try {
       const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [];
+      return Array.isArray(parsed) ? normalise(parsed) : [];
     } catch {
       return [];
     }

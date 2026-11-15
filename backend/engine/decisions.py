@@ -189,7 +189,10 @@ class DecisionEngine:
             filters.append(FilterResult(
                 name="Demand (30d)",
                 passed=False,
-                actual="N/A",
+                # C1 - a count nobody read is not "N/A", which reads as a
+                # checkbox the reader opted out of. The row says what is
+                # missing, like the Price row above.
+                actual="not read (no 30-day count)",
                 expected=f"≥{self.filters['demand_min_30d']} sold",
                 verified=False,
             ))
@@ -214,7 +217,10 @@ class DecisionEngine:
             filters.append(FilterResult(
                 name="Demand (7d)",
                 passed=False,
-                actual="N/A",
+                # C1 - an unread 7-day count says so in words. "N/A" looked
+                # like a decision not to check rather than a reading nobody
+                # could take.
+                actual="not read (no 7-day count)",
                 expected=f"≥{self.filters['demand_min_7d']} sold",
                 verified=False,
             ))
