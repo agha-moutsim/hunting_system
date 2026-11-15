@@ -116,7 +116,9 @@ def seller_footprint(
         payload["query_context"] = {
             "observations": len(runs),
             "latest_listing_count": (
-                int(latest.listing_count or 0) if latest is not None else 0
+                int(latest.listing_count)
+                if latest is not None and latest.listing_count is not None
+                else None
             ),
             "latest_observed_at": (
                 _iso_z(latest.observed_at) if latest is not None else None

@@ -485,7 +485,9 @@ class TestSellerDoor:
         assert body["query"] == "never observed"
         assert body["query_context"] == {
             "observations": 0,
-            "latest_listing_count": 0,
+            # C1 - there is no latest observation, so there is no sample size.
+            # A 0 would read as a measured empty search.
+            "latest_listing_count": None,
             "latest_observed_at": None,
         }
         assert "No search observation" in body["reason"]

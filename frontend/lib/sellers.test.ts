@@ -13,6 +13,7 @@ import {
   formatFeedbackScore,
   formatPriceStats,
   formatSellerRegion,
+  latestSampleLabel,
   sellerPagePath,
   sellerPath,
 } from "./sellers";
@@ -47,6 +48,20 @@ describe("sellerPagePath", () => {
       "/sellers/agprefect_09?query=garden+hose"
     );
     expect(sellerPagePath("agprefect_09")).toBe("/sellers/agprefect_09");
+  });
+});
+
+describe("latestSampleLabel", () => {
+  it("counts a stored latest sample in listings", () => {
+    expect(latestSampleLabel(1)).toBe("1 listing");
+    expect(latestSampleLabel(6)).toBe("6 listings");
+    expect(latestSampleLabel(0)).toBe("0 listings");
+  });
+
+  it("keeps a missing observation out of the number zero", () => {
+    // C1 — a query with no stored observation has no latest sample.
+    expect(latestSampleLabel(null)).toBe("Not stored");
+    expect(latestSampleLabel(undefined)).toBe("Not stored");
   });
 });
 

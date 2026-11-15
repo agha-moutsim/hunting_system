@@ -103,6 +103,20 @@ export function formatFeedback(
 }
 
 /**
+ * The latest query sample's size for the seller panel.
+ *
+ * C1 — a count belongs to an observation that exists. A query with no stored
+ * observation has no latest sample, and "0 listings" would read as a measured
+ * empty search. A stored observation that really returned nothing stays 0.
+ */
+export function latestSampleLabel(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return "Not stored";
+  }
+  return `${value} listing${value === 1 ? "" : "s"}`;
+}
+
+/**
  * Item location as eBay returned it: country and postal code together.
  *
  * This is the item location, not an inference about where the seller lives.

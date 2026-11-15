@@ -1552,7 +1552,8 @@ export interface SellerAgeStats {
 /** The latest stored search set the optional query filter used. */
 export interface SellerQueryContext {
   observations: number;
-  latest_listing_count: number;
+  /** Null when no observation is stored: there is no sample to count. */
+  latest_listing_count: number | null;
   latest_observed_at: string | null;
 }
 

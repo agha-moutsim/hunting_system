@@ -16,6 +16,7 @@ import {
   formatFeedback,
   formatPriceStats,
   formatSellerRegion,
+  latestSampleLabel,
   sellerPagePath,
 } from "@/lib/sellers";
 import type { SellerFootprintResponse } from "@/lib/types";
@@ -70,9 +71,7 @@ function QueryContext({ result }: { result: SellerFootprintResponse }) {
         <Metric label="Stored observations" value={context.observations} />
         <Metric
           label="Latest sample"
-          value={`${context.latest_listing_count} listing${
-            context.latest_listing_count === 1 ? "" : "s"
-          }`}
+          value={latestSampleLabel(context.latest_listing_count)}
         />
         <Metric
           label="Latest observation"
@@ -147,12 +146,10 @@ export default function SellerPanel({
   const age = result ? formatAgeStats(result.listed_age) : null;
   const emptyMessage = result
     ? `${result.reason || "No stored Browse reading names this seller yet. This fills in as Analyze is used."}${
-        result.query_context && result.query_context.observations > 0
-          ? ` The latest stored sample has ${
+        result.query_context?.latest_listing_count != null
+          ? ` The latest stored sample has ${latestSampleLabel(
               result.query_context.latest_listing_count
-            } listing${
-              result.query_context.latest_listing_count === 1 ? "" : "s"
-            }.`
+            )}.`
           : ""
       }`
     : "";
