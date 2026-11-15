@@ -1479,8 +1479,10 @@ export interface ChurnResponse {
   latest_observed_at: string | null;
   previous_observed_at: string | null;
   earliest_observed_at: string | null;
-  latest_listing_count: number;
-  earlier_listing_count: number;
+  /** Null when no observation is stored: there is no sample to count. */
+  latest_listing_count: number | null;
+  /** Null when no earlier observation is stored. */
+  earlier_listing_count: number | null;
   /** The exact filter behind the latest sample, or null when absent. */
   filter: string | null;
   /** The sample ceiling sent for the latest observation, or null. */

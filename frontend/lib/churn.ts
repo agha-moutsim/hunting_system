@@ -95,6 +95,20 @@ export function churnIsClaimable(result: ChurnResponse | null): boolean {
 }
 
 /**
+ * A stored sample's size, in words.
+ *
+ * C1 — the count belongs to an observation that exists. A query with none
+ * has no sample, and "0 listings" would read as a measured empty search, so
+ * absence keeps its own sentence instead of borrowing the number zero.
+ */
+export function listingCountLabel(count: number | null | undefined): string {
+  if (count === null || count === undefined || !Number.isFinite(count)) {
+    return "no stored observation";
+  }
+  return `${count} listing${count === 1 ? "" : "s"}`;
+}
+
+/**
  * A price from the snapshot. Null stays an em dash; a non-GBP currency shows
  * its code rather than putting a pound sign on a different currency.
  */

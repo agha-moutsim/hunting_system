@@ -13,6 +13,7 @@ import {
   formatListingPrice,
   lastSeenLabel,
   listingAgeLabel,
+  listingCountLabel,
   listingObservationPath,
 } from "./churn";
 import { formatDate } from "./format";
@@ -129,6 +130,21 @@ describe("churnIsClaimable", () => {
         ],
       })
     ).toBe(true);
+  });
+});
+
+describe("listingCountLabel", () => {
+  it("counts a stored sample in listings", () => {
+    expect(listingCountLabel(0)).toBe("0 listings");
+    expect(listingCountLabel(1)).toBe("1 listing");
+    expect(listingCountLabel(6)).toBe("6 listings");
+  });
+
+  it("keeps a missing sample out of the number zero", () => {
+    // C1 — no observation is not an empty observation.
+    expect(listingCountLabel(null)).toBe("no stored observation");
+    expect(listingCountLabel(undefined)).toBe("no stored observation");
+    expect(listingCountLabel(Number.NaN)).toBe("no stored observation");
   });
 });
 

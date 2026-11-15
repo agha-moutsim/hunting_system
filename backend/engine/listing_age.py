@@ -283,8 +283,12 @@ def build_churn_report(runs: Iterable[Any], now: Any = None) -> dict:
         "earliest_observed_at": (
             _iso_z(sampled[-1].get("observed_at")) if sampled else None
         ),
-        "latest_listing_count": len(latest_listings),
-        "earlier_listing_count": len(earlier_ids),
+        # C1 - a count belongs to an observation that exists. A query with
+        # none has no latest sample, and "0 listings" would read as a measured
+        # empty search; an empty list is only honest when a run really
+        # returned nothing.
+        "latest_listing_count": len(latest_listings) if latest else None,
+        "earlier_listing_count": len(earlier_ids) if earlier else None,
         # The request knobs behind the latest sample. They are shown so the
         # page can name the sample ceiling and state why two observations
         # were refused as incomparable. They are not figures about eBay.

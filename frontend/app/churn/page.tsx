@@ -8,7 +8,12 @@ import EmptyState from "@/components/EmptyState";
 import Input, { Label } from "@/components/ui/Input";
 import ListingAge from "@/components/ListingAge";
 import Spinner from "@/components/Spinner";
-import { churnIsClaimable, fetchChurn, formatListingPrice } from "@/lib/churn";
+import {
+  churnIsClaimable,
+  fetchChurn,
+  formatListingPrice,
+  listingCountLabel,
+} from "@/lib/churn";
 import { formatDate } from "@/lib/format";
 import type { ChurnListing, ChurnResponse } from "@/lib/types";
 
@@ -227,16 +232,14 @@ export default function ChurnPage() {
               />
               <Summary
                 label="Latest sample"
-                value={`${result.latest_listing_count} listing${
-                  result.latest_listing_count === 1 ? "" : "s"
-                }`}
+                value={listingCountLabel(result.latest_listing_count)}
               />
             </div>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-text-dim mt-3">
               <span>{sampleCeiling}</span>
               <span>
                 Listings seen in earlier observations:{" "}
-                {result.earlier_listing_count}
+                {result.earlier_listing_count ?? "no stored observation"}
               </span>
               {result.previous_observed_at && (
                 <span>
@@ -280,25 +283,30 @@ export default function ChurnPage() {
             </Card>
           )}
 
-          <Card
-            title="Present in the latest observation"
-            action={
-              <span className="text-xs text-text-dim">
-                {result.latest_listing_count} listing
-                {result.latest_listing_count === 1 ? "" : "s"}
-              </span>
-            }
-          >
-            {result.latest.length > 0 ? (
-              <ListingTable rows={result.latest} mode="latest" />
-            ) : (
-              <EmptyState
-                icon="🔎"
-                title="The latest observation returned no listings"
-                message="That is a measured empty result, not a missing search. It does not say why eBay returned nothing."
-              />
-            )}
-          </Card>
+          {/* C1 — this card is the latest sample, so it only exists when a
+              sample was stored. With no observation the refusal card above
+              already says why; rendering an empty table here would read as a
+              measured empty search. */}
+          {result.latest_listing_count !== null && (
+            <Card
+              title="Present in the latest observation"
+              action={
+                <span className="text-xs text-text-dim">
+                  {listingCountLabel(result.latest_listing_count)}
+                </span>
+              }
+            >
+              {result.latest.length > 0 ? (
+                <ListingTable rows={result.latest} mode="latest" />
+              ) : (
+                <EmptyState
+                  icon="🔎"
+                  title="The latest observation returned no listings"
+                  message="That is a measured empty result, not a missing search. It does not say why eBay returned nothing."
+                />
+              )}
+            </Card>
+          )}
 
           <p className="text-xs text-text-dim max-w-4xl">
             A listing missing from the latest sample may simply not have been

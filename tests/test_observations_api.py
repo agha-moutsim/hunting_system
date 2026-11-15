@@ -117,6 +117,10 @@ class TestChurnDoor:
         assert body["churned"] is None
         assert "No search observation" in body["reason"]
         assert body["latest"] == []
+        # C1 - the sample size belongs to an observation. With none stored it
+        # is absent, not a measured "0 listings".
+        assert body["latest_listing_count"] is None
+        assert body["earlier_listing_count"] is None
 
     def test_one_observation_keeps_the_latest_sample_but_claims_no_churn(self, client):
         creation = datetime.utcnow() - timedelta(days=74, hours=1)

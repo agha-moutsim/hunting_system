@@ -130,7 +130,22 @@ class TestChurnSuppression:
         assert report["comparable"] is False
         assert report["churned"] is None
         assert report["latest"] == []
+        # No run was stored, so there is no sample size to report. A 0 here
+        # would read as a measured empty search (C1).
+        assert report["latest_listing_count"] is None
+        assert report["earlier_listing_count"] is None
         assert "No search observation" in report["reason"]
+
+    def test_one_observation_has_no_earlier_sample_to_count(self):
+        report = build_churn_report(
+            [_run(NOW, [_listing("1")])],
+            now=NOW,
+        )
+
+        # The latest sample was measured; the "earlier" bucket was not, so it
+        # stays absent rather than claiming zero earlier listings (C1).
+        assert report["latest_listing_count"] == 1
+        assert report["earlier_listing_count"] is None
 
     def test_one_observation_suppresses_churn_instead_of_zero_filling(self):
         report = build_churn_report(
