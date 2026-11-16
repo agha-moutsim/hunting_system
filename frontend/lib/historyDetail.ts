@@ -87,6 +87,27 @@ export function parseFilters(raw: unknown): FilterCheck[] {
   return [];
 }
 
+/**
+ * The stock state a stored supplier row can be replayed with.
+ *
+ * The run persists `stock_status` and a `stock_verified` flag. Only a status
+ * the source actually stated is a measurement; "unknown", a missing status,
+ * or an unverified one must keep the card at "not stated" rather than borrow
+ * a state for the row.
+ */
+const STATED_STOCK = new Set(["in_stock", "low_stock", "out_of_stock"]);
+
+function replayStockState(row: {
+  stock_status?: string | null;
+  stock_verified?: boolean | null;
+}): ScrapedProduct["in_stock"] {
+  if (row.stock_verified !== true) return undefined;
+  const status = (row.stock_status ?? "").trim().toLowerCase();
+  return STATED_STOCK.has(status)
+    ? (status as ScrapedProduct["in_stock"])
+    : undefined;
+}
+
 export function detailAsScorecard(d: ProductDetail): HistoryScorecardProps {
   // Phase F — a replayed AUD row is still an AUD row. Without this the
   // Scorecard fell back to its GBP default and printed the same number with a
@@ -115,6 +136,10 @@ export function detailAsScorecard(d: ProductDetail): HistoryScorecardProps {
     // C14 — the stored score is a measurement, so it is replayed. The tier it
     // was filed under was never stored, and MatchBadge does not claim one.
     match_score: s.match_score ?? undefined,
+    // C13 — the run stored the stock it read. Replaying the row without it
+    // made a source that said "in stock" read as "not stated". An unverified
+    // or unrecognised status is not a claim, so it stays absent.
+    in_stock: replayStockState(s),
     // C13 — replayed rows carry the same markers as live ones. `null` and
     // absent both mean "the row never stated it", so they collapse to
     // undefined here: either way SupplierCard renders no badge rather than

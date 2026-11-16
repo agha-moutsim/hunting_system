@@ -147,6 +147,39 @@ describe("detailAsScorecard", () => {
     expect(props.suppliers[0].match_tier).toBeUndefined();
   });
 
+  it("replays a stock state only when the source stated it", () => {
+    // Product 50's B&Q rows store stock_status "in_stock" with the verified
+    // flag. Dropping them made a stated stock read as "not stated".
+    const props = detailAsScorecard(
+      detail({
+        suppliers: [
+          {
+            supplier_name: "B&Q",
+            supplier_price: 7.64,
+            stock_status: "in_stock",
+            stock_verified: true,
+          },
+          {
+            supplier_name: "B&Q",
+            supplier_price: 7.64,
+            stock_status: "in_stock",
+            stock_verified: false,
+          },
+          {
+            supplier_name: "B&Q",
+            supplier_price: 7.64,
+            stock_status: "unknown",
+            stock_verified: true,
+          },
+        ],
+      })
+    );
+
+    expect(props.suppliers[0].in_stock).toBe("in_stock");
+    expect(props.suppliers[1].in_stock).toBeUndefined();
+    expect(props.suppliers[2].in_stock).toBeUndefined();
+  });
+
   it("keeps an empty stored verdict empty, not pending", () => {
     const props = detailAsScorecard(
       detail({

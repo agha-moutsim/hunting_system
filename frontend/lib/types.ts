@@ -1063,6 +1063,9 @@ export interface ProductDetail {
     supplier_price?: number;
     /** C14 — the stored matcher score, 0..1; null when it was never scored. */
     match_score?: number | null;
+    /** C13 — the stored stock reading and whether the source stated it. */
+    stock_status?: string | null;
+    stock_verified?: boolean | null;
     delivery_days_min?: number;
     delivery_days_max?: number;
     provenance?: string | null;
