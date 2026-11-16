@@ -112,6 +112,9 @@ export function detailAsScorecard(d: ProductDetail): HistoryScorecardProps {
     url: s.supplier_url || "",
     delivery_days_min: s.delivery_days_min,
     delivery_days_max: s.delivery_days_max,
+    // C14 — the stored score is a measurement, so it is replayed. The tier it
+    // was filed under was never stored, and MatchBadge does not claim one.
+    match_score: s.match_score ?? undefined,
     // C13 — replayed rows carry the same markers as live ones. `null` and
     // absent both mean "the row never stated it", so they collapse to
     // undefined here: either way SupplierCard renders no badge rather than

@@ -1,6 +1,7 @@
 "use client";
 
 import Badge from "@/components/ui/Badge";
+import { STORED_SCORE_TITLE, storedMatchScoreLabel } from "@/lib/matchScore";
 import { MatchTier } from "@/lib/types";
 
 /**
@@ -61,7 +62,18 @@ export function describeMatchTier(
   const key = String(tier ?? "")
     .trim()
     .toLowerCase();
-  if (!key || !(MATCH_TIERS as readonly string[]).includes(key)) return null;
+  if (!key || !(MATCH_TIERS as readonly string[]).includes(key)) {
+    // History replays a stored score without the tier it was filed under.
+    // The score is still a measurement; the tier is not claimed.
+    const stored = storedMatchScoreLabel(fields.score);
+    if (!stored) return null;
+    return {
+      tone: "neutral",
+      text: stored,
+      title: STORED_SCORE_TITLE,
+      scored: true,
+    };
+  }
 
   const given = (fields.label ?? "").trim();
   const score = key === "verified" ? formatMatchScore(fields.score) : null;

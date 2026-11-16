@@ -1061,6 +1061,8 @@ export interface ProductDetail {
     supplier_url?: string;
     supplier_title?: string;
     supplier_price?: number;
+    /** C14 — the stored matcher score, 0..1; null when it was never scored. */
+    match_score?: number | null;
     delivery_days_min?: number;
     delivery_days_max?: number;
     provenance?: string | null;

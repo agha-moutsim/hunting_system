@@ -122,6 +122,31 @@ describe("detailAsScorecard", () => {
     expect(supplier.fetch_method).toBeUndefined();
   });
 
+  it("replays the stored match score but never a tier", () => {
+    // The database holds the score and not the tier. The component may show
+    // the measurement; it must not be handed a classification to print.
+    const props = detailAsScorecard(
+      detail({
+        suppliers: [
+          {
+            supplier_name: "AliExpress",
+            supplier_price: 7.64,
+            match_score: 0.5885,
+          },
+          {
+            supplier_name: "AliExpress",
+            supplier_price: 11.2,
+            match_score: null,
+          },
+        ],
+      })
+    );
+
+    expect(props.suppliers[0].match_score).toBe(0.5885);
+    expect(props.suppliers[1].match_score).toBeUndefined();
+    expect(props.suppliers[0].match_tier).toBeUndefined();
+  });
+
   it("keeps an empty stored verdict empty, not pending", () => {
     const props = detailAsScorecard(
       detail({

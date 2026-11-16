@@ -312,6 +312,11 @@ def product_detail(product_id: int):
                     "supplier_url": s.supplier_url,
                     "supplier_title": s.supplier_title,
                     "supplier_price": s.supplier_price,
+                    # C14 — the matched pair's own score, stored by the run that
+                    # decided this row survived. Replaying the row without it
+                    # showed a supplier with no evidence it had been scored at
+                    # all. NULL stays NULL: the matcher never scored this row.
+                    "match_score": s.match_score,
                     "delivery_days_min": s.delivery_days_min,
                     "delivery_days_max": s.delivery_days_max,
                     # C13 — replay what the live screen showed. Rows saved
