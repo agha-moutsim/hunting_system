@@ -129,9 +129,10 @@ export function demandSourceRows(
       stamp: null,
       readAt: null,
       unknownReason:
-        "No source this app can reach produces a 30-day sold count: eBay's " +
-        "sold-listing search was decommissioned and its Marketplace Insights " +
-        "API refuses this app.",
+        "This analysis read no 30-day sold count. eBay's sold-listing search " +
+        "was decommissioned and Marketplace Insights refuses this app, so only " +
+        "a purchase-history capture can produce one, and this run did not " +
+        "record a 30-day figure from one.",
     },
     {
       name: "avg_sold_price",
