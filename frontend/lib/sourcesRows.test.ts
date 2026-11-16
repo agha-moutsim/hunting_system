@@ -92,6 +92,30 @@ describe("demandSourceRows", () => {
     );
   });
 
+  it("prices an AUD row in Australian dollars, not pounds", () => {
+    // Phase F — stored AU products carry AUD figures. The Sources view used to
+    // print them with the GBP default, which is a currency the API never
+    // served.
+    const rows = byName(
+      demandSourceRows(
+        {
+          avg_sold_price: 28.174,
+          lowest_sold_price: 8.99,
+          highest_sold_price: 47.06,
+          avg_active_price: 28.174,
+          lowest_active_price: 8.99,
+          highest_active_price: 47.06,
+        },
+        "AUD"
+      )
+    );
+
+    expect(rows.avg_sold_price.value).toBe("A$28.17");
+    expect(rows.sold_price_range.value).toBe("A$8.99 – A$47.06");
+    expect(rows.avg_active_price.value).toBe("A$28.17");
+    expect(rows.active_price_range.value).toBe("A$8.99 – A$47.06");
+  });
+
   it("gives every row an id, a name and a reason for its absence", () => {
     // Structural incompleteness is what makes an unknown list blank in the odd
     // row. Every row has to be renderable in either list.

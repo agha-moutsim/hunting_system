@@ -68,7 +68,10 @@ function SourcesView() {
     );
   }
 
-  const rows = demandSourceRows(detail?.demand);
+  // Phase F — an AUD product's demand figures are AUD. The product's own
+  // currency travels with them, so the Sources view cannot print a pound sign
+  // on a number the API served in dollars.
+  const rows = demandSourceRows(detail?.demand, detail?.product.currency);
   const salesRows = rows.filter((r) => !r.supply);
   const supplyRows = rows.filter((r) => r.supply);
 

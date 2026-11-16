@@ -1,6 +1,6 @@
 import type { DemandData, DeepSearchResult, SourceRow } from "./types";
 import { figureStamp } from "./fieldProvenance";
-import { formatGBP, formatObservedAt } from "./format";
+import { formatMoney, formatObservedAt } from "./format";
 
 /**
  * PHASE C — a stored demand row turned into the lines the Sources view shows.
@@ -15,6 +15,10 @@ import { formatGBP, formatObservedAt } from "./format";
  *
  * Supply and sales are labelled apart for the same reason they are stored
  * apart: a count of live listings is real, and it is not a sale.
+ *
+ * Every money row is printed in the currency the product's own row carries.
+ * A figure served in AUD dressed in a pound sign is a currency claim the API
+ * never made, and this screen is the only place that would make it.
  */
 
 /** Absent, null and "empty" all mean the same thing: nothing was measured. */
@@ -22,12 +26,19 @@ function count(values?: number[] | null): string | null {
   return values && values.length > 0 ? `${values.length}` : null;
 }
 
-function moneyRange(low?: number | null, high?: number | null): string | null {
+function moneyRange(
+  low: number | null | undefined,
+  high: number | null | undefined,
+  currency: string
+): string | null {
   if (low == null || high == null) return null;
-  return `${formatGBP(low)} \u2013 ${formatGBP(high)}`;
+  return `${formatMoney(low, currency)} \u2013 ${formatMoney(high, currency)}`;
 }
 
-export function demandSourceRows(demand?: DemandData | null): SourceRow[] {
+export function demandSourceRows(
+  demand?: DemandData | null,
+  currency = "GBP"
+): SourceRow[] {
   // The triple is authoritative; the flat key is the older shape, and a figure
   // served without an origin is shown unverified rather than given one.
   const figure =
@@ -70,7 +81,7 @@ export function demandSourceRows(demand?: DemandData | null): SourceRow[] {
       label: "Average price a buyer paid",
       value:
         demand?.avg_sold_price != null
-          ? formatGBP(demand.avg_sold_price)
+          ? formatMoney(demand.avg_sold_price, currency)
           : null,
       stamp: null,
       readAt: null,
@@ -79,7 +90,11 @@ export function demandSourceRows(demand?: DemandData | null): SourceRow[] {
     {
       name: "sold_price_range",
       label: "Lowest and highest price paid",
-      value: moneyRange(demand?.lowest_sold_price, demand?.highest_sold_price),
+      value: moneyRange(
+        demand?.lowest_sold_price,
+        demand?.highest_sold_price,
+        currency
+      ),
       stamp: null,
       readAt: null,
       unknownReason: captureOnly,
@@ -119,7 +134,7 @@ export function demandSourceRows(demand?: DemandData | null): SourceRow[] {
       label: "Average asking price",
       value:
         demand?.avg_active_price != null
-          ? formatGBP(demand.avg_active_price)
+          ? formatMoney(demand.avg_active_price, currency)
           : null,
       stamp: null,
       readAt: null,
@@ -133,7 +148,8 @@ export function demandSourceRows(demand?: DemandData | null): SourceRow[] {
       label: "Lowest and highest asking price",
       value: moneyRange(
         demand?.lowest_active_price,
-        demand?.highest_active_price
+        demand?.highest_active_price,
+        currency
       ),
       stamp: null,
       readAt: null,
