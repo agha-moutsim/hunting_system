@@ -35,6 +35,63 @@ function moneyRange(
   return `${formatMoney(low, currency)} \u2013 ${formatMoney(high, currency)}`;
 }
 
+/** The tone/text/title the Sales-evidence badge should carry. */
+export interface DemandEvidenceBadge {
+  tone: "verified" | "unverified" | "neutral";
+  text: string;
+  title: string;
+}
+
+/**
+ * How a stored demand row is stamped — or, when there is no row at all, the
+ * fact that nothing was stamped.
+ *
+ * "Unverified" is a statement about an existing row that failed its check. A
+ * product whose analysis stored no demand row (live product 25) has nothing to
+ * verify, so it must not borrow that word: absence is not a failed check.
+ */
+export function demandEvidenceBadge(
+  demand?: DemandData | null
+): DemandEvidenceBadge {
+  if (!demand) {
+    return {
+      tone: "neutral",
+      text: "No demand row",
+      title:
+        "This analysis stored no demand row, so there is no row to verify or " +
+        "disqualify.",
+    };
+  }
+  if (demand.verified) {
+    return {
+      tone: "verified",
+      text: "Verified",
+      title: "The stored row carries a verified stamp",
+    };
+  }
+  return {
+    tone: "unverified",
+    text: "Unverified",
+    title: "The stored row does not carry a verified stamp",
+  };
+}
+
+/**
+ * The sentence the run wrote about its own demand row.
+ *
+ * A stored row with no sentence really does predate the field; a product with
+ * no row at all is not a row from before the field existed, so it says so.
+ */
+export function demandDataSourceNote(demand?: DemandData | null): string {
+  if (!demand) {
+    return (
+      "No demand row was stored for this analysis, so there is no source " +
+      "sentence to replay."
+    );
+  }
+  return demand.data_source?.trim() || "recorded before this field existed";
+}
+
 export function demandSourceRows(
   demand?: DemandData | null,
   currency = "GBP"

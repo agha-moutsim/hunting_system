@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { demandSourceRows, deepSearchUnknowns } from "./sourcesRows";
+import {
+  demandDataSourceNote,
+  demandEvidenceBadge,
+  demandSourceRows,
+  deepSearchUnknowns,
+} from "./sourcesRows";
 import type { DeepSearchResult, DemandData } from "./types";
 
 /**
@@ -33,6 +38,56 @@ const CAPTURED: DemandData = {
   highest_active_price: 39.99,
   active_prices: [9.5, 12, 39.99],
 };
+
+describe("demandEvidenceBadge", () => {
+  it("claims nothing about a product with no demand row", () => {
+    // Live product 25 stored no demand row. "Unverified" would claim a row
+    // exists and failed its stamp check; nothing exists to check.
+    const badge = demandEvidenceBadge(null);
+
+    expect(badge.tone).not.toBe("unverified");
+    expect(badge.text.toLowerCase()).not.toContain("unverified");
+    expect(badge.title.toLowerCase()).toContain("no demand row");
+  });
+
+  it("labels a verified row as verified", () => {
+    const badge = demandEvidenceBadge({ ...CAPTURED, verified: true });
+
+    expect(badge.tone).toBe("verified");
+    expect(badge.text).toBe("Verified");
+  });
+
+  it("calls an unstamped stored row unverified", () => {
+    const badge = demandEvidenceBadge({ sold_count_7d: 3 });
+
+    expect(badge.tone).toBe("unverified");
+    expect(badge.text).toBe("Unverified");
+  });
+});
+
+describe("demandDataSourceNote", () => {
+  it("does not say an absent row predates the field", () => {
+    const note = demandDataSourceNote(null);
+
+    expect(note).not.toContain("before this field existed");
+    expect(note.toLowerCase()).toContain("no demand row");
+  });
+
+  it("replays the stored sentence for an existing row", () => {
+    expect(demandDataSourceNote({ data_source: "query: bottle" })).toBe(
+      "query: bottle"
+    );
+  });
+
+  it("keeps the legacy note for a stored row with no sentence", () => {
+    expect(demandDataSourceNote({ data_source: "" })).toBe(
+      "recorded before this field existed"
+    );
+    expect(demandDataSourceNote({ data_source: null })).toBe(
+      "recorded before this field existed"
+    );
+  });
+});
 
 describe("demandSourceRows", () => {
   it("stamps a captured sale with its source and the moment it was read", () => {

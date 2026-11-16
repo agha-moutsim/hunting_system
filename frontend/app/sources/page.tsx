@@ -11,7 +11,7 @@ import EmptyState from "@/components/EmptyState";
 import SourcesTable from "@/components/SourcesTable";
 import { apiFetch } from "@/lib/api";
 import type { ProductDetail } from "@/lib/types";
-import { demandSourceRows } from "@/lib/sourcesRows";
+import { demandSourceRows, demandEvidenceBadge, demandDataSourceNote } from "@/lib/sourcesRows";
 
 /**
  * PHASE C — Sources: where every figure about one product came from, and which
@@ -74,6 +74,10 @@ function SourcesView() {
   const rows = demandSourceRows(detail?.demand, detail?.product.currency);
   const salesRows = rows.filter((r) => !r.supply);
   const supplyRows = rows.filter((r) => r.supply);
+  // A product whose analysis stored no demand row has nothing to verify. The
+  // badge used to read "Unverified" for it, which claims a row exists.
+  const evidence = demandEvidenceBadge(detail?.demand);
+  const dataSourceNote = demandDataSourceNote(detail?.demand);
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
@@ -96,21 +100,9 @@ function SourcesView() {
           <Card
             title="Sales evidence"
             action={
-              detail.demand?.verified ? (
-                <Badge
-                  tone="verified"
-                  title="The stored row carries a verified stamp"
-                >
-                  Verified
-                </Badge>
-              ) : (
-                <Badge
-                  tone="unverified"
-                  title="The stored row does not carry a verified stamp"
-                >
-                  Unverified
-                </Badge>
-              )
+              <Badge tone={evidence.tone} title={evidence.title}>
+                {evidence.text}
+              </Badge>
             }
           >
             <SourcesTable rows={salesRows} />
@@ -132,14 +124,15 @@ function SourcesView() {
               data_source
             </p>
             <p className="mt-2 rounded-card border border-border/40 bg-bg-surface/40 px-4 py-3 font-mono text-[12px] leading-relaxed text-text-secondary">
-              {detail.demand?.data_source ||
-                "recorded before this field existed"}
+              {dataSourceNote}
             </p>
-            <p className="mt-2 text-[12px] leading-relaxed text-text-dim">
-              This is the sentence the analysis wrote when it stored the row: it
-              names the query that produced the figures, and the source of any
-              sold figure that did not come from that query.
-            </p>
+            {detail.demand && (
+              <p className="mt-2 text-[12px] leading-relaxed text-text-dim">
+                This is the sentence the analysis wrote when it stored the row:
+                it names the query that produced the figures, and the source of
+                any sold figure that did not come from that query.
+              </p>
+            )}
           </Card>
         </>
       )}
