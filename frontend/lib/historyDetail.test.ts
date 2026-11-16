@@ -180,6 +180,48 @@ describe("detailAsScorecard", () => {
     expect(props.suppliers[2].in_stock).toBeUndefined();
   });
 
+  it("replays the sourcing assessment the run stored", () => {
+    // Product 50's B&Q rows carry sourcing_preferred with its reasons. The
+    // replay dropped the block, so the badge the live screen showed never
+    // reached History.
+    const props = detailAsScorecard(
+      detail({
+        suppliers: [
+          {
+            supplier_name: "B&Q",
+            supplier_price: 7.64,
+            sourcing_preferred: true,
+            sourcing_eligible: true,
+            sourcing_reasons: ["review rating not read"],
+            sourcing_score: 73.5,
+            sourcing_policy_version: "2026-09",
+          },
+        ],
+      })
+    );
+
+    const supplier = props.suppliers[0];
+    expect(supplier.sourcing_preferred).toBe(true);
+    expect(supplier.sourcing_eligible).toBe(true);
+    expect(supplier.sourcing_reasons).toEqual(["review rating not read"]);
+    expect(supplier.sourcing_score).toBe(73.5);
+    expect(supplier.sourcing_policy_version).toBe("2026-09");
+  });
+
+  it("keeps an unassessed sourcing block absent", () => {
+    // NULL means the run never assessed this row — not "not preferred".
+    const props = detailAsScorecard(
+      detail({
+        suppliers: [{ supplier_name: "AliExpress", supplier_price: 7.64 }],
+      })
+    );
+
+    const supplier = props.suppliers[0];
+    expect(supplier.sourcing_preferred).toBeUndefined();
+    expect(supplier.sourcing_eligible).toBeUndefined();
+    expect(supplier.sourcing_reasons).toBeUndefined();
+  });
+
   it("keeps an empty stored verdict empty, not pending", () => {
     const props = detailAsScorecard(
       detail({

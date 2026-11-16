@@ -140,6 +140,14 @@ export function detailAsScorecard(d: ProductDetail): HistoryScorecardProps {
     // made a source that said "in stock" read as "not stated". An unverified
     // or unrecognised status is not a claim, so it stays absent.
     in_stock: replayStockState(s),
+    // The sourcing assessment is stored with the row, so replay it whole.
+    // Dropping it made a row the engine marked "Preferred sourcing" read as
+    // an ordinary supplier, with none of the reasons it was marked for.
+    sourcing_preferred: s.sourcing_preferred ?? undefined,
+    sourcing_eligible: s.sourcing_eligible ?? undefined,
+    sourcing_reasons: s.sourcing_reasons ?? undefined,
+    sourcing_score: s.sourcing_score ?? undefined,
+    sourcing_policy_version: s.sourcing_policy_version ?? undefined,
     // C13 — replayed rows carry the same markers as live ones. `null` and
     // absent both mean "the row never stated it", so they collapse to
     // undefined here: either way SupplierCard renders no badge rather than

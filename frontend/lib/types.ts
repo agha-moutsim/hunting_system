@@ -1066,6 +1066,12 @@ export interface ProductDetail {
     /** C13 — the stored stock reading and whether the source stated it. */
     stock_status?: string | null;
     stock_verified?: boolean | null;
+    /** The run's stored sourcing assessment for this row. */
+    sourcing_preferred?: boolean | null;
+    sourcing_eligible?: boolean | null;
+    sourcing_reasons?: string[] | null;
+    sourcing_score?: number | null;
+    sourcing_policy_version?: string | null;
     delivery_days_min?: number;
     delivery_days_max?: number;
     provenance?: string | null;
