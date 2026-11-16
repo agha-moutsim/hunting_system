@@ -148,6 +148,9 @@ export function detailAsScorecard(d: ProductDetail): HistoryScorecardProps {
     sourcing_reasons: s.sourcing_reasons ?? undefined,
     sourcing_score: s.sourcing_score ?? undefined,
     sourcing_policy_version: s.sourcing_policy_version ?? undefined,
+    // The landed cost the run computed, so History can show the same figure
+    // the live card did. NULL stays absent: no cost was measured.
+    total_landed_cost: s.total_landed_cost ?? undefined,
     // C13 — replayed rows carry the same markers as live ones. `null` and
     // absent both mean "the row never stated it", so they collapse to
     // undefined here: either way SupplierCard renders no badge rather than

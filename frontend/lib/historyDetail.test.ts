@@ -222,6 +222,23 @@ describe("detailAsScorecard", () => {
     expect(supplier.sourcing_reasons).toBeUndefined();
   });
 
+  it("replays a stored landed cost and keeps an absent one absent", () => {
+    // 14 stored supplier rows carry the landed cost the run computed. The
+    // replay dropped it while the API served it; NULL must stay absent rather
+    // than become a free postage figure.
+    const props = detailAsScorecard(
+      detail({
+        suppliers: [
+          { supplier_name: "B&Q", supplier_price: 7.64, total_landed_cost: 10.99 },
+          { supplier_name: "B&Q", supplier_price: 7.64, total_landed_cost: null },
+        ],
+      })
+    );
+
+    expect(props.suppliers[0].total_landed_cost).toBe(10.99);
+    expect(props.suppliers[1].total_landed_cost).toBeUndefined();
+  });
+
   it("keeps an empty stored verdict empty, not pending", () => {
     const props = detailAsScorecard(
       detail({
