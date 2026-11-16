@@ -239,6 +239,42 @@ describe("detailAsScorecard", () => {
     expect(props.suppliers[1].total_landed_cost).toBeUndefined();
   });
 
+  it("replays a verified review and leaves an unverified one off the card", () => {
+    // 38 stored supplier rows carry a rating the source stated, with the
+    // verified flag and its source. Dropping them made History's cards show no
+    // review while the live card had shown one.
+    const props = detailAsScorecard(
+      detail({
+        suppliers: [
+          {
+            supplier_name: "AliExpress",
+            supplier_price: 7.64,
+            review_rating: 4.9,
+            review_verified: true,
+            review_source: "rapidapi",
+          },
+          {
+            supplier_name: "AliExpress",
+            supplier_price: 7.64,
+            review_rating: 3.2,
+            review_verified: false,
+            review_source: "rapidapi",
+          },
+          { supplier_name: "B&Q", supplier_price: 7.64 },
+        ],
+      })
+    );
+
+    expect(props.suppliers[0].review_rating).toBe(4.9);
+    expect(props.suppliers[0].review_verified).toBe(true);
+    expect(props.suppliers[0].review_source).toBe("rapidapi");
+    // The card gates on the verified flag, so a false reading can be carried
+    // without being printed as one.
+    expect(props.suppliers[1].review_verified).toBe(false);
+    expect(props.suppliers[2].review_rating).toBeUndefined();
+    expect(props.suppliers[2].review_verified).toBeUndefined();
+  });
+
   it("keeps an empty stored verdict empty, not pending", () => {
     const props = detailAsScorecard(
       detail({

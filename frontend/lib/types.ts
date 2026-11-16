@@ -1074,6 +1074,11 @@ export interface ProductDetail {
     sourcing_policy_version?: string | null;
     /** The landed cost the run computed; null means none was measured. */
     total_landed_cost?: number | null;
+    /** The stored review evidence and the source that stated it. */
+    review_rating?: number | null;
+    review_count?: number | null;
+    review_verified?: boolean | null;
+    review_source?: string | null;
     delivery_days_min?: number;
     delivery_days_max?: number;
     provenance?: string | null;
