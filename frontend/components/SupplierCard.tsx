@@ -1,71 +1,16 @@
 "use client";
 
-import { MatchAvailabilityFields, ScrapedProduct } from "@/lib/types";
+import { ScrapedProduct } from "@/lib/types";
 import Badge from "@/components/ui/Badge";
-import MatchBadge, {
-  SHIPPING_UNKNOWN,
-  STOCK_NOT_STATED,
-} from "@/components/ui/MatchBadge";
+import MatchBadge from "@/components/ui/MatchBadge";
 import ProvenanceBadge from "@/components/ui/ProvenanceBadge";
 import { formatMoney, formatPrice } from "@/lib/format";
-
-export interface AvailabilityLine {
-  /** Dim subject word, e.g. "Stock". Empty when `value` carries its own. */
-  label: string;
-  /** Rendered as-is. Never a claim the source did not make. */
-  value: string;
-  /** false = unknown, so it is amber rather than ordinary dim text. */
-  known: boolean;
-}
-
-const STOCK_LABELS: Record<string, string> = {
-  in_stock: "In stock",
-  low_stock: "Low stock",
-  out_of_stock: "Out of stock",
-};
-
-/** A positive number, or null — 0 and NaN both mean "not stated". */
-function positive(n?: number | null): number | null {
-  if (typeof n !== "number" || !Number.isFinite(n) || n <= 0) return null;
-  return n;
-}
-
-/**
- * GOLDEN RULE: a stock state is only shown when the source stated one.
- * `in_stock` loses to the source's own words, and nothing defaults to
- * "In stock" — an unknown state reads as unknown.
- */
-export function describeStock(row: MatchAvailabilityFields): AvailabilityLine {
-  const state = (row.in_stock ?? "").trim().toLowerCase();
-  if (state && Object.prototype.hasOwnProperty.call(STOCK_LABELS, state)) {
-    return { label: "Stock", value: STOCK_LABELS[state], known: true };
-  }
-  const raw = (row.stock_raw ?? "").trim();
-  if (raw) return { label: "Stock", value: raw, known: true };
-  return { label: "", value: STOCK_NOT_STATED, known: false };
-}
-
-/**
- * GOLDEN RULE: a cost of 0 means NOT CONFIRMED, not free. Only a positive
- * `shipping_cost` becomes a price; the source's own text always wins.
- */
-export function describeShipping(
-  row: MatchAvailabilityFields,
-  currency = "GBP"
-): AvailabilityLine {
-  const raw = (row.shipping_raw ?? "").trim();
-  const days = positive(row.shipping_days);
-  const tail = days != null ? ` · ${days} days` : "";
-  if (raw) return { label: "Shipping", value: raw + tail, known: true };
-  const cost = positive(row.shipping_cost);
-  if (cost != null)
-    return {
-      label: "Shipping",
-      value: formatMoney(cost, currency) + tail,
-      known: true,
-    };
-  return { label: "", value: SHIPPING_UNKNOWN, known: false };
-}
+import {
+  describeShipping,
+  describeStock,
+  positive,
+  type AvailabilityLine,
+} from "@/lib/availability";
 
 function AvailabilityRow({ line }: { line: AvailabilityLine }) {
   return (

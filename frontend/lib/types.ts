@@ -113,6 +113,15 @@ export interface MatchAvailabilityFields {
   shipping_days?: number | null;
   /** Exact source text — authoritative when present. */
   shipping_raw?: string | null;
+  /**
+   * The run's own record that the source stated a shipping cost, free or
+   * paid. Stored analyses keep this fact even though neither the amount nor
+   * its text is persisted, so a replayed row can say the cost was stated
+   * rather than calling it unknown. `false`/absent = no stored statement.
+   */
+  shipping_known?: boolean | null;
+  /** Shipping services the source named, when any were read. */
+  shipping_methods?: string[] | null;
 }
 
 /** Competitor eBay store (C11 — up to 4, real seller usernames only). */
@@ -225,7 +234,6 @@ export interface ScrapedProduct extends MatchAvailabilityFields {
   review_count?: number | null;
   review_verified?: boolean;
   review_source?: string;
-  shipping_methods?: string[];
   standard_shipping_available?: boolean | null;
   standard_shipping_cost?: number | null;
   standard_shipping_days_min?: number | null;
@@ -397,7 +405,6 @@ export interface SupplierInfo extends Omit<
   review_count?: number | null;
   review_verified?: boolean;
   review_source?: string;
-  shipping_methods?: string[];
   standard_shipping_available?: boolean | null;
   standard_shipping_cost?: number | null;
   standard_shipping_days_min?: number | null;
@@ -1079,6 +1086,10 @@ export interface ProductDetail {
     review_count?: number | null;
     review_verified?: boolean | null;
     review_source?: string | null;
+    /** The run's record that the source stated a shipping cost. */
+    shipping_known?: boolean | null;
+    /** Shipping services the source named, when any were read. */
+    shipping_methods?: string[] | null;
     delivery_days_min?: number;
     delivery_days_max?: number;
     provenance?: string | null;

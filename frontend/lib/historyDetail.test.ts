@@ -275,6 +275,31 @@ describe("detailAsScorecard", () => {
     expect(props.suppliers[2].review_verified).toBeUndefined();
   });
 
+  it("replays the stored shipping statement with the row", () => {
+    // Neither the amount nor the raw text is stored, but the run recorded
+    // whether the source stated a cost. Without this flag the card called a
+    // stated cost "unknown" on every replayed B&Q row.
+    const props = detailAsScorecard(
+      detail({
+        suppliers: [
+          {
+            supplier_name: "B&Q",
+            supplier_price: 7.64,
+            shipping_known: true,
+            shipping_methods: ["Standard Shipping"],
+          },
+          { supplier_name: "B&Q", supplier_price: 7.64, shipping_known: null },
+        ],
+      })
+    );
+
+    expect(props.suppliers[0].shipping_known).toBe(true);
+    expect(props.suppliers[0].shipping_methods).toEqual(["Standard Shipping"]);
+    // NULL was never a statement, so it stays absent rather than becoming
+    // `false`, which would read as "the source said nothing" on replay.
+    expect(props.suppliers[1].shipping_known).toBeUndefined();
+  });
+
   it("keeps an empty stored verdict empty, not pending", () => {
     const props = detailAsScorecard(
       detail({

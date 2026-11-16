@@ -4,13 +4,6 @@ import Badge from "@/components/ui/Badge";
 import { STORED_SCORE_TITLE, storedMatchScoreLabel } from "@/lib/matchScore";
 import { MatchTier } from "@/lib/types";
 
-/**
- * Fallback copy for the availability lines. It lives here so every caller
- * renders an unknown value the same way — an unknown never becomes a claim.
- */
-export const STOCK_NOT_STATED = "Stock: not stated";
-export const SHIPPING_UNKNOWN = "Shipping: unknown";
-
 /** Tiers a badge may be drawn for. `""`/absent/unknown is NOT in this list. */
 const MATCH_TIERS = ["verified", "unverified", "no_match"] as const;
 

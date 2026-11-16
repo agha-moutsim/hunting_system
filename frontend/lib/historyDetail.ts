@@ -158,6 +158,11 @@ export function detailAsScorecard(d: ProductDetail): HistoryScorecardProps {
     review_count: s.review_count ?? undefined,
     review_verified: s.review_verified ?? undefined,
     review_source: s.review_source ?? undefined,
+    // C1 — the amount and text of a shipping cost are not stored, but the
+    // run did record whether the source stated one. Dropping that made a row
+    // whose source stated a cost replay as "Shipping: unknown".
+    shipping_known: s.shipping_known ?? undefined,
+    shipping_methods: s.shipping_methods ?? undefined,
     // C13 — replayed rows carry the same markers as live ones. `null` and
     // absent both mean "the row never stated it", so they collapse to
     // undefined here: either way SupplierCard renders no badge rather than
