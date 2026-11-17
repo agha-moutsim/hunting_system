@@ -235,10 +235,10 @@ class DeepSearchResult:
     ebay_items_sold_month: str = ""
     ebay_top_sellers: List[dict] = field(default_factory=list)
     ebay_price_range: str = ""
-    ebay_avg_price: float = 0.0
-    ebay_price_min: float = 0.0
-    ebay_price_max: float = 0.0
-    ebay_price_median: float = 0.0
+    ebay_avg_price: Optional[float] = None
+    ebay_price_min: Optional[float] = None
+    ebay_price_max: Optional[float] = None
+    ebay_price_median: Optional[float] = None
     # The observations behind the price summary - the same list that produced
     # min/max/avg/median - kept so the distribution can be PLOTTED rather than
     # asserted by three numbers. Written only from real eBay rows, never from
@@ -1505,7 +1505,7 @@ def deep_search_product(
                 f"LLM price estimate {symbol}{avg_f:.2f} discarded "
                 f"(outside {band_label(band, symbol)})"
             )
-            avg_f = 0.0
+            avg_f = None
             result.ebay_price_range = ""
         result.ebay_avg_price = avg_f
 
@@ -1963,7 +1963,7 @@ def _calculate_profit_and_verdict(
 
     # Show what data is missing
     missing = []
-    if ebay_price <= 0:
+    if not ebay_price or ebay_price <= 0:
         missing.append("eBay price (no sold data found)")
     if supplier_cost is None or supplier_cost <= 0:
         missing.append("Supplier cost (no suppliers found)")
