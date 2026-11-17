@@ -251,7 +251,7 @@ class DeepSearchResult:
     # the chart has to be able to say which one it is drawing.
     sold_prices: List[float] = field(default_factory=list)
     active_prices: List[float] = field(default_factory=list)
-    ebay_total_sold_30d: int = 0
+    ebay_total_sold_30d: Optional[int] = None
     # None = unknown (no parseable sale dates) — never an estimate (C1/C4).
     ebay_total_sold_7d: Optional[int] = None
     # C10 — set ONLY when real New-filtered eBay items backed this result.
@@ -1478,7 +1478,7 @@ def deep_search_product(
     result.product_category = parsed.get("product_category", "")
 
     # Use real eBay sold data if available, otherwise fall back to LLM estimates
-    if result.ebay_total_sold_30d == 0:
+    if result.ebay_total_sold_30d is None:
         # No real data, use LLM estimate
         result.ebay_items_sold_month = parsed.get("ebay_items_sold_month", "")
 

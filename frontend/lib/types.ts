@@ -449,7 +449,7 @@ export interface DeepSearchResult {
    *  scrape returned. Real prices, supply-side meaning: the chart names which
    *  list it drew rather than calling every bar a sale. */
   active_prices: number[];
-  ebay_total_sold_30d: number;
+  ebay_total_sold_30d?: number | null;
   ebay_total_sold_7d: number | null; // null = unknown (never estimated)
   suppliers: SupplierInfo[];
   /** null = no supplier price was read; never 0.0 standing in for absence. */
