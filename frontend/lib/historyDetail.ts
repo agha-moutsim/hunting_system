@@ -114,7 +114,7 @@ export function detailAsScorecard(d: ProductDetail): HistoryScorecardProps {
   // pound sign the API never served.
   const currency = d.product.currency || "GBP";
   const ebay: ScrapedProduct = {
-    source: MARKET_LABELS[d.product.marketplace || ""] || "eBay UK",
+    source: MARKET_LABELS[d.product.marketplace || ""] || "eBay",
     currency,
     title: d.product.title,
     price: d.product.price,
