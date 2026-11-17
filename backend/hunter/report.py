@@ -290,7 +290,10 @@ def export_report_csv(result: HunterResult) -> str:
     """Export report to CSV."""
     output = io.StringIO()
     writer = csv.writer(output)
-    symbol = result.currency_symbol or "£"
+    _SYMBOLS = {"GBP": "£", "USD": "$", "EUR": "€", "AUD": "A$", "CAD": "C$"}
+    symbol = result.currency_symbol or _SYMBOLS.get(
+        (result.currency or "").upper(), ""
+    ) or "£"
 
     # Header
     writer.writerow([

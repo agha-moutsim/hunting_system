@@ -233,7 +233,10 @@ def format_to_schema(result: Any) -> dict:
     # Preserve any exclusion notes an earlier gate layer already recorded.
     prior = getattr(result, "band_notes", None)
     band_notes: list[str] = [prior] if prior else []
-    symbol = getattr(result, "currency_symbol", "") or "£"
+    _SYMBOLS = {"GBP": "£", "USD": "$", "EUR": "€", "AUD": "A$", "CAD": "C$"}
+    symbol = getattr(result, "currency_symbol", "") or _SYMBOLS.get(
+        (getattr(result, "currency", "") or "").upper(), ""
+    ) or "£"
 
     # Calculate eBay fees
     ebay_price = result.ebay_avg_price if in_band(result.ebay_avg_price) else 0.0

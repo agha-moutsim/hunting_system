@@ -47,7 +47,10 @@ def _why_no_row(search, result) -> Optional[str]:
     if not url:
         return "the analysis named no specific listing, and a match nobody can open is not a match"
 
-    symbol = getattr(result, "currency_symbol", "") or "£"
+    _SYMBOLS = {"GBP": "£", "USD": "$", "EUR": "€", "AUD": "A$", "CAD": "C$"}
+    symbol = getattr(result, "currency_symbol", "") or _SYMBOLS.get(
+        (getattr(result, "currency", "") or "").upper(), ""
+    ) or "£"
     avg_price = result.ebay_avg_price or 0.0
     supplier_price = result.best_supplier_price or 0.0
     if avg_price <= 0:

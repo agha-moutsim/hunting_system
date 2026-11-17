@@ -35,7 +35,12 @@ def _band_gate_result(payload: dict) -> dict:
         return payload
     out = dict(payload)
     notes = []
-    symbol = out.get("currency_symbol") or "£"
+    _SYMBOLS = {"GBP": "£", "USD": "$", "EUR": "€", "AUD": "A$", "CAD": "C$"}
+    symbol = out.get("currency_symbol")
+    if not symbol:
+        symbol = _SYMBOLS.get((out.get("currency") or "").upper(), "")
+    if not symbol:
+        symbol = "£"
     active_band = band_label(currency_symbol=symbol)
 
     for key in _EXPORT_NUMERIC_PRICE_KEYS:

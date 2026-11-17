@@ -17,7 +17,10 @@ def _symbol_of(result: Any) -> str:
     Deep Search and Bulk run against AU/AUD as well as GB/GBP; a figure
     stamped £ in an AUD export is a wrong number, not a formatting quirk.
     """
-    return getattr(result, "currency_symbol", "") or "£"
+    _SYMBOLS = {"GBP": "£", "USD": "$", "EUR": "€", "AUD": "A$", "CAD": "C$"}
+    return getattr(result, "currency_symbol", "") or _SYMBOLS.get(
+        (getattr(result, "currency", "") or "").upper(), ""
+    ) or "£"
 
 
 def _money(symbol: str, value: Any) -> str:
