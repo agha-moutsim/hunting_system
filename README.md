@@ -198,7 +198,7 @@ npm run typecheck
 npm --prefix frontend run build
 ```
 
-The backend suite currently has 1,972 passing tests with 9 deselected. The frontend suite has 220 passing tests. A husky pre-commit hook runs lint, typecheck, and the full backend suite.
+The backend suite currently has 2,171 passing tests with 9 deselected. The frontend suite has 285 passing tests. A husky pre-commit hook runs lint, typecheck, and the full backend suite.
 
 ## Limitations
 
@@ -206,8 +206,8 @@ The backend suite currently has 1,972 passing tests with 9 deselected. The front
 - Supplier coverage is partial and reported honestly. Missing sources are absent, not substituted.
 - Scraping is fragile. Failures surface as `unverified` with a reason.
 - The LLM is optional. Without Ollama, analyses fall back to deterministic rules and still produce a verdict.
-- Demand figures can be `PENDING` where eBay does not publish a reliable 7-day count.
-- AU History writes are enabled only after the currency migration; stored rows default to GBP.
+- Demand figures are never fabricated. A missing sold count, profit, or margin is shown as absent (not read / not computed), never as zero. `PENDING` appears only for a genuinely running job.
+- AU History writes are enabled and stored rows carry their own currency (GBP or AUD); amounts are never converted.
 
 ## License
 
